@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 # Copyright 2021 University of Manchester
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -41,17 +43,28 @@ import cmd
 import readline
 import logging
 import tkinter as tk
-readline.set_completer_delims(' \t\n')
 
-fabulousRoot = os.getenv('FAB_ROOT')
-if fabulousRoot is None:
-    print('FAB_ROOT environment variable not set!')
-    print("Use 'export FAB_ROOT=<path to FABulous root>'")
-    sys.exit(-1)
+readline.set_completer_delims(' \t\n')
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
     format="[%(levelname)s]-%(asctime)s - %(message)s", level=logging.INFO)
+
+fabulousRoot = os.getenv('FAB_ROOT')
+if fabulousRoot is None:
+    fabulousRoot = os.path.dirname(os.path.realpath(__file__))
+    logger.warning("FAB_ROOT environment variable not set!")
+    logger.warning(f"Using {fabulousRoot} as FAB_ROOT")
+else:
+    if not os.path.exists(fabulousRoot):
+        logger.error(
+            f"FAB_ROOT environment variable set to {fabulousRoot} but the directory does not exist")
+        sys.exit()
+    else:
+        if os.path.exists(f"{fabulousRoot}/FABulous"):
+            fabulousRoot = f"{fabulousRoot}/FABulous"
+
+    logger.info(f"FAB_ROOT set to {fabulousRoot}")
 
 
 # Create a FABulous Verilog project that contains all the required files
@@ -164,8 +177,8 @@ You have started the FABulous shell with following options:
 
 Type help or ? to list commands
 To see documentation for a command type:
-    help <command> 
-or 
+    help <command>
+or
     ?<command>
 
 To execute a shell command type:
@@ -226,7 +239,8 @@ To run the complete FABulous flow with the default project, run the following co
             for fun in dir(self.__class__):
                 if fun.startswith("do_"):
                     name = fun.strip("do_")
-                    tcl.createcommand(name, wrap_with_except_handling(getattr(self, fun)))
+                    tcl.createcommand(
+                        name, wrap_with_except_handling(getattr(self, fun)))
 
         # os.chdir(args.project_dir)
         tcl.eval(script)
