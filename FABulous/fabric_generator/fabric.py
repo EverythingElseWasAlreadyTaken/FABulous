@@ -1,8 +1,7 @@
-from dataclasses import dataclass, field
-from typing import Any, Literal, List, Dict, Tuple
-import math
-from enum import Enum
 import os
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Dict, List, Tuple
 
 
 class IO(Enum):
@@ -102,9 +101,9 @@ class Port():
         Expanding the port information to individual bit signal. If indexed is in the mode, then brackets are added to the signal name.
 
         Args:
-            mode (str, optional): mode for expansion. Defaults to "SwitchMatrix". 
-                                  Possible modes are 'all', 'allIndexed', 'Top', 'TopIndexed', 'AutoTop', 
-                                  'AutoTopIndexed', 'SwitchMatrix', 'SwitchMatrixIndexed', 'AutoSwitchMatrix', 
+            mode (str, optional): mode for expansion. Defaults to "SwitchMatrix".
+                                  Possible modes are 'all', 'allIndexed', 'Top', 'TopIndexed', 'AutoTop',
+                                  'AutoTopIndexed', 'SwitchMatrix', 'SwitchMatrixIndexed', 'AutoSwitchMatrix',
                                   'AutoSwitchMatrixIndexed'
         Returns:
             Tuple[List[str], List[str]]: A tuple of two lists. The first list contains the source names of the ports and the second list contains the destination names of the ports.
@@ -197,11 +196,11 @@ class Wire():
 class Bel():
     """
     Contains all the information about a single BEL. The information is parsed from the directory of the BEL in the CSV
-    definition file. There are something to be noted. 
+    definition file. There are something to be noted.
 
-    * The parsed name will contains the prefix of the bel. 
-    * The `sharedPort` attribute is a list of Tuples with name of the port and IO information which is not expanded out yet. 
-    * If a port is marked as both shared and external, the port is considered as shared. As a result signal like UserCLK will be in shared port list, but not in external port list. 
+    * The parsed name will contains the prefix of the bel.
+    * The `sharedPort` attribute is a list of Tuples with name of the port and IO information which is not expanded out yet.
+    * If a port is marked as both shared and external, the port is considered as shared. As a result signal like UserCLK will be in shared port list, but not in external port list.
 
 
     Attributes:
@@ -256,7 +255,7 @@ class ConfigMem():
         frameIndex (int) : The index of the frame
         bitUsedInFrame (int) : The number of bits used in the frame
         usedBitMask (int) : The bit mask of the bits used in the frame
-        configBitRanges (List[int]) : A list of config bit mapping values 
+        configBitRanges (List[int]) : A list of config bit mapping values
     """
     frameName: str
     frameIndex: int
@@ -268,11 +267,12 @@ class ConfigMem():
 @dataclass
 class Tile():
     """
-    This class is for storing the information about a tile. 
+    This class is for storing the information about a tile.
 
     attributes:
         name (str) : The name of the tile
         portsInfo (List[Port]) : The list of ports of the tile
+        bels (List[Bel]) : The list of bels of the tile
         matrixDir (str) : The directory of the tile matrix
         globalConfigBits (int) : The number of config bits the tile have
         withUserCLK (bool) : Whether the tile has userCLK port. Default is False.
@@ -410,8 +410,8 @@ class SuperTile():
 @ dataclass
 class Fabric():
     """
-    This class is for storing the information and hyper parameter of the fabric. All the information is parsed from the 
-    CSV file. 
+    This class is for storing the information and hyper parameter of the fabric. All the information is parsed from the
+    CSV file.
 
     Attributes:
         tile (List[List[Tile]]) : The tile map of the fabric
@@ -421,15 +421,15 @@ class Fabric():
         configMitMode (ConfigBitMode): The configuration bit mode of the fabric. Currently support frame based or ff chain
         frameBitsPerRow (int) : The number of frame bits per row of the fabric
         maxFramesPerCol (int) : The maximum number of frames per column of the fabric
-        package (str) : The extra package used by the fabric. Only useful for VHDL output. 
-        generateDelayInSwitchMatrix (int) : The amount of delay in a switch matrix. 
+        package (str) : The extra package used by the fabric. Only useful for VHDL output.
+        generateDelayInSwitchMatrix (int) : The amount of delay in a switch matrix.
         multiplexerStyle (MultiplexerStyle) : The style of the multiplexer used in the fabric. Currently support custom or generic
         frameSelectWidth (int) : The width of the frame select signal.
         rowSelectWidth (int) : The width of the row select signal.
-        desync_flag (int): 
+        desync_flag (int):
         numberOfBRAMs (int) : The number of BRAMs in the fabric.
         superTileEnable (bool) : Whether the fabric has super tile.
-        tileDic (Dict[str, Tile]) : A dictionary of tiles used in the fabric. The key is the name of the tile and the value is the tile. 
+        tileDic (Dict[str, Tile]) : A dictionary of tiles used in the fabric. The key is the name of the tile and the value is the tile.
         superTileDic (Dict[str, SuperTile]) : A dictionary of super tiles used in the fabric. The key is the name of the super tile and the value is the super tile.
 
     """
@@ -458,7 +458,7 @@ class Fabric():
 
     def __post_init__(self) -> None:
         """
-        Generate all the wire pair in the fabric and get all the wire in the fabric. 
+        Generate all the wire pair in the fabric and get all the wire in the fabric.
         The wire pair are used during model generation when some of the signals have source or destination of "NULL".
         The wires are used during model generation to work with wire that going cross tile.
         """
@@ -571,8 +571,8 @@ class Fabric():
 
     def __repr__(self) -> str:
         fabric = ""
-        for i in range(self.numberOfColumns):
-            for j in range(self.numberOfRows):
+        for i in range(self.numberOfRows):
+            for j in range(self.numberOfColumns):
                 if self.tile[i][j] is None:
                     fabric += "Null".ljust(15)+"\t"
                 else:
