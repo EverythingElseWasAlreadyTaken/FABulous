@@ -1,15 +1,12 @@
+import csv
+import os
 import re
 from copy import deepcopy
 from typing import Dict, List, Literal, Tuple, Union, overload
-import csv
-import os
 
-from fabric_generator.fabric import Fabric, Port, Bel, Tile, SuperTile, ConfigMem
-from fabric_generator.fabric import IO, Direction, Side, MultiplexerStyle, ConfigBitMode
-
-# from fabric import Fabric, Port, Bel, Tile, SuperTile, ConfigMem
-# from fabric import IO, Direction, Side, MultiplexerStyle, ConfigBitMode
-
+from FABulous.fabric_generator.fabric import (IO, Bel, ConfigBitMode, ConfigMem,
+                                      Direction, Fabric, MultiplexerStyle,
+                                      Port, Side, SuperTile, Tile)
 
 oppositeDic = {"NORTH": "SOUTH", "SOUTH": "NORTH",
                "EAST": "WEST", "WEST": "EAST"}
@@ -310,7 +307,7 @@ def parseList(fileName: str, collect: Literal["source", "sink"]) -> Dict[str, Li
 
 def parseList(fileName: str, collect: Literal["pair", "source", "sink"] = "pair") -> Union[List[Tuple[str, str]], Dict[str, List[str]]]:
     """
-    parse a list file and expand the list file information into a list of tuples. 
+    parse a list file and expand the list file information into a list of tuples.
 
     Args:
         fileName (str): ""
@@ -413,9 +410,9 @@ def parseFileVHDL(filename: str, belPrefix: str = "") -> Tuple[List[Tuple[str, I
         ValueError: Cannot find the port section in the file which defines the bel ports.
 
     Returns:
-        Tuple[List[Tuple[str, IO]], List[Tuple[str, IO]], List[Tuple[str, IO]], List[Tuple[str, IO]], int, bool, Dict[str, int]]: 
+        Tuple[List[Tuple[str, IO]], List[Tuple[str, IO]], List[Tuple[str, IO]], List[Tuple[str, IO]], int, bool, Dict[str, int]]:
         Bel internal ports, bel external ports, bel config ports, bel shared ports, number of configuration bit in the bel,
-        whether the bel have UserCLK, and the bel config bit mapping. 
+        whether the bel have UserCLK, and the bel config bit mapping.
     """
     internal: List[Tuple[str, IO]] = []
     external: List[Tuple[str, IO]] = []
@@ -536,7 +533,7 @@ def parseFileVHDL(filename: str, belPrefix: str = "") -> Tuple[List[Tuple[str, I
 
 def parseFileVerilog(filename: str, belPrefix: str = "") -> Tuple[List[Tuple[str, IO]], List[Tuple[str, IO]], List[Tuple[str, IO]], List[Tuple[str, IO]], int, bool, Dict[str, Dict]]:
     """
-    Parse a Verilog bel file and return all the related information of the bel. The tuple returned for relating to ports 
+    Parse a Verilog bel file and return all the related information of the bel. The tuple returned for relating to ports
     will be a list of (belName, IO) pair.
 
     The function will also parse and record all the FABulous attribute which all starts with ::
@@ -551,26 +548,26 @@ def parseFileVerilog(filename: str, belPrefix: str = "") -> Tuple[List[Tuple[str
     * **GLOBAL**
     * **CONFIG_PORT**
 
-    The **BelMap** attribute will specify the bel mapping for the bel. This attribute should be placed before the start of 
+    The **BelMap** attribute will specify the bel mapping for the bel. This attribute should be placed before the start of
     the module The bel mapping is then used for generating the bitstream specification. Each of the entry in the attribute will have the following format::
 
     <name> = <value>
 
     ``<name>`` is the name of the feature and ``<value>`` will be the bit position of the feature. ie. ``INIT=0`` will specify that the feature ``INIT`` is located at bit 0.
-    Since a single feature can be mapped to multiple bits, this is currently done by specifying multiple entries for the same feature. This will be changed in the future. 
+    Since a single feature can be mapped to multiple bits, this is currently done by specifying multiple entries for the same feature. This will be changed in the future.
     The bit specification is done in the following way::
 
         INIT_a_1=1, INIT_a_2=2, ...
 
-    The name of the feature will be converted to ``INIT_a[1]``, ``INIT_a[2]`` for the above example. This is necessary 
-    because  Verilog does not allow square brackets as part of the attribute name. 
+    The name of the feature will be converted to ``INIT_a[1]``, ``INIT_a[2]`` for the above example. This is necessary
+    because  Verilog does not allow square brackets as part of the attribute name.
 
     **EXTERNAL** attribute will notify FABulous to put the pin in the top module during the fabric generation.
 
     **SHARED_PORT** attribute will notify FABulous this the pin is shared between multiple bels. Attribute need to go with
     the **EXTERNAL** attribute.
 
-    **GLOBAL** attribute will notify FABulous to stop parsing any pin after this attribute. 
+    **GLOBAL** attribute will notify FABulous to stop parsing any pin after this attribute.
 
     **CONFIG_PORT** attribute will notify FABulous the port is for configuration.
 
@@ -599,9 +596,9 @@ def parseFileVerilog(filename: str, belPrefix: str = "") -> Tuple[List[Tuple[str
         ValueError: No permission to access the file
 
     Returns:
-        Tuple[List[Tuple[str, IO]], List[Tuple[str, IO]], List[Tuple[str, IO]], List[Tuple[str, IO]], int, bool, Dict[str, Dict]]: 
+        Tuple[List[Tuple[str, IO]], List[Tuple[str, IO]], List[Tuple[str, IO]], List[Tuple[str, IO]], int, bool, Dict[str, Dict]]:
         Bel internal ports, bel external ports, bel config ports, bel shared ports, number of configuration bit in the bel,
-        whether the bel have UserCLK, and the bel config bit mapping. 
+        whether the bel have UserCLK, and the bel config bit mapping.
     """
     internal: List[Tuple[str, IO]] = []
     external: List[Tuple[str, IO]] = []

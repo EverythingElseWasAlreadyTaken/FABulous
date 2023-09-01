@@ -1,14 +1,13 @@
-import string
-from sys import prefix
-from typing import List
-from fabric_generator.fabric_gen import FabricGenerator
-from fabric_generator.utilities import *
-from fabric_generator.fabric import IO, Bel, Fabric
-import xml.etree.ElementTree as ET
-import os
-from xml.dom import minidom
-from fabric_generator.file_parser import parseMatrix, parseList
 import logging
+import string
+import xml.etree.ElementTree as ET
+from typing import List
+
+from FABulous.fabric_generator.fabric import Bel, Fabric
+from FABulous.fabric_generator.fabric_gen import FabricGenerator
+from FABulous.fabric_generator.file_parser import parseMatrix
+from FABulous.fabric_generator.utilities import *
+
 logger = logging.getLogger(__name__)
 
 
@@ -197,9 +196,9 @@ def genVPRModel(fabric: Fabric, customXMLfile: str = "") -> str:
             continue
         pbTypeWrapper = ET.SubElement(
             complexBlockList, "pb_type", name=f"{bel.name}_wrapper")
-        
+
         if bel.name in allCustomXMLBelName:
-            element = customXML.find(f".//bel_info[@name='{bel.name}']//pb_type") 
+            element = customXML.find(f".//bel_info[@name='{bel.name}']//pb_type")
             pbTypeWrapper.append(element)
         else:
             pbType = ET.SubElement(
@@ -236,7 +235,7 @@ def genVPRModel(fabric: Fabric, customXMLfile: str = "") -> str:
                             name=i.removeprefix(bel.prefix), num_pins="1")
             ET.SubElement(interConnect, "direct",
                             name=f"{bel.name}_{i.removeprefix(bel.prefix)}_child_to_top", input=f"{bel.name}.{i.removeprefix(bel.prefix)}", output=f"{bel.name}_wrapper.{i.removeprefix(bel.prefix)}")
-    
+
 
     # switch list block
     switchList = ET.SubElement(root, "switchlist")

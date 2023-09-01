@@ -1,11 +1,7 @@
-import re
-from array import *
-import fileinput
-import sys
-import getopt
-import csv
-import os
 import argparse
+import os
+import sys
+from array import *
 
 FABulous_root = os.getenv('FABulous_root')
 

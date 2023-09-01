@@ -33,15 +33,16 @@ from glob import glob
 from typing import List, Literal
 
 import docker
-import fabric_generator.code_generator as codeGen
-import fabric_generator.file_parser as fileParser
-import fabric_generator.model_generation_npnr as model_gen_npnr
-import fabric_generator.model_generation_vpr as model_gen_vpr
-from fabric_generator.code_generation_Verilog import VerilogWriter
-from fabric_generator.code_generation_VHDL import VHDLWriter
-from fabric_generator.fabric import Fabric
-from fabric_generator.fabric_gen import FabricGenerator
-from fabric_generator.utilities import GetFabric, genFabricObject
+
+from FABulous.fabric_generator import code_generator as codeGen
+from FABulous.fabric_generator import file_parser as fileParser
+from FABulous.fabric_generator import model_generation_npnr as model_gen_npnr
+from FABulous.fabric_generator import model_generation_vpr as model_gen_vpr
+from FABulous.fabric_generator.code_generation_Verilog import VerilogWriter
+from FABulous.fabric_generator.code_generation_VHDL import VHDLWriter
+from FABulous.fabric_generator.fabric import Fabric
+from FABulous.fabric_generator.fabric_gen import FabricGenerator
+from FABulous.fabric_generator.utilities import GetFabric, genFabricObject
 
 readline.set_completer_delims(' \t\n')
 

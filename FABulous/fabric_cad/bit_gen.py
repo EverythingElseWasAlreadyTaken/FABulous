@@ -1,21 +1,17 @@
-# Python 3
-from array import array
+#!/usr/bin/env python
+
+import pickle
 import re
 import sys
-from contextlib import redirect_stdout
-from io import StringIO
-import math
-import os
-import numpy
-import pickle
-import csv
-from fasm import * #Remove this line if you do not have the fasm library installed and will not be generating a bitstream
-    
+
+from fasm import *  # Remove this line if you do not have the fasm library installed and will not be generating a bitstream
+
+
 def replace(string, substitutions):
     substrings = sorted(substitutions, key=len, reverse=True)
     regex = re.compile('|'.join(map(re.escape, substrings)))
     return regex.sub(lambda match: substitutions[match.group(0)], string)
-    
+
 def bitstring_to_bytes(s):
     return int(s, 2).to_bytes((len(s) + 7) // 8, byteorder='big')
 
@@ -52,7 +48,7 @@ def genBitstream(fasmFile: str, specFile: str, bitstreamFile: str):
             featureName = ".".join((tileVals[1], tileVals[2]))
             if tileLoc not in specDict["TileMap"].keys():
                 raise Exception("Tile found in fasm file not found in bitstream spec")
-            tileType = specDict["TileMap"][tileLoc] #Set the necessary bits high 
+            tileType = specDict["TileMap"][tileLoc] #Set the necessary bits high
             if featureName in specDict["TileSpecs"][tileLoc].keys():
                 if specDict["TileSpecs"][tileLoc][featureName]:
                     for bitIndex in specDict["TileSpecs"][tileLoc][featureName]:
@@ -106,7 +102,6 @@ def genBitstream(fasmFile: str, specFile: str, bitstreamFile: str):
             tileKey = f"X{x}Y{y}"
             curStr = ",".join((tileKey, specDict["TileMap"][tileKey], str(x), str(y)))
             curStr += "\n"
-            bitPos = 0
 
             for frameIndex in range(MaxFramesPerCol):
                 #print (tileDict[tileKey]) #:FrameBitsPerRow*frameIndex
@@ -137,9 +132,9 @@ def genBitstream(fasmFile: str, specFile: str, bitstreamFile: str):
             bitStr += bitstring_to_bytes(frame_select_temp)
             bitStr += bit_array[i][j]
 
-                        
+
     #Note - format in output file is line by line:
-    #Tile Loc, Tile Type, X, Y, bits...... \n 
+    #Tile Loc, Tile Type, X, Y, bits...... \n
     #Each line is one tile
     print(outStr, file = open(bitstreamFile.replace("bin","fasm"), "w+"))
     print(verilog_str, file = open(bitstreamFile.replace("bin","vh"), "w+"))
@@ -152,7 +147,7 @@ def genBitstream(fasmFile: str, specFile: str, bitstreamFile: str):
 class Tile:
     tileType = ""
     bels = []
-    wires = [] 
+    wires = []
     atomicWires = [] #For storing single wires (to handle cascading and termination)
     pips = []
     belPorts = set()
@@ -162,7 +157,7 @@ class Tile:
 
     x = -1 #Init with negative values to ease debugging
     y = -1
-    
+
     def __init__(self, inType):
         self.tileType = inType
 
@@ -214,39 +209,41 @@ class Fabric:
                             return (tile, wire, i)
 
         return None
-    
+
 #####################################################################################
 # Main
 #####################################################################################
 
-#Strip arguments
-caseProcessedArguments = list(map(lambda x: x.strip(), sys.argv))
-processedArguments = list(map(lambda x: x.lower(), caseProcessedArguments))
-flagRE = re.compile("-\S*")
+def bit_gen():
+    #Strip arguments
+    caseProcessedArguments = list(map(lambda x: x.strip(), sys.argv))
+    processedArguments = list(map(lambda x: x.lower(), caseProcessedArguments))
+    flagRE = re.compile("-\S*")
 
-if ('-genBitstream'.lower() in str(sys.argv).lower()):
-    argIndex = processedArguments.index('-genBitstream'.lower())
-    
-    if len(processedArguments) <= argIndex + 3:
-        raise ValueError('\nError: -genBitstream expect three file names - the fasm file, the spec file and the output file')
-    elif (flagRE.match(caseProcessedArguments[argIndex + 1])
-        or flagRE.match(caseProcessedArguments[argIndex + 2]) 
-        or flagRE.match(caseProcessedArguments[argIndex + 3])):
-        raise ValueError('\nError: -genBitstream expect three file names, but found a flag in the arguments:'
-            f' {caseProcessedArguments[argIndex + 1]}, {caseProcessedArguments[argIndex + 2]}, {caseProcessedArguments[argIndex + 3]}\n')
+    if ('-genBitstream'.lower() in str(sys.argv).lower()):
+        argIndex = processedArguments.index('-genBitstream'.lower())
 
-    FasmFileName  = caseProcessedArguments[argIndex + 1]
-    SpecFileName  = caseProcessedArguments[argIndex + 2]
-    OutFileName  = caseProcessedArguments[argIndex + 3]
+        if len(processedArguments) <= argIndex + 3:
+            raise ValueError('\nError: -genBitstream expect three file names - the fasm file, the spec file and the output file')
+        elif (flagRE.match(caseProcessedArguments[argIndex + 1])
+            or flagRE.match(caseProcessedArguments[argIndex + 2])
+            or flagRE.match(caseProcessedArguments[argIndex + 3])):
+            raise ValueError('\nError: -genBitstream expect three file names, but found a flag in the arguments:'
+                f' {caseProcessedArguments[argIndex + 1]}, {caseProcessedArguments[argIndex + 2]}, {caseProcessedArguments[argIndex + 3]}\n')
 
-    genBitstream(FasmFileName, SpecFileName, OutFileName)
+        FasmFileName  = caseProcessedArguments[argIndex + 1]
+        SpecFileName  = caseProcessedArguments[argIndex + 2]
+        OutFileName  = caseProcessedArguments[argIndex + 3]
 
-
-
-if ('-help'.lower() in str(sys.argv).lower()) or ('-h' in str(sys.argv).lower()):
-    print('')   
-    print('Options/Switches')   
-    print('  -genBitstream foo.fasm spec.txt bitstream.txt - generates a bitstream - the first file is the fasm file, the second is the bitstream spec and the third is the fasm file to write to')
-    
+        genBitstream(FasmFileName, SpecFileName, OutFileName)
 
 
+
+    if ('-help'.lower() in str(sys.argv).lower()) or ('-h' in str(sys.argv).lower()):
+        print('')
+        print('Options/Switches')
+        print('  -genBitstream foo.fasm spec.txt bitstream.txt - generates a bitstream - the first file is the fasm file, the second is the bitstream spec and the third is the fasm file to write to')
+
+
+if __name__ == "__main__":
+    bit_gen()

@@ -16,24 +16,24 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-import re
+import csv
+import logging
 import math
 import os
+import re
 import string
-import csv
 from typing import Dict, List, Tuple
-import logging
-
 
 from fasm import *  # Remove this line if you do not have the fasm library installed and will not be generating a bitstream
 
-
-from fabric_generator.file_parser import parseMatrix, parseConfigMem, parseList
-from fabric_generator.fabric import IO, Direction, MultiplexerStyle, ConfigBitMode
-from fabric_generator.fabric import Fabric, Tile, Port, SuperTile, ConfigMem
-from fabric_generator.code_generation_VHDL import VHDLWriter
-from fabric_generator.code_generation_Verilog import VerilogWriter
-from fabric_generator.code_generator import codeGenerator
+from FABulous.fabric_generator.code_generation_Verilog import VerilogWriter
+from FABulous.fabric_generator.code_generation_VHDL import VHDLWriter
+from FABulous.fabric_generator.code_generator import codeGenerator
+from FABulous.fabric_generator.fabric import (IO, ConfigBitMode, ConfigMem, Direction,
+                                      Fabric, MultiplexerStyle, Port,
+                                      SuperTile, Tile)
+from FABulous.fabric_generator.file_parser import (parseConfigMem, parseList,
+                                           parseMatrix)
 
 SWITCH_MATRIX_DEBUG_SIGNAL = True
 logger = logging.getLogger(__name__)
@@ -1763,7 +1763,7 @@ class FabricGenerator:
 
         self.writer.addComment(
             "External IO port", onNewLine=True, indentLevel=2)
-        for name, group in sorted(portGroups.items(), key=lambda x:x[0]): 
+        for name, group in sorted(portGroups.items(), key=lambda x:x[0]):
             if self.fabric.numberOfBRAMs > 0 and ("RAM2FAB" in name or "FAB2RAM" in name):
                 continue
             self.writer.addPortVector(name, group[0], len(group[1])-1, indentLevel=2)
