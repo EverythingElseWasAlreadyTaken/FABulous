@@ -1,10 +1,11 @@
-from typing import List
-from fabric_generator.fabric import Port, Tile, Direction, Side, IO
-from geometry_generator.geometry_obj import Border
-from geometry_generator.bel_geometry import BelGeometry
-from geometry_generator.port_geometry import PortGeometry, PortType
-from csv import writer as csvWriter
 import logging
+from csv import writer as csvWriter
+from typing import List
+
+from FABulous.fabric_generator.fabric import IO, Direction, Port, Side, Tile
+from FABulous.geometry_generator.bel_geometry import BelGeometry
+from FABulous.geometry_generator.geometry_obj import Border
+from FABulous.geometry_generator.port_geometry import PortGeometry, PortType
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ class SmGeometry:
     southWiresReservedWidth: int
     eastWiresReservedHeight: int
     westWiresReservedHeight: int
-    southPortsTopY: int         
+    southPortsTopY: int
     westPortsRightX: int
 
     def __init__(self):
@@ -226,9 +227,9 @@ class SmGeometry:
         self.northWiresReservedWidth = sum([abs(port.yOffset) * port.wireCount for port in self.northPorts])
         self.southWiresReservedWidth = sum([abs(port.yOffset) * port.wireCount for port in self.southPorts])
         self.eastWiresReservedHeight = sum([abs(port.xOffset) * port.wireCount for port in self.eastPorts])
-        self.westWiresReservedHeight = sum([abs(port.xOffset) * port.wireCount for port in self.westPorts]) 
+        self.westWiresReservedHeight = sum([abs(port.xOffset) * port.wireCount for port in self.westPorts])
 
-        self.relX = max(self.northWiresReservedWidth, self.southWiresReservedWidth) + 2 * padding       
+        self.relX = max(self.northWiresReservedWidth, self.southWiresReservedWidth) + 2 * padding
         self.relY = padding
 
         # These gaps are for the stair-like wires,
@@ -252,7 +253,7 @@ class SmGeometry:
         belsReservedSpace = belsHeightTotal + belsPaddingTotal
 
         self.width = max(eastWires + westWires + portsGapSouth, jumpWires) + 2 * padding
-        self.height = max(southWires + northWires + portsGapWest + 2 * padding, belsReservedSpace) 
+        self.height = max(southWires + northWires + portsGapWest + 2 * padding, belsReservedSpace)
         self.generatePortsGeometry(padding)
 
         self.southPortsTopY = min([geom.relY for geom in self.portGeoms if geom.sideOfTile == Side.SOUTH] + [self.height])
@@ -297,7 +298,7 @@ class SmGeometry:
 
                 self.portGeoms.append(portGeom)
                 northPortY += 1
-            PortGeometry.nextId += 1    
+            PortGeometry.nextId += 1
 
         southPortX = 0
         southPortY = self.height - padding
@@ -320,7 +321,7 @@ class SmGeometry:
 
                 self.portGeoms.append(portGeom)
                 southPortY -= 1
-            PortGeometry.nextId += 1      
+            PortGeometry.nextId += 1
 
         eastPortX = self.width - padding
         eastPortY = self.height
@@ -334,7 +335,7 @@ class SmGeometry:
                     PortType.SWITCH_MATRIX,
                     port.inOut,
                     eastPortX, eastPortY
-                )     
+                )
                 portGeom.sideOfTile = port.sideOfTile
                 portGeom.offset = port.xOffset
                 portGeom.wireDirection = port.wireDirection
@@ -343,7 +344,7 @@ class SmGeometry:
 
                 self.portGeoms.append(portGeom)
                 eastPortX -= 1
-            PortGeometry.nextId += 1      
+            PortGeometry.nextId += 1
 
         westPortX = padding
         westPortY = self.height
@@ -402,4 +403,3 @@ class SmGeometry:
 
         for portGeom in self.portGeoms:
             portGeom.saveToCSV(writer)
-        

@@ -1,11 +1,7 @@
-import re
-from array import *
-import fileinput
-import sys
-import getopt
-import csv
-import os
 import argparse
+import os
+import sys
+from array import *
 
 FABulous_root = os.getenv('FABulous_root')
 
@@ -281,7 +277,7 @@ def main():
         RAM2FAB_D_str +=  f"    Tile_X{NumberOfCols-1}Y{count}_RAM2FAB_D3_I1 => RAM2FAB_D_Readable({i-13}),""\n"
         RAM2FAB_D_str +=  f"    Tile_X{NumberOfCols-1}Y{count}_RAM2FAB_D3_I2 => RAM2FAB_D_Readable({i-14}),""\n"
         RAM2FAB_D_str +=  f"    Tile_X{NumberOfCols-1}Y{count}_RAM2FAB_D3_I3 => RAM2FAB_D_Readable({i-15}),""\n"
-    
+
         FAB2RAM_D_str += f"    Tile_X{NumberOfCols-1}Y{count}_FAB2RAM_D0_O0 => FAB2RAM_D({i}),""\n"
         FAB2RAM_D_str += f"    Tile_X{NumberOfCols-1}Y{count}_FAB2RAM_D0_O1 => FAB2RAM_D({i-1}),""\n"
         FAB2RAM_D_str += f"    Tile_X{NumberOfCols-1}Y{count}_FAB2RAM_D0_O2 => FAB2RAM_D({i-2}),""\n"

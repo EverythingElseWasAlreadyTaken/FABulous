@@ -1,7 +1,8 @@
-from typing import List
-from fabric_generator.fabric import Direction
-from geometry_generator.geometry_obj import Location
 from csv import writer as csvWriter
+from typing import List
+
+from FABulous.fabric_generator.fabric import Direction
+from FABulous.geometry_generator.geometry_obj import Location
 
 
 class WireGeometry:
@@ -25,7 +26,7 @@ class WireGeometry:
     def addPathLoc(self, pathLoc: Location) -> None:
         self.path.append(pathLoc)
 
-    
+
     def saveToCSV(self, writer: csvWriter) -> None:
         writer.writerows([
             ["WIRE"],
@@ -48,24 +49,24 @@ class StairWires:
         name        (str)               :   Name of the structure
         refX        (int)               :   Reference point x coord of the stair structure
         refY        (int)               :   Reference point y coord of the stair structure
-        offset      (int)               :   Offset of the wires 
-        direction   (Direction)         :   Direction of the wires  
+        offset      (int)               :   Offset of the wires
+        direction   (Direction)         :   Direction of the wires
         groupWires  (int)               :   Amount of wires of a single "strand"
         tileWidth   (int)               :   Width of the tile containing the wires
         tileHeight  (int)               :   Height of the tile containing the wires
-        wireGeoms   List[WireGeometry]  :   List of the wires geometries  
+        wireGeoms   List[WireGeometry]  :   List of the wires geometries
 
     The (refX, refY) point refers to the following location(s) of the stair-like structure:
-        
-               @   @   @                  @@  @@  @@                
-               @   @   @                  @@  @@  @@                
-               @   @   @                  @@  @@  @@                
-               @   @   @                  @@  @@  @@                
-               @   @   @                  @@  @@  @@                
-               @   @   @@@@@@@@     @@@@@@@@  @@  @@                
-               @   @         @@     @         @@  @@                
-               @   @@@@@@@%  @@     @   @@@@@@@@  @@                
-               @         @%  @@     @   @@        @@                
+
+               @   @   @                  @@  @@  @@
+               @   @   @                  @@  @@  @@
+               @   @   @                  @@  @@  @@
+               @   @   @                  @@  @@  @@
+               @   @   @                  @@  @@  @@
+               @   @   @@@@@@@@     @@@@@@@@  @@  @@
+               @   @         @@     @         @@  @@
+               @   @@@@@@@%  @@     @   @@@@@@@@  @@
+               @         @%  @@     @   @@        @@
           -->  @@@@@@%@  @%  @@     @   @# #@@@@@@@@  <-- (refX, refY)
                      %@  @%  @@     @   @# #@
                      %@  @%  @@     @   @# #@
@@ -73,7 +74,7 @@ class StairWires:
                      %@  @%  @@     @   @# #@
                      %@  @@  @@     @   @# #@
 
-    Depending on the orientation of the structure. Rotate right by 90° to get 
+    Depending on the orientation of the structure. Rotate right by 90° to get
     the image for the corresponding left-right stair-ike wire structure.
     The right stair-like structure represents a north stair, the left one
     represents a south stair (These being the directions of the wires).
@@ -85,7 +86,7 @@ class StairWires:
     offset: int
     direction: Direction
     groupWires: int
-    tileWidth: int 
+    tileWidth: int
     tileHeight: int
     wireGeoms: List[WireGeometry]
 
@@ -102,7 +103,7 @@ class StairWires:
         self.wireGeoms = []
 
 
-    def generateGeometry(self, refX: int, refY: int, 
+    def generateGeometry(self, refX: int, refY: int,
                          offset: int, direction: Direction, groupWires: int,
                          tileWidth: int, tileHeight: int) -> None:
         self.refX = refX
@@ -140,7 +141,7 @@ class StairWires:
             wireGeom.addPathLoc(nextToEnd)
             wireGeom.addPathLoc(end)
             self.wireGeoms.append(wireGeom)
-            
+
             self.refX -= 1
             self.refY -= 1
 
@@ -160,7 +161,7 @@ class StairWires:
             wireGeom.addPathLoc(nextToEnd)
             wireGeom.addPathLoc(end)
             self.wireGeoms.append(wireGeom)
-            
+
             self.refX += 1
             self.refY -= 1
 

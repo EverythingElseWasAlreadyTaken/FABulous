@@ -1,6 +1,7 @@
 from csv import writer as csvWriter
-from fabric_generator.fabric import Side, IO
 from enum import Enum
+
+from FABulous.fabric_generator.fabric import IO, Side
 
 
 class PortType(Enum):
@@ -65,7 +66,7 @@ class PortGeometry:
                          destName: str,
                          type: PortType,
                          ioDirection: IO,
-                         relX: int, 
+                         relX: int,
                          relY: int) -> None:
         self.name = name
         self.sourceName = sourceName

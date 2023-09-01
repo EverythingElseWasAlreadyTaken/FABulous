@@ -1,9 +1,10 @@
-from typing import List, Dict, Set
 import logging
 from csv import writer as csvWriter
-from fabric_generator.fabric import Fabric
-from geometry_generator.geometry_obj import Location, Border
-from geometry_generator.tile_geometry import TileGeometry
+from typing import Dict, List, Set
+
+from FABulous.fabric_generator.fabric import Fabric
+from FABulous.geometry_generator.geometry_obj import Border, Location
+from FABulous.geometry_generator.tile_geometry import TileGeometry
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ class FabricGeometry:
         padding         (int)                       :   Padding used throughout the geometry, in multiples of the width between wires
         width           (int)                       :   Width of the fabric
         height          (int)                       :   Height of the fabric
-        
+
     """
     fabric: Fabric
     tileNames: Set[str]
@@ -47,14 +48,14 @@ class FabricGeometry:
     def generateGeometry(self) -> None:
         """
         Generates the geometric information from the given fabric object
-        
+
         """
 
         # here, the border attribute is set for tiles that are
-        # located at a border of the tile. This is done to 
+        # located at a border of the tile. This is done to
         # ensure no stair-like wires being generated for these tiles.
-        # The distinction left/right and top/bottom is made, to 
-        # prevent generation of horizontal and vertical stair-like 
+        # The distinction left/right and top/bottom is made, to
+        # prevent generation of horizontal and vertical stair-like
         # wires respectively.
         for i in range(self.fabric.numberOfRows):
             for j in range(self.fabric.numberOfColumns):
@@ -178,7 +179,7 @@ class FabricGeometry:
         self.width = rightMostX
         self.height = bottomMostY
 
-        # this step is for rearranging the switch matrices by setting 
+        # this step is for rearranging the switch matrices by setting
         # the relX/relY appropriately. This is done to ensure that
         # all inter-tile wires line up correctly.
         adjustedTileNames = set()
@@ -205,13 +206,13 @@ class FabricGeometry:
 
     def saveToCSV(self, fileName: str) -> None:
         """
-        Saves the generated geometric information of the 
+        Saves the generated geometric information of the
         given fabric to a .csv file that can be imported
         into the graphical frontend.
 
         Args:
             fileName (str): the name of the csv file
-            
+
         """
         logger.info(f"Generating geometry csv file for {self.fabric.name} # file name: {fileName}")
 

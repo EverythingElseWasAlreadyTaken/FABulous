@@ -1,11 +1,12 @@
-from typing import List
-from fabric_generator.fabric import Tile, Side, Direction
-from geometry_generator.geometry_obj import Border, Location
-from geometry_generator.sm_geometry import SmGeometry
-from geometry_generator.bel_geometry import BelGeometry
-from geometry_generator.wire_geometry import WireGeometry, StairWires
-from geometry_generator.port_geometry import PortGeometry
 from csv import writer as csvWriter
+from typing import List
+
+from FABulous.fabric_generator.fabric import Direction, Side, Tile
+from FABulous.geometry_generator.bel_geometry import BelGeometry
+from FABulous.geometry_generator.geometry_obj import Border, Location
+from FABulous.geometry_generator.port_geometry import PortGeometry
+from FABulous.geometry_generator.sm_geometry import SmGeometry
+from FABulous.geometry_generator.wire_geometry import StairWires, WireGeometry
 
 
 class TileGeometry:
@@ -21,7 +22,7 @@ class TileGeometry:
         belGeomList     (List[BelGeometry]) :   List of the geometries of the tiles bels
         wireGeomList    (List[WireGeometry]):   List of the geometries of the tiles wires
         stairWiresList  (List[StairWires])  :   List of the stair-like wires of the tile
-        
+
     """
     name: str
     width: int
@@ -31,7 +32,7 @@ class TileGeometry:
     belGeomList: List[BelGeometry]
     wireGeomList: List[WireGeometry]
     stairWiresList: List[StairWires]
-    
+
 
     def __init__(self):
         self.name = None
@@ -46,23 +47,23 @@ class TileGeometry:
 
     def generateGeometry(self, tile: Tile, padding: int) -> None:
         self.name = tile.name
-        
+
         for bel in tile.bels:
             belGeom = BelGeometry()
             belGeom.generateGeometry(bel, padding)
-            self.belGeomList.append(belGeom) 
-        
+            self.belGeomList.append(belGeom)
+
         self.smGeometry.generateGeometry(tile, self.border, self.belGeomList, padding)
 
         maxBelWidth = max([belGeom.width for belGeom in self.belGeomList] + [0])
-        self.width = (self.smGeometry.relX   
-                    + self.smGeometry.width 
+        self.width = (self.smGeometry.relX
+                    + self.smGeometry.width
                     + 2 * padding + maxBelWidth)
-        
-        self.height = (self.smGeometry.relY                                                      
-                     + self.smGeometry.height                                                    
-                     + max(self.smGeometry.eastWiresReservedHeight, 
-                           self.smGeometry.westWiresReservedHeight)     
+
+        self.height = (self.smGeometry.relY
+                     + self.smGeometry.height
+                     + max(self.smGeometry.eastWiresReservedHeight,
+                           self.smGeometry.westWiresReservedHeight)
                      + 2 * padding)
 
 
@@ -70,14 +71,14 @@ class TileGeometry:
                                maxHeightInRow: int,
                                maxSmWidthInColumn: int,
                                maxSmRelXInColumn: int) -> None:
-        
+
         self.width = maxWidthInColumn
         self.height = maxHeightInRow
         self.smGeometry.width = maxSmWidthInColumn      # TODO: needed?
         self.smGeometry.relX = maxSmRelXInColumn
 
         # TODO:
-        #dim.smWidth = dim.smWidth*2 if dim.smWidth*2 < maxSmWidths[j] else dim.smWidth     
+        #dim.smWidth = dim.smWidth*2 if dim.smWidth*2 < maxSmWidths[j] else dim.smWidth
 
 
     def adjustSmPos(self, lowestSmYInRow: int, padding: int) -> None:
@@ -86,26 +87,26 @@ class TileGeometry:
         the lowest Y coordinate of any switch matrix in
         the same row for reference. After this step is
         completed for all switch matrices, their southern
-        edge will be on the same Y coordinate, allowing 
+        edge will be on the same Y coordinate, allowing
         for easier inter-tile routing.
-        
+
         """
         currentSmY = self.smGeometry.relY + self.smGeometry.height
         additionalOffset = (lowestSmYInRow - currentSmY)
         self.smGeometry.relY += additionalOffset
-        
+
         self.setBelPositions(padding)
 
-        # Bel positions are set by now, so the bel ports 
+        # Bel positions are set by now, so the bel ports
         # of the switch matrix can be generated now.
         self.smGeometry.generateBelPorts(self.belGeomList)
 
-    
+
     def setBelPositions(self, padding: int) -> None:
         """
         The position of the switch matrix is final when
         this is called, thus bel positions can be set.
-        
+
         """
         belPadding = padding // 2
         belX = self.smGeometry.relX + self.smGeometry.width + padding
@@ -115,28 +116,28 @@ class TileGeometry:
             belY += belGeom.height
             belY += belPadding
 
-    
+
     def generateWires(self, padding: int) -> None:
         self.generateBelWires()
         self.generateDirectWires(padding)
 
-        # This adjustment is done to ensure that wires 
-        # in tiles with less/more direct north than 
-        # south wires (and the same with east/west) 
+        # This adjustment is done to ensure that wires
+        # in tiles with less/more direct north than
+        # south wires (and the same with east/west)
         # align, such as in some super-tiles.
-        self.northMiddleX = min(self.northMiddleX, self.southMiddleX)   
-        self.southMiddleX = min(self.northMiddleX, self.southMiddleX)   
+        self.northMiddleX = min(self.northMiddleX, self.southMiddleX)
+        self.southMiddleX = min(self.northMiddleX, self.southMiddleX)
         self.eastMiddleY = max(self.eastMiddleY, self.westMiddleY)
         self.westMiddleY = max(self.eastMiddleY, self.westMiddleY)
 
         self.generateIndirectWires(padding)
 
-    
+
     def generateBelWires(self) -> None:
         """
         Generates the wires between the switch matrix
         and its bels.
-        
+
         """
         for belGeom in self.belGeomList:
             belToSmDistanceX = belGeom.relX - (self.smGeometry.relX + self.smGeometry.width)
@@ -167,7 +168,7 @@ class TileGeometry:
         Generates wires to neigbouring tiles, which are
         straightforward to generate.
 
-        """    
+        """
         self.northMiddleX = self.smGeometry.relX - padding
         self.southMiddleX = self.smGeometry.relX - padding
         self.eastMiddleY = self.smGeometry.relY + self.smGeometry.height + padding
@@ -232,7 +233,7 @@ class TileGeometry:
 
             else:
                 raise Exception("port with offset 1 and no tile side!")
-    
+
             self.wireGeomList.append(wireGeom)
 
     currPortGroupId = 0
@@ -246,10 +247,10 @@ class TileGeometry:
         Generates wires to non-neighbouring tiles.
         These are not straightforward to generate,
         as they require a staircase-like shape.
-        
+
         """
         for portGeom in self.smGeometry.portGeoms:
-            if abs(portGeom.offset) < 2: continue  
+            if abs(portGeom.offset) < 2: continue
 
             if portGeom.sideOfTile == Side.NORTH:
                 self.indirectNorthSideWire(portGeom, padding)
@@ -271,7 +272,7 @@ class TileGeometry:
         """
         generateNorthSouthStairWire = (self.border != Border.NORTHSOUTH and self.border != Border.CORNER)
 
-        # with a new group of ports, there will be the 
+        # with a new group of ports, there will be the
         # need for a new stair-like wire for that group
         if generateNorthSouthStairWire and self.currPortGroupId != portGeom.groupId:
             self.currPortGroupId = portGeom.groupId
@@ -290,7 +291,7 @@ class TileGeometry:
             stairWiresName = f"({portGeom.sourceName} ⟶ {portGeom.destName})"
             stairWires = StairWires(stairWiresName)
             stairWires.generateGeometry(
-                self.northMiddleX - xOffset, 
+                self.northMiddleX - xOffset,
                 self.smGeometry.southPortsTopY + self.smGeometry.relY - padding,
                 portGeom.offset, portGeom.wireDirection, portGeom.groupWires,
                 self.width, self.height
@@ -304,7 +305,7 @@ class TileGeometry:
         wireName = f"{portGeom.sourceName} ⟶ {portGeom.destName}"
         wireGeom = WireGeometry(wireName)
         start = Location(
-            self.northMiddleX, 
+            self.northMiddleX,
             0
         )
         middle = Location(
@@ -319,19 +320,19 @@ class TileGeometry:
         wireGeom.addPathLoc(middle)
         wireGeom.addPathLoc(end)
         self.wireGeomList.append(wireGeom)
-        self.northMiddleX -= 1    
-    
-    
+        self.northMiddleX -= 1
+
+
     def indirectSouthSideWire(self, portGeom: PortGeometry) -> None:
         """
-        In contrast to indirectNorthSideWire(), this method 
-        generates only indirect wires on the south side of 
+        In contrast to indirectNorthSideWire(), this method
+        generates only indirect wires on the south side of
         the tile, but no stair-like wires.
 
         """
         generateNorthSouthStairWire = (self.border != Border.NORTHSOUTH and self.border != Border.CORNER)
 
-        # with a new group of ports, there will be the 
+        # with a new group of ports, there will be the
         # need for space for the generated stair-like wire
         if generateNorthSouthStairWire and self.currPortGroupId != portGeom.groupId:
             self.currPortGroupId = portGeom.groupId
@@ -344,7 +345,7 @@ class TileGeometry:
             # of the stair-like wire into account.
             if portGeom.wireDirection == Direction.NORTH:
                 self.queuedAdjustmentLeft = stairReservedWidth
-            
+
             if portGeom.wireDirection == Direction.SOUTH:
                 self.southMiddleX -= stairReservedWidth
                 self.queuedAdjustmentLeft = 0
@@ -352,7 +353,7 @@ class TileGeometry:
         wireName = f"{portGeom.sourceName} ⟶ {portGeom.destName}"
         wireGeom = WireGeometry(wireName)
         start = Location(
-            self.southMiddleX, 
+            self.southMiddleX,
             self.height
         )
         middle = Location(
@@ -378,7 +379,7 @@ class TileGeometry:
         """
         generateEastWestStairWire = (self.border != Border.EASTWEST and self.border != Border.CORNER)
 
-        # with a new group of ports, there will be the 
+        # with a new group of ports, there will be the
         # need for a new stair-like wire for that group
         if generateEastWestStairWire and self.currPortGroupId != portGeom.groupId:
             self.currPortGroupId = portGeom.groupId
@@ -397,7 +398,7 @@ class TileGeometry:
             stairWiresName = f"({portGeom.sourceName} ⟶ {portGeom.destName})"
             stairWires = StairWires(stairWiresName)
             stairWires.generateGeometry(
-                self.smGeometry.westPortsRightX + self.smGeometry.relX + padding, 
+                self.smGeometry.westPortsRightX + self.smGeometry.relX + padding,
                 self.eastMiddleY + yOffset,
                 portGeom.offset, portGeom.wireDirection, portGeom.groupWires,
                 self.width, self.height
@@ -411,7 +412,7 @@ class TileGeometry:
         wireName = f"{portGeom.sourceName} ⟶ {portGeom.destName}"
         wireGeom = WireGeometry(wireName)
         start = Location(
-            self.smGeometry.relX + portGeom.relX, 
+            self.smGeometry.relX + portGeom.relX,
             self.smGeometry.relY + portGeom.relY
         )
         middle = Location(
@@ -426,19 +427,19 @@ class TileGeometry:
         wireGeom.addPathLoc(middle)
         wireGeom.addPathLoc(end)
         self.wireGeomList.append(wireGeom)
-        self.eastMiddleY += 1            
+        self.eastMiddleY += 1
 
 
     def indirectWestSideWire(self, portGeom: PortGeometry) -> None:
         """
-        In contrast to indirectEastSideWire(), this method 
-        generates only indirect wires on the south side of 
+        In contrast to indirectEastSideWire(), this method
+        generates only indirect wires on the south side of
         the tile, but no stair-like wires.
 
         """
         generateEastWestStairWire = (self.border != Border.EASTWEST and self.border != Border.CORNER)
 
-        # with a new group of ports, there will be the 
+        # with a new group of ports, there will be the
         # need for space for the generated stair-like wire
         if generateEastWestStairWire and self.currPortGroupId != portGeom.groupId:
             self.currPortGroupId = portGeom.groupId
@@ -451,7 +452,7 @@ class TileGeometry:
             # of the stair-like wire into account.
             if portGeom.wireDirection == Direction.EAST:
                 self.queuedAdjustmentBottom = stairReservedHeight
-            
+
             if portGeom.wireDirection == Direction.WEST:
                 self.westMiddleY += stairReservedHeight
                 self.queuedAdjustmentBottom = 0
@@ -459,7 +460,7 @@ class TileGeometry:
         wireName = f"{portGeom.sourceName} ⟶ {portGeom.destName}"
         wireGeom = WireGeometry(wireName)
         start = Location(
-            0, 
+            0,
             self.westMiddleY
         )
         middle = Location(
@@ -491,7 +492,7 @@ class TileGeometry:
             belGeometry.saveToCSV(writer)
 
         for wireGeometry in self.wireGeomList:
-            wireGeometry.saveToCSV(writer) 
+            wireGeometry.saveToCSV(writer)
 
         for stairWires in self.stairWiresList:
             stairWires.saveToCSV(writer)

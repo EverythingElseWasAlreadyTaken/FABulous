@@ -1,8 +1,8 @@
+import getopt
 import re
+import sys
 from array import *
-import fileinput
-import sys, getopt
-import csv
+
 
 def split_port(p):
     # split a port according to how we want to sort ports:
@@ -51,7 +51,7 @@ def main(argv):
     NumberOfBRAMs = 4;
 
     fabric = None
-    
+
     try:
         opts, args = getopt.getopt(argv,"hr:c:b:f:d:t:",["NumberOfRows=","NumberOfCols=","FrameBitsPerRow=","MaxFramesPerCol=","desync_flag=","fabric="])
     except getopt.GetoptError:
@@ -114,14 +114,14 @@ def main(argv):
     except IOError:
         print("eFPGA_top_template.v not accessible")
         sys.exit(1)
-        
+
     try:
         with open("fabulous_top_wrapper_temp/Config_template.v", 'r') as file :
             config_str = file.read()
     except IOError:
         print("Config_template.v not accessible")
         sys.exit(1)
-        
+
     try:
         with open("fabulous_top_wrapper_temp/ConfigFSM_template.v", 'r') as file :
             configfsm_str = file.read()
@@ -148,15 +148,15 @@ def main(argv):
     config_str = config_str.replace("parameter RowSelectWidth = 5", "parameter RowSelectWidth = "+str(RowSelectWidth))
     config_str = config_str.replace("parameter FrameBitsPerRow = 32", "parameter FrameBitsPerRow = "+str(FrameBitsPerRow))
     #config_str = config_str.replace("parameter desync_flag = 20", "parameter desync_flag = "+str(desync_flag))
-    
+
     configfsm_str = configfsm_str.replace("parameter NumberOfRows = 16", "parameter NumberOfRows = "+str(NumberOfRows))
     configfsm_str = configfsm_str.replace("parameter RowSelectWidth = 5", "parameter RowSelectWidth = "+str(RowSelectWidth))
     configfsm_str = configfsm_str.replace("parameter FrameBitsPerRow = 32", "parameter FrameBitsPerRow = "+str(FrameBitsPerRow))
     configfsm_str = configfsm_str.replace("parameter desync_flag = 20", "parameter desync_flag = "+str(desync_flag))
-    
+
     for row in range(NumberOfRows):
         data_reg_module_temp =""
-        
+
         data_reg_name = 'Frame_Data_Reg_'+str(row)
         wrapper_top_str+='\t'+data_reg_name+' Inst_'+data_reg_name+' (\n'
         wrapper_top_str+='\t.FrameData_I(LocalWriteData),\n'
@@ -178,10 +178,10 @@ def main(argv):
         data_reg_modules += data_reg_module_temp+'\n\n'
         #with open("verilog_output/"+data_reg_name+".v", 'w') as file:
         #    file.write(data_reg_module_temp)
-        
+
     for col in range(NumberOfCols):
         strobe_reg_module_temp =""
-        
+
         strobe_reg_name = 'Frame_Select_'+str(col)
         wrapper_top_str+='\t'+strobe_reg_name+' Inst_'+strobe_reg_name+' (\n'
         wrapper_top_str+='\t.FrameStrobe_I(FrameAddressRegister[MaxFramesPerCol-1:0]),\n'
@@ -216,7 +216,7 @@ def main(argv):
     wrapper_top_str+='\t.FrameData(FrameData),\n'
     wrapper_top_str+='\t.FrameStrobe(FrameSelect)\n'
     wrapper_top_str+='\t);\n\n'
-    
+
     wrapper_top_str+="\tassign FrameData = {32'h12345678,FrameRegister,32'h12345678};\n\n"
     wrapper_top_str+='endmodule\n\n'
 
@@ -231,19 +231,19 @@ def main(argv):
     if strobe_reg_modules:
         with open("Frame_Select_Pack.v", 'w') as file:
             file.write(strobe_reg_modules)
-        
+
     if config_str:
         with open("Config.v", 'w') as file:
             file.write(config_str)
-        
+
     if configfsm_str:
         with open("ConfigFSM.v", 'w') as file:
             file.write(configfsm_str)
-        
+
     #if testbench_str:
     #    with open("tb_bitbang.vhd", 'w') as file:
     #        file.write(testbench_str)
-    
+
     print("Finish")
 
 if __name__ == "__main__":
