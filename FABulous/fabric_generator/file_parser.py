@@ -6,7 +6,7 @@ from typing import Dict, List, Literal, Tuple, Union, overload
 
 from FABulous.fabric_generator.fabric import (IO, Bel, ConfigBitMode, ConfigMem,
                                       Direction, Fabric, MultiplexerStyle,
-                                      Port, Side, SuperTile, Tile)
+                                      Port, Side, SuperTile, Tile, Gen_IO)
 
 oppositeDic = {"NORTH": "SOUTH", "SOUTH": "NORTH",
                "EAST": "WEST", "WEST": "EAST"}
@@ -81,6 +81,7 @@ def parseFabricCSV(fileName: str) -> Fabric:
         tileTypes.append(tileName)
         ports: List[Port] = []
         bels: List[Bel] = []
+        gen_ios : List[Gen_IO] = []
         matrixDir = ""
         withUserCLK = False
         configBit = 0
@@ -118,6 +119,8 @@ def parseFabricCSV(fileName: str) -> Fabric:
                 bels.append(Bel(belFilePath, temp[2], internal,
                             external, config, shared, configBit, belMap, userClk))
                 withUserCLK |= userClk
+            elif temp[0] == "GEN_IO":
+                gen_ios.append(Gen_IO(temp[3],int(temp[1]),IO[temp[2]]))
             elif temp[0] == "MATRIX":
                 matrixDir = os.path.join(filePath, temp[1])
                 configBit = 0
@@ -140,7 +143,6 @@ def parseFabricCSV(fileName: str) -> Fabric:
                             configBit = 0
                             print(
                                 f"Cannot find NumberOfConfigBits in {matrixDir} assume 0 config bits")
-
                 else:
                     raise ValueError(
                         'Unknown file extension for matrix')
@@ -148,7 +150,7 @@ def parseFabricCSV(fileName: str) -> Fabric:
                 raise ValueError(
                     f"Unknown tile description {temp[0]} in tile {t}")
 
-        tileDefs.append(Tile(tileName, ports, bels,
+        tileDefs.append(Tile(tileName, ports, bels, gen_ios,
                         matrixDir, withUserCLK, configBit))
 
     fabricTiles = []

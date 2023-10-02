@@ -191,6 +191,23 @@ class Wire():
             return False
         return self.source == __o.source and self.destination == __o.destination
 
+@dataclass
+class Gen_IO():
+    """
+    Contains all the information about a generated IO port (GEN_IO).
+    The information is parsed from the GEN_IO in the CSV
+    definition file. There are something to be noted.
+
+    Attributes:
+        prefix (str): The prefix of the GEN_IO given in the CSV file.
+        pins (int): Number of IOs.
+        IO (IO) : Direction of the IOs, either INPUT or OUTPUT.
+        params (Dict[str, str]): Additional parameters for GEN_IO.
+        """
+
+    prefix: str
+    pins: int
+    IO: IO
 
 @dataclass
 class Bel():
@@ -273,6 +290,7 @@ class Tile():
         name (str) : The name of the tile
         portsInfo (List[Port]) : The list of ports of the tile
         bels (List[Bel]) : The list of bels of the tile
+        gen_ios (List[Gen_IO]) : The list of GEN_IOs of the tile
         matrixDir (str) : The directory of the tile matrix
         globalConfigBits (int) : The number of config bits the tile have
         withUserCLK (bool) : Whether the tile has userCLK port. Default is False.
@@ -283,6 +301,7 @@ class Tile():
     name: str
     portsInfo: List[Port]
     bels: List[Bel]
+    gen_ios = List[Gen_IO]
     matrixDir: str
     globalConfigBits: int = 0
     withUserCLK: bool = False
@@ -290,10 +309,12 @@ class Tile():
     filePath: str = "."
     partOfSuperTile = False
 
-    def __init__(self, name: str, ports: List[Port], bels: List[Bel], matrixDir: str, userCLK: bool, configBit: int = 0) -> None:
+
+    def __init__(self, name: str, ports: List[Port], bels: List[Bel],  gen_ios: List[Gen_IO], matrixDir: str, userCLK: bool, configBit: int = 0) -> None:
         self.name = name
         self.portsInfo = ports
         self.bels = bels
+        self.gen_ios = gen_ios
         self.matrixDir = matrixDir
         self.withUserCLK = userCLK
         self.globalConfigBits = configBit
