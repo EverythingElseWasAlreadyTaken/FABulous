@@ -206,8 +206,6 @@ class FabricGenerator:
         """
         InFile = [i.strip('\n').split(',') for i in open(InFileName)]
         with open(OutFileName, "w") as f:
-            # get the number of tiles in vertical direction
-            rows = len(InFile)
             # get the number of tiles in horizontal direction
             cols = len(InFile[0])
             # top-left should be the name
@@ -631,7 +629,7 @@ class FabricGenerator:
                             portsPairs.append(
                                 (f"S{i}N", f"ConfigBits_N[{configBitstreamPosition}+{i}]"))
 
-                portsPairs.append((f"X", f"{portName}"))
+                portsPairs.append(("X", f"{portName}"))
 
                 if (self.fabric.multiplexerStyle == MultiplexerStyle.CUSTOM):
                     # we add the input signal in reversed order
@@ -684,7 +682,6 @@ class FabricGenerator:
 
         """
         allJumpWireList = []
-        numberOfSwitchMatricesWithConfigPort = 0
 
         # We first check if we need a configuration port
         # Currently we assume that each primitive needs a configuration port
@@ -952,9 +949,9 @@ class FabricGenerator:
                 added.add((port.sourceName, port.destinationName))
 
         self.writer.addInstantiation("clk_buf",
-                                     f"inst_clk_buf",
-                                     portsPairs=[("A", f"UserCLK"),
-                                                 ("X", f"UserCLKo")])
+                                     "inst_clk_buf",
+                                     portsPairs=[("A", "UserCLK"),
+                                                 ("X", "UserCLKo")])
 
         self.writer.addNewLine()
         # top configuration data daisy chaining
@@ -1202,27 +1199,27 @@ class FabricGenerator:
         if self.fabric.configBitMode == ConfigBitMode.FRAME_BASED:
             for y, row in enumerate(superTile.tileMap):
                 for x, tile in enumerate(row):
-                    if y - 1 < 0 or superTile.tileMap[y-1][x] == None:
+                    if y - 1 < 0 or superTile.tileMap[y-1][x] is None:
                         self.writer.addPortVector(
                             f"Tile_X{x}Y{y}_FrameStrobe_O", IO.OUTPUT, "MaxFramesPerCol-1", indentLevel=2)
                         self.writer.addComment("CONFIG_PORT", onNewLine=False)
-                    if x - 1 < 0 or superTile.tileMap[y][x-1] == None:
+                    if x - 1 < 0 or superTile.tileMap[y][x-1] is None:
                         self.writer.addPortVector(
                             f"Tile_X{x}Y{y}_FrameData", IO.INPUT, "FrameBitsPerRow-1", indentLevel=2)
                         self.writer.addComment("CONFIG_PORT", onNewLine=False)
-                    if y + 1 >= len(superTile.tileMap) or superTile.tileMap[y+1][x] == None:
+                    if y + 1 >= len(superTile.tileMap) or superTile.tileMap[y+1][x] is None:
                         self.writer.addPortVector(
                             f"Tile_X{x}Y{y}_FrameStrobe", IO.INPUT, "MaxFramesPerCol-1", indentLevel=2)
                         self.writer.addComment("CONFIG_PORT", onNewLine=False)
-                    if x + 1 >= len(superTile.tileMap[y]) or superTile.tileMap[y][x+1] == None:
+                    if x + 1 >= len(superTile.tileMap[y]) or superTile.tileMap[y][x+1] is None:
                         self.writer.addPortVector(
                             f"Tile_X{x}Y{y}_FrameData_O", IO.OUTPUT, "FrameBitsPerRow-1", indentLevel=2)
                         self.writer.addComment("CONFIG_PORT", onNewLine=False)
         for y, row in enumerate(superTile.tileMap):
             for x, tile in enumerate(row):
-                if y - 1 < 0 or superTile.tileMap[y-1][x] == None:
+                if y - 1 < 0 or superTile.tileMap[y-1][x] is None:
                     self.writer.addPortScalar(f"Tile_X{x}Y{y}_UserCLKo", IO.OUTPUT, indentLevel=2)
-                if y + 1 >= len(superTile.tileMap) or superTile.tileMap[y+1][x] == None:
+                if y + 1 >= len(superTile.tileMap) or superTile.tileMap[y+1][x] is None:
                     self.writer.addPortScalar(f"Tile_X{x}Y{y}_UserCLK", IO.INPUT, indentLevel=2)
         self.writer.addPortEnd()
         self.writer.addHeaderEnd(f"{superTile.name}")
@@ -1255,12 +1252,12 @@ class FabricGenerator:
         # declare internal connections for frameData, frameStrobe, and UserCLK
         for y, row in enumerate(superTile.tileMap):
             for x, tile in enumerate(row):
-                if 0 <= y - 1 < len(superTile.tileMap) and superTile.tileMap[y-1][x] != None:
+                if 0 <= y - 1 < len(superTile.tileMap) and superTile.tileMap[y-1][x] is not None:
                     self.writer.addConnectionVector(
                         f"Tile_X{x}Y{y}_FrameStrobe_O", "MaxFramesPerCol-1", indentLevel=1)
                     self.writer.addConnectionScalar(
                         f"Tile_X{x}Y{y}_userCLKo", indentLevel=1)
-                if 0 <= x - 1 < len(superTile.tileMap[y]) and superTile.tileMap[y][x-1] != None:
+                if 0 <= x - 1 < len(superTile.tileMap[y]) and superTile.tileMap[y][x-1] is not None:
                     self.writer.addConnectionVector(
                         f"Tile_X{x}Y{y}_FrameData_O", "FrameBitsPerRow-1", indentLevel=1)
 
@@ -1272,14 +1269,13 @@ class FabricGenerator:
         for y, row in enumerate(superTile.tileMap):
             for x, tile in enumerate(row):
                 northInput, southInput, eastInput, westInput = [], [], [], []
-                outputSignalList = []
                 portsPairs = []
-                if tile == None:
+                if tile is None:
                     continue
 
                 # north direction input connection
                 northPort = [i.name for i in tile.getNorthPorts(IO.INPUT)]
-                if 0 <= y + 1 < len(superTile.tileMap) and superTile.tileMap[y+1][x] != None:
+                if 0 <= y + 1 < len(superTile.tileMap) and superTile.tileMap[y+1][x] is not None:
                     for p in superTile.tileMap[y+1][x].getNorthPorts(IO.OUTPUT):
                         northInput.append(f"Tile_X{x}Y{y+1}_{p.name}")
                 else:
@@ -1289,7 +1285,7 @@ class FabricGenerator:
                 portsPairs += list(zip(northPort, northInput))
                 # east direction input connection
                 eastPort = [i.name for i in tile.getEastPorts(IO.INPUT)]
-                if 0 <= x - 1 < len(superTile.tileMap[0]) and superTile.tileMap[y][x-1] != None:
+                if 0 <= x - 1 < len(superTile.tileMap[0]) and superTile.tileMap[y][x-1] is not None:
                     for p in superTile.tileMap[y][x-1].getEastPorts(IO.OUTPUT):
                         eastInput.append(f"Tile_X{x-1}Y{y}_{p.name}")
                 else:
@@ -1301,7 +1297,7 @@ class FabricGenerator:
                 # south direction input connection
                 southPort = [i.name for i in tile.getSouthPorts(IO.INPUT)
                              if i.inOut == IO.INPUT]
-                if 0 <= y - 1 < len(superTile.tileMap) and superTile.tileMap[y-1][x] != None:
+                if 0 <= y - 1 < len(superTile.tileMap) and superTile.tileMap[y-1][x] is not None:
                     for p in superTile.tileMap[y-1][x].getSouthPorts(IO.OUTPUT):
                         southInput.append(f"Tile_X{x}Y{y-1}_{p.name}")
                 else:
@@ -1313,7 +1309,7 @@ class FabricGenerator:
                 # west direction input connection
                 westPort = [i.name for i in tile.getWestPorts(IO.INPUT)
                             if i.inOut == IO.INPUT]
-                if 0 <= x + 1 < len(superTile.tileMap[0]) and superTile.tileMap[y][x+1] != None:
+                if 0 <= x + 1 < len(superTile.tileMap[0]) and superTile.tileMap[y][x+1] is not None:
                     for p in superTile.tileMap[y][x+1].getWestPorts(IO.OUTPUT):
                         westInput.append(f"Tile_X{x+1}Y{y}_{p.name}")
                 else:
@@ -1327,7 +1323,7 @@ class FabricGenerator:
                         (p.name, f"Tile_X{x}Y{y}_{p.name}"))
 
                 # add clock to tile
-                if 0 <= y + 1 < len(superTile.tileMap) and superTile.tileMap[y+1][x] != None:
+                if 0 <= y + 1 < len(superTile.tileMap) and superTile.tileMap[y+1][x] is not None:
                     portsPairs.append(
                         ("UserCLK", f"Tile_X{x}Y{y+1}_UserCLKo"))
                 else:
@@ -1337,7 +1333,7 @@ class FabricGenerator:
                     ("UserCLKo", f"Tile_X{x}Y{y}_UserCLKo"))
                 if self.fabric.configBitMode == ConfigBitMode.FRAME_BASED:
                     # add connection for frameData, frameStrobe and UserCLK
-                    if 0 <= x - 1 < len(superTile.tileMap[0]) and superTile.tileMap[y][x-1] != None:
+                    if 0 <= x - 1 < len(superTile.tileMap[0]) and superTile.tileMap[y][x-1] is not None:
                         portsPairs.append(
                             ("FrameData", f"Tile_X{x-1}Y{y}_FrameData_O"))
                     else:
@@ -1347,7 +1343,7 @@ class FabricGenerator:
                     portsPairs.append(
                         ("FrameData_O", f"Tile_X{x}Y{y}_FrameData_O"))
 
-                    if 0 <= y + 1 < len(superTile.tileMap) and superTile.tileMap[y+1][x] != None:
+                    if 0 <= y + 1 < len(superTile.tileMap) and superTile.tileMap[y+1][x] is not None:
                         portsPairs.append(
                             ("FrameStrobe", f"Tile_X{x}Y{y+1}_FrameStrobe_O"))
                     else:
@@ -1395,7 +1391,7 @@ class FabricGenerator:
         self.writer.addPortStart(indentLevel=1)
         for y, row in enumerate(self.fabric.tile):
             for x, tile in enumerate(row):
-                if tile != None:
+                if tile is not None:
                     for bel in tile.bels:
                         for i in bel.externalInput:
                             self.writer.addPortScalar(
@@ -1459,7 +1455,7 @@ class FabricGenerator:
             tileCounter = 0
             for row in self.fabric.tile:
                 for t in row:
-                    if t != None:
+                    if t is not None:
                         tileCounter += 1
             self.writer.addConnectionVector("conf_data", tileCounter)
 
@@ -1490,7 +1486,7 @@ class FabricGenerator:
             "tile-to-tile signal declarations", onNewLine=True)
         for y, row in enumerate(self.fabric.tile):
             for x, tile in enumerate(row):
-                if tile != None:
+                if tile is not None:
                     seenPorts = set()
                     for p in tile.portsInfo:
                         wireLength = (abs(p.xOffset)+abs(p.yOffset)
@@ -1529,13 +1525,10 @@ class FabricGenerator:
         # Tile instantiations
         for y, row in enumerate(self.fabric.tile):
             for x, tile in enumerate(row):
-                tilePortList: List[str] = []
-                tilePortsInfo: List[Tuple[List[Port], int, int]] = []
-                outputSignalList = []
                 tileLocationOffset: List[Tuple[int, int]] = []
                 superTileLoc = []
                 superTile = None
-                if tile == None:
+                if tile is None:
                     continue
 
                 if (x, y) in instantiatedPosition:
@@ -1567,7 +1560,7 @@ class FabricGenerator:
                 # if is a normal tile then the offset is (0, 0)
                 for i, j in tileLocationOffset:
                     # input connection from north side of the south tile
-                    if 0 <= y + 1 < len(self.fabric.tile) and self.fabric.tile[y+j+1][x+i] != None and (x+i, y+j+1) not in superTileLoc:
+                    if 0 <= y + 1 < len(self.fabric.tile) and self.fabric.tile[y+j+1][x+i] is not None and (x+i, y+j+1) not in superTileLoc:
                         if self.fabric.tile[y+j][x+i].partOfSuperTile:
                             northPorts = [
                                 f"Tile_X{i}Y{j}_{p.name}" for p in self.fabric.tile[y+j][x+i].getNorthPorts(IO.INPUT)]
@@ -1580,7 +1573,7 @@ class FabricGenerator:
                         portsPairs += list(zip(northPorts, northInput))
 
                     # input connection from east side of the west tile
-                    if 0 <= x - 1 < len(self.fabric.tile[0]) and self.fabric.tile[y+j][x+i-1] != None and (x+i-1, y+j) not in superTileLoc:
+                    if 0 <= x - 1 < len(self.fabric.tile[0]) and self.fabric.tile[y+j][x+i-1] is not None and (x+i-1, y+j) not in superTileLoc:
                         if self.fabric.tile[y+j][x+i].partOfSuperTile:
                             eastPorts = [
                                 f"Tile_X{i}Y{j}_{p.name}" for p in self.fabric.tile[y+j][x+i].getEastPorts(IO.INPUT)]
@@ -1593,7 +1586,7 @@ class FabricGenerator:
                         portsPairs += list(zip(eastPorts, eastInput))
 
                     # input connection from south side of the north tile
-                    if 0 <= y - 1 < len(self.fabric.tile) and self.fabric.tile[y+j-1][x+i] != None and (x+i, y+j-1) not in superTileLoc:
+                    if 0 <= y - 1 < len(self.fabric.tile) and self.fabric.tile[y+j-1][x+i] is not None and (x+i, y+j-1) not in superTileLoc:
                         if self.fabric.tile[y+j][x+i].partOfSuperTile:
                             southPorts = [
                                 f"Tile_X{i}Y{j}_{p.name}" for p in self.fabric.tile[y+j][x+i].getSouthPorts(IO.INPUT)]
@@ -1606,7 +1599,7 @@ class FabricGenerator:
                         portsPairs += list(zip(southPorts, southInput))
 
                     # input connection from west side of the east tile
-                    if 0 <= x + 1 < len(self.fabric.tile[0]) and self.fabric.tile[y+j][x+i+1] != None and (x+i+1, y+j) not in superTileLoc:
+                    if 0 <= x + 1 < len(self.fabric.tile[0]) and self.fabric.tile[y+j][x+i+1] is not None and (x+i+1, y+j) not in superTileLoc:
                         if self.fabric.tile[y+j][x+i].partOfSuperTile:
                             westPorts = [
                                 f"Tile_X{i}Y{j}_{p.name}" for p in self.fabric.tile[y+j][x+i].getWestPorts(IO.INPUT)]
@@ -1655,7 +1648,7 @@ class FabricGenerator:
 
                 if not superTile:
                     # for userCLK
-                    if y + 1 < self.fabric.numberOfRows and self.fabric.tile[y+1][x] != None:
+                    if y + 1 < self.fabric.numberOfRows and self.fabric.tile[y+1][x] is not None:
                         portsPairs.append(
                             ("UserCLK", f"Tile_X{x}Y{y+1}_UserCLKo"))
                     else:
@@ -1673,11 +1666,11 @@ class FabricGenerator:
                         # UserCLK signal
                         if y + 1 >= self.fabric.numberOfRows:
                             portsPairs.append(
-                                (f"{pre}UserCLK", f"UserCLK"))
+                                (f"{pre}UserCLK", "UserCLK"))
 
-                        elif y + 1 < self.fabric.numberOfRows and self.fabric.tile[y+1][x] == None:
+                        elif y + 1 < self.fabric.numberOfRows and self.fabric.tile[y+1][x] is None:
                             portsPairs.append(
-                                (f"{pre}UserCLK", f"UserCLK"))
+                                (f"{pre}UserCLK", "UserCLK"))
 
                         elif (x+i, y+j+1) not in superTileLoc:
                             portsPairs.append(
@@ -1725,7 +1718,7 @@ class FabricGenerator:
                             portsPairs.append(
                                 (f"{pre}FrameStrobe", f"Tile_X{x}_FrameStrobe"))
 
-                        elif y + 1 < self.fabric.numberOfRows and self.fabric.tile[y+1][x] == None:
+                        elif y + 1 < self.fabric.numberOfRows and self.fabric.tile[y+1][x] is None:
                             portsPairs.append(
                                 (f"{pre}FrameStrobe", f"Tile_X{x}_FrameStrobe"))
 
@@ -1748,7 +1741,7 @@ class FabricGenerator:
                 else:
                     name = tile.name
                     if y not in (0, self.fabric.numberOfRows-1):
-                        emulateParamPairs.append((f"Emulate_Bitstream", f"`Tile_X{x}Y{y}_Emulate_Bitstream"))
+                        emulateParamPairs.append(("Emulate_Bitstream", f"`Tile_X{x}Y{y}_Emulate_Bitstream"))
 
                 self.writer.addInstantiation(compName=name,
                                              compInsName=f"Tile_X{x}Y{y}_{name}",
@@ -1793,6 +1786,7 @@ class FabricGenerator:
             if basename.endswith("_bit"):
                 # _bit is part of the indexing rather than the name
                 basename = basename[:-4]
+
             # top level IO has A and B parts combined and reverse order
             if len(basename) == 7 and basename[1:] in ("_I_top", "_O_top", "_T_top"):
                 assert basename[0] in "ABCDEFGH"
@@ -1808,7 +1802,7 @@ class FabricGenerator:
         portGroups = dict()
         for y, row in enumerate(self.fabric.tile):
             for x, tile in enumerate(row):
-                if tile != None:
+                if tile is not None:
                     for bel in tile.bels:
                         for i in bel.externalInput:
                             externalPorts.append((IO.INPUT, f"Tile_X{x}Y{y}_{i}"))
@@ -1962,7 +1956,7 @@ class FabricGenerator:
 
         # the frame data reg module
         for row in range(numberOfRows):
-            self.writer.addInstantiation(compName=f"Frame_Data_Reg",
+            self.writer.addInstantiation(compName="Frame_Data_Reg",
                                          compInsName=f"inst_Frame_Data_Reg_{row}",
                                          portsPairs=[("FrameData_I", "LocalWriteData"),
                                                      ("FrameData_O", f"FrameRegister[{row}*FrameBitsPerRow+FrameBitsPerRow-1:{row}*FrameBitsPerRow]"),
@@ -1976,7 +1970,7 @@ class FabricGenerator:
 
         # the frame select module
         for col in range(numberOfColumns):
-            self.writer.addInstantiation(compName=f"Frame_Select",
+            self.writer.addInstantiation(compName="Frame_Select",
                                          compInsName=f"inst_Frame_Select_{col}",
                                          portsPairs=[("FrameStrobe_I", "FrameAddressRegister[MaxFramesPerCol-1:0]"),
                                                      ("FrameStrobe_O", f"FrameSelect[{col}*MaxFramesPerCol+MaxFramesPerCol-1:{col}*MaxFramesPerCol]"),
@@ -2079,7 +2073,7 @@ class FabricGenerator:
         configMemList: List[ConfigMem] = []
         for y, row in enumerate(self.fabric.tile):
             for x, tile in enumerate(row):
-                if tile == None:
+                if tile is None:
                     continue
                 if os.path.exists(f"{tile.filePath}/{tile.name}_ConfigMem.csv"):
                     configMemList = parseConfigMem(

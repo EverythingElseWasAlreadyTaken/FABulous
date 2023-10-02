@@ -885,17 +885,3 @@ def parseConfigMem(fileName: str, maxFramePerCol: int, frameBitPerRow: int, glob
                                                 configBitRanges=configBitsOrder))
 
     return configMemEntry
-
-
-if __name__ == '__main__':
-    # result = parseFabricCSV('fabric.csv')
-    # result1 = parseList('RegFile_switch_matrix.list', collect="source")
-    # result = parseFileVerilog('./LUT4c_frame_config_dffesr.v')
-
-    result2 = parseFileVerilog("./test.txt")
-    # print(result[0])
-    # print(result[1])
-    # print(result[2])
-    # print(result[3])
-
-    # print(result.tileDic["W_IO"].portsInfo)
