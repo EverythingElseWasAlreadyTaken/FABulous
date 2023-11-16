@@ -120,7 +120,21 @@ def parseFabricCSV(fileName: str) -> Fabric:
                             external, config, shared, configBit, belMap, userClk))
                 withUserCLK |= userClk
             elif temp[0] == "GEN_IO":
-                gen_ios.append(Gen_IO(temp[3],int(temp[1]),IO[temp[2]]))
+                clocked = False
+                inverted = False
+                configAccess = False
+                for param in temp[4:]:
+                    if param == "CLOCKED":
+                        clocked = True
+                    elif param == "INVERTED":
+                        inverted = True
+                    elif param == "CONFIGACCESS":
+                        configAccess = True
+                        configBit = int(temp[1])
+                    else:
+                        raise ValueError(
+                            f"Unknown parameter {param} in GEN_IO")
+                gen_ios.append(Gen_IO(temp[3],int(temp[1]),IO[temp[2]], clocked, inverted, configAccess))
             elif temp[0] == "MATRIX":
                 matrixDir = os.path.join(filePath, temp[1])
                 configBit = 0

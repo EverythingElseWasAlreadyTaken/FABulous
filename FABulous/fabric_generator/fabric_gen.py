@@ -450,6 +450,8 @@ class FabricGenerator:
             for j in range(gio.pins):
                 if gio.IO == IO.OUTPUT:
                     self.writer.addPortScalar(f"{gio.prefix}{j}", IO.INPUT, indentLevel=2)
+                    # if gio.inverted:
+                    #     self.writer.addPortScalar(f"{gio.prefix}{j}_N", IO.INPUT, indentLevel=2)
 
         # jump wire input
         for i in tile.portsInfo:
@@ -1022,6 +1024,16 @@ class FabricGenerator:
             # belConfigBitsCounter += bel.configBit
             # for the next BEL (if any) for cascading configuration chain (this information is also needed for chaining the switch matrix)
             belCounter += 1
+
+        # gen_io config bit access
+        for gio in tile.gen_ios:
+            for j in range(gio.configBit):
+                if self.fabric.configBitMode == ConfigBitMode.FRAME_BASED:
+                    self.writer.addAssignScalar(f"ConfigBits[{belConfigBitsCounter - 1}]", f"{gio.prefix}{j}")
+                    belConfigBitsCounter += 1
+                elif self.fabric.configBitMode == ConfigBitMode.FLIPFLOP_CHAIN:
+                    raise ValueError("gen_io config bit access not implemented for ConfigBitMode.FLIPFLOP_CHAIN")
+
 
         # gen_io wire assignments
         for gio in tile.gen_ios:

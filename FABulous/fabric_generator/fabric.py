@@ -208,6 +208,9 @@ class Gen_IO():
     prefix: str
     pins: int
     IO: IO
+    clocked: bool = False
+    inverted: bool = False
+    configAccess: bool = False
 
 @dataclass
 class Bel():
