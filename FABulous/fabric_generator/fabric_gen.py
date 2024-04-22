@@ -29,11 +29,12 @@ from fasm import *  # Remove this line if you do not have the fasm library insta
 from FABulous.fabric_generator.code_generation_Verilog import VerilogWriter
 from FABulous.fabric_generator.code_generation_VHDL import VHDLWriter
 from FABulous.fabric_generator.code_generator import codeGenerator
-from FABulous.fabric_generator.fabric import (IO, ConfigBitMode, ConfigMem, Direction,
-                                      Fabric, MultiplexerStyle, Port,
-                                      SuperTile, Tile)
+from FABulous.fabric_generator.fabric import (IO, ConfigBitMode, ConfigMem,
+                                              Direction, Fabric,
+                                              MultiplexerStyle, Port,
+                                              SuperTile, Tile)
 from FABulous.fabric_generator.file_parser import (parseConfigMem, parseList,
-                                           parseMatrix)
+                                                   parseMatrix)
 
 SWITCH_MATRIX_DEBUG_SIGNAL = True
 logger = logging.getLogger(__name__)
@@ -102,6 +103,7 @@ class FabricGenerator:
             writer.writerow([tile.name] + destName)
             for p in sourceName:
                 writer.writerow([p] + [0] * len(destName))
+
 
     @staticmethod
     def list2CSV(InFileName: str, OutFileName: str) -> None:
@@ -388,7 +390,6 @@ class FabricGenerator:
         Raises:
             ValueError: If `matrixDir` do not contain a valid file format
         """
-
         # convert the matrix to a dictionary map and performs entry check
         connections: Dict[str, List[str]] = {}
         if tile.matrixDir.endswith(".csv"):
@@ -408,6 +409,21 @@ class FabricGenerator:
             logger.info(
                 f"A switch matrix file is provided in {tile.name}, will skip the matrix generation process")
             return
+        #  elif len(os.listdir(tile.filePath)) != 0:
+        #      # If there is a matrix dir, with a bel, but no switchmatrix in it.
+        #      logger.info(f"{tile.name} has no matrix file")
+        #      logger.info(f"bootstrapping {tile.name} to matrix list file")
+        #      # set tileDir, since it is stripted from matrixDir, but since we have no matrixFile, it is just broken
+        #      # TODO: maybe this would make sense to do somewhere else.
+        #      self.geneateSwitchmatrixList(tile)
+        #      matrixDir = tile.matrixDir.replace(".list", ".csv")
+        #      self.bootstrapSwitchMatrix(tile, matrixDir)
+        #      self.list2CSV(tile.matrixDir, matrixDir)
+        #      logger.info(f"Update matrix directory to {matrixDir} for Fabric Tile Dictionary")
+        #      tile.matrixDir = matrixDir
+        #      self.generateConfigMem(tile,f"{tile.name}_configMem.csv")
+        #      connections = parseMatrix(tile.matrixDir, tile.name)
+
         else:
             raise ValueError("Invalid matrix file format")
 
@@ -1994,6 +2010,7 @@ class FabricGenerator:
                     configMemList = parseConfigMem(
                         f"{tile.filePath}/{tile.name}_ConfigMem.csv", self.fabric.maxFramesPerCol, self.fabric.frameBitsPerRow, tile.globalConfigBits)
                 elif tile.globalConfigBits > 0:
+                    breakpoint()
                     logger.error(
                         f"No ConfigMem csv file found for {tile.name} which have config bits")
                     exit(-1)

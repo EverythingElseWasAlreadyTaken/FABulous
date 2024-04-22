@@ -1,6 +1,9 @@
 import csv
+import logging
+import math
 import os
 import re
+import shutil
 from copy import deepcopy
 from typing import Dict, List, Literal, Tuple, Union, overload
 
@@ -11,6 +14,7 @@ from FABulous.fabric_generator.fabric import (IO, Bel, ConfigBitMode, ConfigMem,
 oppositeDic = {"NORTH": "SOUTH", "SOUTH": "NORTH",
                "EAST": "WEST", "WEST": "EAST"}
 
+logger = logging.getLogger(__name__)
 
 def parseFabricCSV(fileName: str) -> Fabric:
     """
@@ -84,6 +88,7 @@ def parseFabricCSV(fileName: str) -> Fabric:
         matrixDir = ""
         withUserCLK = False
         configBit = 0
+        genMatrixList = False
         for item in t:
             temp: List[str] = item.split(",")
             if not temp or temp[0] == "":
@@ -140,13 +145,25 @@ def parseFabricCSV(fileName: str) -> Fabric:
                             configBit = 0
                             print(
                                 f"Cannot find NumberOfConfigBits in {matrixDir} assume 0 config bits")
-
+                elif temp[1] == "GENERATE":
+                    matrixDir = f"{filePath}/Tile/{tileName}/{tileName}_generated_switchmatrix.list"
+                    genMatrixList = True
+                    #  matrixDir = f"{filePath}/Tile/{tileName}"
+                    #  logger.info(f"{tile.name} has no matrix file")
+                    #  logger.info(f"bootstrapping {tile.name} to matrix list file")
+                    #  geneateSwitchmatrixList(tile)
+                    #  generateConfigMem(tile)
                 else:
                     raise ValueError(
                         'Unknown file extension for matrix')
             else:
                 raise ValueError(
                     f"Unknown tile description {temp[0]} in tile {t}")
+
+        #  TODO: move gen switchmatrix to file_parser, remove tile import and just use bels as inputs and return config bits. 
+        if genMatrixList:
+            configBit += generateSwitchmatrixList(tileName, bels, matrixDir)
+
 
         tileDefs.append(Tile(tileName, ports, bels,
                         matrixDir, withUserCLK, configBit))
@@ -883,6 +900,119 @@ def parseConfigMem(fileName: str, maxFramePerCol: int, frameBitPerRow: int, glob
                                                 configBitRanges=configBitsOrder))
 
     return configMemEntry
+
+
+def generateSwitchmatrixList(tileName: str, bels: List[Bel], outFile: str) -> int:
+    """
+    Generate a swichtmatrix listfile.
+    """
+    # TODO: fix outfile name --> should now be tile.filepath
+    filePath = os.path.dirname(outFile)
+    CLBDummyFile = f"{filePath}/../CLB_DUMMY/CLB_DUMMY_switchmatrix.list"
+
+    with open(CLBDummyFile, 'r') as f:
+        file = f.read()
+        #  file = re.sub(r"#.*", "", file)
+
+    belIn = sum(len(bel.inputs) for bel in bels)
+    belOut = sum(len(bel.outputs) for bel in bels)
+
+    if belIn > 32:
+        raise ValueError(
+            f"Tile {tileName} has {belIn} Bel inputs, switchmatrix gen can only handle 32 inputs"
+        )
+
+    if belOut > 8:
+        raise ValueError(
+            f"Tile {tileName} has {belOut} Bel outputs, switchmatrix gen can only handle 8 outputs"
+        )
+
+    ## Copied from fileparser -> parseList()
+    ## Converts listfile to portpairs
+    ## TODO cleanup
+    file = re.sub(r"#.*", "", file)
+    file = file.split("\n")
+    resultList = []
+    for i, line in enumerate(file):
+        line = line.replace(" ", "").replace("\t", "").split(",")
+        line = [i for i in line if i != ""]
+        if not line:
+            continue
+        if len(line) != 2:
+            print(line)
+            raise ValueError(
+                f"Invalid list formatting in file: {line}")
+        left, right = line[0], line[1]
+
+        leftList = []
+        rightList = []
+        _expandListPorts(left, leftList)
+        _expandListPorts(right, rightList)
+        resultList += list(zip(leftList, rightList))
+
+    # build a dict, with the old names from the list file and the replacement from the bels
+    replaceDic = {}
+    in_i = 0
+    out_i = 0
+    for bel in bels:
+        for port in bel.inputs:
+            replaceDic[f"CLB{math.floor(in_i/4)}_I{in_i%4}"] = f"{port}"
+            in_i = in_i + 1
+        for port in bel.outputs:
+            replaceDic[f"CLB{out_i%8}_O"] = f"{port}"
+            out_i = out_i + 1
+
+    # generate a list of sinks, with their connection count, if they have at least 5 connections
+    sinks_num = [sink for _, sink in resultList]
+    sinks_num = {i:sinks_num.count(i) for i in sinks_num if sinks_num.count(i) > 4}
+
+    connections = {}
+    for source, sink in resultList:
+        # replace the old names with the new ones
+        if source in replaceDic:
+            source = replaceDic[source]
+        if sink in replaceDic:
+            sink = replaceDic[sink]
+        if "CLB" in source:
+            # drop the whole multiplexer, if its not connected
+            continue
+        if "CLB" in sink:
+            # replace sink with the sink with the lowest connection count
+            sink = min(sinks_num, key=sinks_num.get)
+            sinks_num[sink] = sinks_num[sink] + 1
+
+        if source not in connections:
+            connections[source] = []
+        connections[source].append(sink)
+
+    # generate listfile strings
+    configBit = 0
+    listfile = []
+    for source, sinks in connections.items():
+        muxsize = len(sinks)
+        if muxsize%2 != 0 and muxsize > 1:
+            logger.warning(f"For source {source} mux size is {len(sinks)} with sinks: {sinks}")
+            listfile.append(f"# WARNING: Muxsize {muxsize} for source {source}")
+
+        if muxsize == 1:
+            listfile.append(f"{source},{sinks[0]}")
+        else: # generate a line for listfile
+            configBit += muxsize.bit_length()-1
+            #  listfile.append(f"# Muxsize {muxsize} for source {source}")
+            ltmp = f"[{source}"
+            rtmp = f"[{sinks[0]}"
+            for sink in sinks[1:]:
+                ltmp += f"|{source}"
+                rtmp += f"|{sink}"
+            rtmp += "]"
+            ltmp += "]"
+            listfile.append(f"{ltmp},{rtmp}")
+
+    f = open(outFile, "w")
+    f.write("\n".join(str(line) for line in listfile))
+    f.close()
+
+    return configBit
 
 
 if __name__ == '__main__':
