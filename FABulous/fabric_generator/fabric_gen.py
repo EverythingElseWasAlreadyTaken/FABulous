@@ -112,6 +112,7 @@ class FabricGenerator:
             for p in sourceName:
                 writer.writerow([p] + [0] * len(destName))
 
+
     @staticmethod
     def list2CSV(InFileName: str, OutFileName: str) -> None:
         """
@@ -426,7 +427,6 @@ class FabricGenerator:
         Raises:
             ValueError: If `matrixDir` do not contain a valid file format
         """
-
         # convert the matrix to a dictionary map and performs entry check
         connections: Dict[str, List[str]] = {}
         if tile.matrixDir.endswith(".csv"):
@@ -449,6 +449,21 @@ class FabricGenerator:
                 f"A switch matrix file is provided in {tile.name}, will skip the matrix generation process"
             )
             return
+        #  elif len(os.listdir(tile.filePath)) != 0:
+        #      # If there is a matrix dir, with a bel, but no switchmatrix in it.
+        #      logger.info(f"{tile.name} has no matrix file")
+        #      logger.info(f"bootstrapping {tile.name} to matrix list file")
+        #      # set tileDir, since it is stripted from matrixDir, but since we have no matrixFile, it is just broken
+        #      # TODO: maybe this would make sense to do somewhere else.
+        #      self.geneateSwitchmatrixList(tile)
+        #      matrixDir = tile.matrixDir.replace(".list", ".csv")
+        #      self.bootstrapSwitchMatrix(tile, matrixDir)
+        #      self.list2CSV(tile.matrixDir, matrixDir)
+        #      logger.info(f"Update matrix directory to {matrixDir} for Fabric Tile Dictionary")
+        #      tile.matrixDir = matrixDir
+        #      self.generateConfigMem(tile,f"{tile.name}_configMem.csv")
+        #      connections = parseMatrix(tile.matrixDir, tile.name)
+
         else:
             raise ValueError("Invalid matrix file format")
 
@@ -2385,6 +2400,7 @@ class FabricGenerator:
                         tile.globalConfigBits,
                     )
                 elif tile.globalConfigBits > 0:
+                    breakpoint()
                     logger.error(
                         f"No ConfigMem csv file found for {tile.name} which have config bits"
                     )
