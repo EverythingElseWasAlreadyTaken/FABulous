@@ -23,6 +23,10 @@ class Bel:
         The prefix of the BEL given in the CSV file.
     name : str
         The name of the BEL, extracted from the source directory.
+    module_name : str
+        The name of the module, described in the bel file.
+    filetype : str
+        The file type of the BEL.
     inputs : list[str]
         All the normal input ports of the BEL.
     outputs : list[str]
@@ -43,11 +47,20 @@ class Bel:
         Whether the BEL has userCLK port. Default is False.
     individually_declared : bool
         Indicates if ports are individually declared. Default is False.
+    carry : dict[str, dict[IO, str]]
+        Carry chains by name.
+        carry_name : {direction : port_name}
+    localShared: dict[str,tuple[str, IO]]
+        {RESET/ENABLE,(portname, IO)}
+        Local shared ports of the BEL.
+        Are only shared in the Tile, not in the fabric.
     """
 
     src: pathlib.Path
     prefix: str
     name: str
+    module_name: str
+    filetype: str
     inputs: list[str]
     outputs: list[str]
     externalInput: list[str]
@@ -58,11 +71,15 @@ class Bel:
     belFeatureMap: dict[str, dict] = field(default_factory=dict)
     withUserCLK: bool = False
     individually_declared: bool = False
+    carry: dict[str, dict[IO, str]] = field(default_factory=dict)
+    localShared: dict[str,tuple[str, IO]] = field(default_factory=dict)
 
     def __init__(
         self,
         src: pathlib.Path,
         prefix: str,
+        module_name: str,
+        filetype: str,
         internal,
         external,
         configPort,
@@ -71,10 +88,14 @@ class Bel:
         belMap: dict[str, dict],
         userCLK: bool,
         individually_declared: bool,
+        carry: dict[str, dict[IO, str]],
+        localShared: dict[str,tuple[str, IO]],
     ) -> None:
         self.src = src
         self.prefix = prefix
         self.name = src.stem
+        self.module_name = module_name
+        self.filetype = filetype
         self.inputs = [p for p, io in internal if io == IO.INPUT]
         self.outputs = [p for p, io in internal if io == IO.OUTPUT]
         self.externalInput = [p for p, io in external if io == IO.INPUT]
@@ -85,3 +106,5 @@ class Bel:
         self.belFeatureMap = belMap
         self.withUserCLK = userCLK
         self.individually_declared = individually_declared
+        self.carry = carry
+        self.localShared = localShared

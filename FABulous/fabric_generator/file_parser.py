@@ -1,4 +1,6 @@
 import csv
+import math
+import os
 import re
 import subprocess
 import json
@@ -21,7 +23,6 @@ from FABulous.fabric_definition.define import (
     ConfigBitMode,
     MultiplexerStyle,
 )
-
 
 oppositeDic = {"NORTH": "SOUTH", "SOUTH": "NORTH", "EAST": "WEST", "WEST": "EAST"}
 
@@ -95,7 +96,6 @@ def parseFabricCSV(fileName: str) -> Fabric:
     tileTypes = []
     tileDefs = []
     commonWirePair: list[tuple[str, str]] = []
-
     fabricTiles = []
     tileDic = {}
 
@@ -135,6 +135,15 @@ def parseFabricCSV(fileName: str) -> Fabric:
         if not i:
             continue
         if i[0].startswith("Tile"):
+            if "GENERATE" in i:
+                # import generate_custom_tile_config here to avoid circular import
+                from FABulous.fabric_generator.fabric_gen import (
+                    generate_custom_tile_config,
+                )
+
+                # we generate the tile right before we parse everything
+                i[1] = str(generate_custom_tile_config(filePath.joinpath(i[1])))
+
             new_tiles, new_commonWirePair = parseTiles(filePath.joinpath(i[1]))
             tileTypes += [new_tile.name for new_tile in new_tiles]
             tileDefs += new_tiles
@@ -476,6 +485,7 @@ def parseTiles(fileName: Path) -> tuple[list[Tile], list[tuple[str, str]]]:
 
     new_tiles = []
     commonWirePairs = []
+    proj_dir = Path(os.getenv("FAB_PROJ_DIR"))
 
     # Parse each tile config
     for t in tilesData:
@@ -486,53 +496,132 @@ def parseTiles(fileName: Path) -> tuple[list[Tile], list[tuple[str, str]]]:
         matrixDir: Path | None = None
         withUserCLK = False
         configBit = 0
+        genMatrixList = False
+        tileCarry: dict[str, dict[IO, str]] = {}
+        localSharedPorts: dict[str, list[Port]] = {}
+
         for item in t:
             temp: list[str] = item.split(",")
             if not temp or temp[0] == "":
                 continue
             if temp[0] in ["NORTH", "SOUTH", "EAST", "WEST", "JUMP"]:
                 port, commonWirePair = parsePortLine(item)
+                if "CARRY" in temp[6]:
+                    # For prefix after carry
+                    carryPrefix = re.search(r'CARRY="([^"]+)"', temp[6])
+                    if not carryPrefix:
+                        carryPrefix = "FABulous_default"
+                    else:
+                        carryPrefix = carryPrefix.group(1)
+
+                    if carryPrefix not in tileCarry:
+                        tileCarry[carryPrefix] = {}
+                        tileCarry[carryPrefix][IO.OUTPUT] = f"{temp[1]}0"
+                        tileCarry[carryPrefix][IO.INPUT] = f"{temp[4]}0"
+                    else:
+                        raise ValueError(
+                            f"There is already a carrychain with the prefix {carryPrefix}"
+                        )
+                if "SHARED_" in temp[6]:
+                    if "JUMP" not in temp[0]:
+                        logger.error("LOCAL SHARED_ Ports can only be used with JUMP ports.")
+                        raise ValueError
+                    localShared = temp[6].split("_")[1]
+                    if localShared is None or localShared == "":
+                        logger.error("SHARED_ cannot be empty.")
+                        raise ValueError
+                    if localShared not in ["RESET", "ENABLE"]:
+                        logger.error(
+                            f"LOCAL SHARED_ port {localShared} is not supported. Only SHARED_RESET and SHARED_ENABLE are supported."
+                        )
+                        raise ValueError
+                    if localShared not in localSharedPorts:
+                        localSharedPorts[localShared] = port
+                    else:
+                        logger.error(f"LOCAL SHARED_ port {localShared} already exists.")
+                        raise ValueError
+
                 ports.extend(port)
                 if commonWirePair:
                     commonWirePairs.append(commonWirePair)
+
             elif temp[0] == "BEL":
                 belFilePath = filePathParent.joinpath(temp[1])
+                if len(temp) > 2:  # bel prefix is provided
+                    bel_prefix = temp[2]
+                else:
+                    bel_prefix = ""
                 if temp[1].endswith(".vhdl"):
-                    bels.append(parseBelFile(belFilePath, temp[2], "vhdl"))
+                    bels.append(parseBelFile(belFilePath, bel_prefix, "vhdl"))
                 elif temp[1].endswith(".v") or temp[1].endswith(".sv"):
-                    bels.append(parseBelFile(belFilePath, temp[2], "verilog"))
+                    bels.append(parseBelFile(belFilePath, bel_prefix, "verilog"))
+                    if "ADD_AS_CUSTOM_PRIM" in temp[4:]:
+                        primsFile = proj_dir.joinpath("user_design/custom_prims.v")
+                        logger.info(f"Adding bels to custom prims file: {primsFile}")
+                        addBelsToPrim(primsFile, [bels[-1]])
                 else:
                     raise ValueError(
                         f"Invalid file type in {belFilePath} only .vhdl and .v are supported."
                     )
             elif temp[0] == "MATRIX":
-                matrixDir = fileName.parent.joinpath(temp[1])
                 configBit = 0
 
-                match matrixDir.suffix:
-                    case ".list":
-                        for _, v in parseList(matrixDir, "source").items():
-                            muxSize = len(v)
-                            if muxSize >= 2:
-                                configBit += muxSize.bit_length() - 1
-                    case "_matrix.csv":
-                        for _, v in parseMatrix(matrixDir, tileName).items():
-                            muxSize = len(v)
-                            if muxSize >= 2:
-                                configBit += muxSize.bit_length() - 1
-                    case ".vhdl" | ".v":
-                        with open(matrixDir, "r") as f:
-                            f = f.read()
-                            if configBit := re.search(r"NumberOfConfigBits: (\d+)", f):
-                                configBit = int(configBit.group(1))
-                            else:
-                                configBit = 0
-                                logger.warning(
-                                    f"Cannot find NumberOfConfigBits in {matrixDir} assume 0 config bits."
-                                )
-                    case _:
-                        logger.error("Unknown file extension for matrix.")
-                        raise ValueError("Unknown file extension for matrix.")
+                if "GENERATE" in temp:
+                    logger.info(f"Generating switch matrix list for tile {tileName}")
+                    genMatrixList = True
+                    if len(temp) <= 2:
+                        # only MATRIX, GENERATE in csv
+                        matrixDir = fileName.parent
+                    else:
+                        matrixDir = fileName.parent.joinpath(temp[2])
+                    if matrixDir.is_file() and matrixDir.suffix == ".list":
+                        logger.warning(
+                            f"Matrix file {matrixDir} already exists and will be overwritten."
+                        )
+                    elif matrixDir.parent == proj_dir.joinpath("Tile"):
+                        matrixDir = matrixDir.joinpath(
+                            f"{tileName}_generated_switch_matrix.list"
+                        )
+                        logger.info(f"Generating matrix file {matrixDir}")
+                    else:
+                        matrixDir = proj_dir.joinpath(
+                            f"./Tile/{tileName}/{tileName}_generated_switch_matrix.list"
+                        )
+                        logger.warning(
+                            f"No destination directory for matrix file sepicified, using default path {matrixDir}."
+                        )
+                        if not matrixDir.parent.exists():
+                            matrixDir.parent.mkdir(parents=True)
+                            logger.warning(f"Creating directory {matrixDir.parent}.")
+
+                else:
+                    matrixDir = fileName.parent.joinpath(temp[1])
+                    match matrixDir.suffix:
+                        case ".list":
+                            for _, v in parseList(matrixDir, "source").items():
+                                muxSize = len(v)
+                                if muxSize >= 2:
+                                    configBit += (muxSize - 1).bit_length()
+                        case "_matrix.csv":
+                            for _, v in parseMatrix(matrixDir, tileName).items():
+                                muxSize = len(v)
+                                if muxSize >= 2:
+                                    configBit += (muxSize - 1).bit_length()
+                        case ".vhdl" | ".v":
+                            with open(matrixDir, "r") as f:
+                                f = f.read()
+                                if configBit := re.search(
+                                    r"NumberOfConfigBits: (\d+)", f
+                                ):
+                                    configBit = int(configBit.group(1))
+                                else:
+                                    configBit = 0
+                                    logger.warning(
+                                        f"Cannot find NumberOfConfigBits in {matrixDir} assume 0 config bits."
+                                    )
+                        case _:
+                            logger.error("Unknown file extension for matrix.")
+                            raise ValueError("Unknown file extension for matrix.")
 
             elif temp[0] == "INCLUDE":
                 p = fileName.parent.joinpath(temp[1])
@@ -555,7 +644,18 @@ def parseTiles(fileName: Path) -> tuple[list[Tile], list[tuple[str, str]]]:
             else:
                 logger.error(f"Unknown tile description {temp[0]} in tile {t}.")
                 raise ValueError
+
             withUserCLK = any(bel.withUserCLK for bel in bels)
+
+            if genMatrixList:
+                generateSwitchmatrixList(
+                    tileName, bels, matrixDir, tileCarry, localSharedPorts
+                )
+                for _, v in parseList(matrixDir, "source").items():
+                    muxSize = len(v)
+                    if muxSize >= 2:
+                        configBit += (muxSize - 1).bit_length()
+
             new_tiles.append(
                 Tile(
                     name=tileName,
@@ -675,6 +775,8 @@ def parseBelFile(
     * **SHARED_PORT**
     * **GLOBAL**
     * **CONFIG_PORT**
+    * **SHARED_ENABLE**
+    * **SHARED_RESET**
 
     The **BelMap** attribute will specify the bel mapping for the bel. This attribute should be placed before the start of
     the module The bel mapping is then used for generating the bitstream specification. Each of the entry in the attribute will have the following format::
@@ -741,17 +843,27 @@ def parseBelFile(
         File not found
     ValueError
         No permission to access the file
+    ValueError
+        Bel file contains no or more than one module
     """
     internal: list[tuple[str, IO]] = []
     external: list[tuple[str, IO]] = []
     config: list[tuple[str, IO]] = []
     shared: list[tuple[str, IO]] = []
+    localSharedPorts: dict[str,tuple[str, IO]] = {}
+    belMapDic = {}
+    carry: dict[str, dict[IO, str]] = {}
+    carryPrefix: str = ""
     isExternal = False
     isConfig = False
     isShared = False
     userClk = False
     individually_declared = False
     noConfigBits = 0
+    module_name = ""
+
+    if filetype not in ["verilog", "vhdl"]:
+        raise ValueError(f"Invalid filetype {filetype} for bel file {filename}")
 
     try:
         with open(filename, "r") as f:
@@ -764,6 +876,9 @@ def parseBelFile(
         exit(-1)
 
     if filetype == "vhdl":
+        module_name = (
+            filename.stem
+        )  # FIXME: Temporary, till we have GHDL-Yosys integration
         belMapDic = vhdl_belMapProcessing(file, filename)
         if result := re.search(r"NoConfigBits.*?=.*?(\d+)", file, re.IGNORECASE):
             noConfigBits = int(result.group(1))
@@ -826,6 +941,24 @@ def parseBelFile(
                     isConfig = True
                 if "SHARED_PORT" in line:
                     isShared = True
+                if "CARRY" in line:
+                    # For prefix after carry
+                    carryPrefix = re.search(r'CARRY="([^"]+)"', line)
+                    if not carryPrefix:
+                        carryPrefix = "FABulous_default"
+                    else:
+                        carryPrefix = carryPrefix.group(1)
+                if "SHARED_ENABLE" in line or "SHARED_RESET" in line:
+                    if direction is not IO["INPUT"]:
+                        logger.error(
+                            "SHARED_ENABLE or SHARED_RESET can only be used with INPUT ports."
+                        )
+                        raise ValueError
+                    if "SHARED_ENABLE" in line:
+                        localSharedPorts["ENABLE"] = (portName, direction)
+                    elif "SHARED_RESET" in line:
+                        localSharedPorts["RESET"] = (portName, direction)
+
                 if "GLOBAL" in line:
                     break
 
@@ -849,9 +982,25 @@ def parseBelFile(
             if "UserCLK" in portName:
                 userClk = True
 
+            if carryPrefix:
+                if direction is IO["INOUT"]:
+                    raise ValueError(
+                        f"CARRY can't be used with INOUT ports for port {portName}!"
+                    )
+                if carryPrefix not in carry:
+                    carry[carryPrefix] = {}
+                if direction not in carry[carryPrefix]:
+                    carry[carryPrefix][direction] = portName
+                else:
+                    raise ValueError(
+                        f"Port {portName} with prefix {carryPrefix} can't be a carry {direction}, \
+                        since port {carry[carryPrefix][direction]} already is!"
+                    )
+
             isExternal = False
             isConfig = False
             isShared = False
+            carryPrefix = ""
 
     if filetype == "verilog":
         # Runs yosys on verilog file, creates netlist, saves to json in same directory.
@@ -871,7 +1020,14 @@ def parseBelFile(
             data_dict = json.load(f)
 
         modules = data_dict.get("modules", {})
-        filtered_ports: dict[str, tuple[IO, list]] = {}
+        if len(modules) == 0:
+            logger.error(f"File {filename} does not contain any modules.")
+            raise ValueError
+        elif len(modules) > 1:
+            logger.error(f"File {filename} contains more than one module.")
+            raise ValueError
+
+        filtered_ports: dict[str, IO] = {}
         # Gathers port name and direction, filters out configbits as they show in ports.
         for module_name, module_info in modules.items():
             ports = module_info["ports"]
@@ -894,7 +1050,6 @@ def parseBelFile(
         # Passed attributes dont show in port list, checks for attributes in netnames.
         # (If passed attributes missing, may need to expand to check other lists e.g "memories".)
         netnames = module_info.get("netnames", {})
-
         for portName, (direction, bits) in filtered_ports.items():
             netDetails = netnames.get(portName, {})
             attributes = netDetails.get("attributes", {})
@@ -911,6 +1066,39 @@ def parseBelFile(
                 else:
                     internal.append((f"{belPrefix}{new_port_name}", direction))
 
+                if "SHARED_ENABLE" in attributes or "SHARED_RESET" in attributes:
+                    if direction is not IO["INPUT"]:
+                        logger.error(
+                            "SHARED_ENABLE or SHARED_RESET can only be used with INPUT ports."
+                        )
+                        raise ValueError
+                    if "SHARED_ENABLE" in attributes:
+                        localSharedPorts["ENABLE"] = (f"{belPrefix}{new_port_name}", direction)
+                    elif "SHARED_RESET" in attributes:
+                        localSharedPorts["RESET"] = (f"{belPrefix}{new_port_name}", direction)
+
+                if "CARRY" in attributes:
+                    # For prefix after carry
+                    carryPrefix = attributes.get("CARRY")
+                    if carryPrefix == 1:
+                        # Default carry prefix, yosys uses 1 if no value is specified
+                        carryPrefix = "FABulous_default"
+                    if direction is IO["INOUT"]:
+                        raise ValueError(
+                            f"CARRY can't be used with INOUT ports for port {new_port_name}!"
+                        )
+                    if carryPrefix not in carry:
+                        carry[carryPrefix] = {}
+                    if direction not in carry[carryPrefix]:
+                        carry[carryPrefix][
+                            direction
+                        ] = f"{belPrefix}{new_port_name}"
+                    else:
+                        raise ValueError(
+                            f"Port {portName} with prefix {carryPrefix} can't be a carry {direction}, \
+                            since port {carry[carryPrefix][direction]} already is!"
+                        )
+
         belMapDic = verilog_belMapProcessing(module_info)
         if len(belMapDic) != noConfigBits:
             raise ValueError(
@@ -924,7 +1112,9 @@ def parseBelFile(
         logger.warning("Ports will not be concatenated during fabric generation.")
     return Bel(
         src=filename,
+        filetype=filetype,
         prefix=belPrefix,
+        module_name=module_name,
         internal=internal,
         external=external,
         configPort=config,
@@ -933,6 +1123,8 @@ def parseBelFile(
         belMap=belMapDic,
         userCLK=userClk,
         individually_declared=individually_declared,
+        carry=carry,
+        localShared=localSharedPorts,
     )
 
 
@@ -1073,7 +1265,7 @@ def vhdl_belMapProcessing(file: str, filename: str) -> dict:
                     length = end - start + 1
                     for i in range(0, 2**length):
                         belMapDic[bel[0]][i] = {}
-                        bitMap = list(f"{2**length-i-1:0{length.bit_length()}b}")
+                        bitMap = list(f"{2**length - i - 1:0{length.bit_length()}b}")
                         for v in range(len(bitMap) - 1, -1, -1):
                             belMapDic[bel[0]][i][v] = bitMap.pop(0)
             else:
@@ -1211,3 +1403,378 @@ def parseConfigMem(
                 )
 
     return configMemEntry
+
+
+def generateSwitchmatrixList(
+    tileName: str,
+    bels: list[Bel],
+    outFile: Path,
+    carryportsTile: dict[str, dict[IO, str]],
+    localSharedPortsTile: dict[str, list[Port]],
+):
+    """Generate a switchmatrix list file for a given tile ans its bels. This list File
+    is based on a dummy list file from CLB_DUMMY and is based on the LUT4AB switchtmatix
+    list file. It is also possible to automatically generate connections for carry
+    chains between the bels.
+
+    Parameters
+    ----------
+         tileName :str
+             Name of the tile
+         bels : list[Bel]
+             List of bels in the tile
+         outFile : Path
+             Path to the switchmatrix list file output
+         carryportsTile : dict[str, dict[IO, str]]
+             Dictionary of carry ports for the tile
+         localSharedPortsTile : dicst[str, list[Port]]
+            list of local shared ports for the tile, based on JUMP wire definitions
+
+    Raises
+    ------
+         ValueError
+             Bels have more than 32 Bel inputs.
+         ValueError
+             Bels have more than 8 Bel outputs.
+         ValueError
+             Invalid list formatting in file.
+         ValueError
+             Number of carry ins and carry outs do not match.
+    """
+    projdir = Path(os.getenv("FAB_PROJ_DIR"))
+    fab_root = Path(os.getenv("FAB_ROOT"))
+    CLBDummyFile = (
+        fab_root / "fabric_files" / "dummy_files" / "DUMMY_switch_matrix.list"
+    )
+
+    belIns = sum((bel.inputs for bel in bels), [])
+    belOuts = sum((bel.outputs for bel in bels), [])
+    belCarrys = [bel.carry for bel in bels]
+    portPairs = parseList(CLBDummyFile)
+    belLocalSharedPorts = [bel.localShared for bel in bels]
+
+    # build carryports datastructure and
+    # remove carrys from bel ports for further processing
+    carryports: dict[str, dict[IO, list[str]]] = {}
+    for carrys in belCarrys:
+        for prefix in carrys:
+            if prefix not in carryports:
+                carryports[prefix] = {}
+                carryports[prefix][IO.INPUT] = []
+                carryports[prefix][IO.OUTPUT] = []
+            carryports[prefix][IO.INPUT].append(carrys[prefix][IO.INPUT])
+            belIns.remove(carrys[prefix][IO.INPUT])
+            carryports[prefix][IO.OUTPUT].append(carrys[prefix][IO.OUTPUT])
+            belOuts.remove(carrys[prefix][IO.OUTPUT])
+
+    # Remove local shared ports from bel ports for further processing
+    for bel in belLocalSharedPorts:
+        for type in bel:
+            if bel[type][0] in belIns:
+                belIns.remove(bel[type][0])
+            if bel[type][0] in belOuts:
+                belOuts.remove(bel[type][0])
+
+    if len(belIns) > 32:
+        raise ValueError(
+            f"Tile {tileName} has {len(belIns)} Bel inputs, switchmatrix gen can only handle 32 inputs"
+        )
+
+    if len(belOuts) > 8:
+        raise ValueError(
+            f"Tile {tileName} has {len(belOuts)} Bel outputs, switchmatrix gen can only handle 8 outputs"
+        )
+
+    # build a dict, with the old names from the list file and the replacement from the bels
+    replaceDic = {}
+    for i, port in enumerate(belIns):
+        replaceDic[f"CLB{math.floor(i / 4)}_I{i % 4}"] = f"{port}"
+    for i, port in enumerate(belOuts):
+        replaceDic[f"CLB{i % 8}_O"] = f"{port}"
+
+    # generate a list of sinks, with their connection count, if they have at least 5 connections
+    sinks_num = [sink for _, sink in portPairs]
+    sinks_num = {i: sinks_num.count(i) for i in sinks_num if sinks_num.count(i) > 4}
+
+    connections = {}
+    for source, sink in portPairs:
+        # replace the old names with the new ones
+        if source in replaceDic:
+            source = replaceDic[source]
+        if sink in replaceDic:
+            sink = replaceDic[sink]
+        if "CLB" in source:
+            # drop the whole multiplexer, if its not connected
+            continue
+
+        if source not in connections:
+            connections[source] = []
+        connections[source].append(sink)
+
+    for source in connections:
+        # copy the dict, since we need only want to update the connection count, if we found a sink
+        for i, sink in enumerate(connections[source]):
+            if "CLB" in sink:
+                sinks_num_run = sinks_num.copy()
+                # replace sink with the sink with the lowest connection count and check if it's already connected
+                while True:
+                    sink = min(sinks_num_run, key=sinks_num_run.get)
+                    sinks_num_run[sink] = sinks_num_run[sink] + 1
+                    if sink not in connections[source]:
+                        # update the real connection count, if we found a sink
+                        sinks_num[sink] = sinks_num[sink] + 1
+                        break
+                # update dict
+                connections[source][i] = sink
+
+
+    # generate listfile strings
+    listfile = []
+    listfile.append("# --------------WARNING-----------------")
+    listfile.append("# This is a generated list file!")
+    listfile.append("# Your changes will be overwritten!")
+    listfile.append("# If you want to keep your changes,")
+    listfile.append("# please make a copy of this file and edit your tile csv.")
+    listfile.append("# --------------WARNING-----------------")
+
+    for source, sinks in connections.items():
+        muxsize = len(sinks)
+        if muxsize % 2 != 0 and muxsize > 1:
+            logger.warning(
+                f"For source {source} mux size is {len(sinks)} with sinks: {sinks}"
+            )
+            listfile.append(f"# WARNING: Muxsize {muxsize} for source {source}")
+
+        if muxsize == 1:
+            listfile.append(f"{source},{sinks[0]}")
+        else:  # generate a line for listfile
+            rtmp = f"[{sinks[0]}"
+            for sink in sinks[1:]:
+                rtmp += f"|{sink}"
+            rtmp += "]"
+            ltmp = f"{{{len(sinks)}}}{source}"
+            listfile.append(f"{ltmp},{rtmp}")
+
+    if carryports and carryportsTile:
+        for prefix in carryportsTile:
+            # append Tile carry in to beginning of output list,
+            # since it should be connected to the first bel carry input
+            carryports[prefix][IO.OUTPUT].insert(0, carryportsTile[prefix][IO.INPUT])
+            # append Tile carry out to the end of output list,
+            # since it should be connected to the last bel carry out
+            carryports[prefix][IO.INPUT].append(carryportsTile[prefix][IO.OUTPUT])
+
+            if len(carryports[prefix][IO.INPUT]) is not len(
+                carryports[prefix][IO.OUTPUT]
+            ):
+                logger.error(
+                    f"Carryports mismatch! There are {len(carryports[prefix][IO.INPUT])} INPUTS and {len(carryports[prefix][IO.OUTPUT])} outputs!"
+                )
+                raise ValueError()
+
+            listfile.append(f"# Connect carry chain {prefix}")
+            for cin, cout in zip(
+                carryports[prefix][IO.INPUT], carryports[prefix][IO.OUTPUT]
+            ):
+                listfile.append(f"{cin},{cout}")
+
+    #connecting SHARED_ENABLE and SHARED_RESET
+    if "RESET" in localSharedPortsTile:
+        sharedResetTile = localSharedPortsTile["RESET"]
+        listfile.append("# Connect shared reset")
+        # values taken from LUT4AB switchmatrix list, added VDD and GND0
+        listfile.append(f"{{8}}{sharedResetTile[0].name}0,[J2MID_ABb_END0|J2MID_CDb_END0|J2MID_EFb_END0|J2MID_GHa_END0|JN2END1|JE2END1|JS2END1|JW2END1]")
+        for belport in belLocalSharedPorts:
+            if bel_reset:= belport["RESET"]:
+                listfile.append(f"{{2}}{bel_reset[0]},[{sharedResetTile[1].name}0|GND0]")
+    if "ENABLE" in localSharedPortsTile:
+        sharedResetTile = localSharedPortsTile["ENABLE"]
+        listfile.append("# Connect shared enable")
+        # values taken from LUT4AB switchmatrix list, added VDD and GND0
+        listfile.append(f"{{8}}{sharedResetTile[0].name}0,[J2MID_ABb_END3|J2MID_CDb_END3|J2MID_EFb_END3|J2MID_GHa_END3|JN2END2|JE2END2|JS2END2|JW2END2]")
+        for belport in belLocalSharedPorts:
+            if bel_enable:= belport["ENABLE"]:
+                listfile.append(f"{{2}}{bel_enable[0]},[{sharedResetTile[1].name}0|VCC0]")
+
+
+    f = open(outFile, "w")
+    f.write("\n".join(str(line) for line in listfile))
+    f.close()
+
+    primsFile = projdir.joinpath("user_design/custom_prims.v")
+    if not primsFile.is_file():
+        logger.info(f"Creating prims file {primsFile}")
+        primsFile.touch()
+
+    addBelsToPrim(primsFile, bels)
+
+
+def addBelsToPrim(
+    primsFile: Path,
+    bels: list[Bel],
+    support_vectors: bool = False,
+) -> None:
+    """Adds a list of Bels as blackbox primitives to yosys prims file.
+
+    Parameters
+    ----------
+        primsFile : str
+            Path to yosys prims file
+        bels : list[Bel]
+            List of bels to add
+        support_vectors : bool
+            Boolean to support vectors for ports in the prims file
+            Default False, since the FABulous nextpn integration does not support vectors
+    Raises
+    ------
+        FileNotFoundError :
+            Prims file is not found
+    """
+    prims: str = ""  # prims.v
+    primsAdd: list[str] = []  # append to prims.v
+
+    if primsFile.is_file():
+        with open(primsFile, "r") as f:
+            prims = f.read()
+    else:
+        logger.error(f"Prims file {primsFile} not found.")
+        raise FileNotFoundError(f"Prims file {primsFile} not found.")
+
+    # remove all duplicate bels in list.
+    bels = list({bel.src: bel for bel in bels}.values())
+    logger.info(
+        f"Adding bels {', '.join(bel.name for bel in bels)} to yosys primitives file {primsFile}."
+    )
+
+    for bel in bels:
+        if bel.filetype != "verilog":
+            logger.warning(
+                f"Bel {bel.src} is not a Verilog file, a generalized verilog description will be added to {primsFile}.",
+                "This is experimental and may not work as expected!",
+            )
+
+        # check if belis already in prims file or already added to primsAdd
+        if bel.module_name not in prims and bel.module_name not in " ".join(primsAdd):
+            primsAdd.append(
+                f"\n//Warning: The primitive {bel.module_name} was added by FABulous automatically."
+            )
+            primsAdd.append("(* blackbox, keep *)")
+
+            # build module sting for prim file
+            modline = f"module {bel.module_name} (\n"
+
+            #check if its first port, to not set a comma before
+            first = True
+
+            shared_ports = [p for p, _ in bel.sharedPort]
+
+            # external ports contain the bel prefix, but this is not needed in the prims file
+            external_inputs: list[str] = []
+            external_outputs: list[str] = []
+            for external_port in bel.externalInput:
+                external_inputs.append(external_port.removeprefix(bel.prefix))
+            for external_port in bel.externalOutput:
+                external_outputs.append(external_port.removeprefix(bel.prefix))
+            external_ports = external_inputs + external_outputs
+
+            if support_vectors:
+                # Find all ports with their directions
+                #need to parse the json file again, since port width is not known in BEL object
+                with open(bel.src.with_suffix(".json"), "r") as f:
+                    bel_dict = json.load(f)
+                module_ports = bel_dict["modules"][bel.module_name]["ports"]
+
+                # UserCLK needs to be renamed, otherwise yosys can't map the CLK
+                if module_ports["UserCLK"]:
+                    module_ports["CLK"] = module_ports["UserCLK"]
+                    del module_ports["UserCLK"]
+                # ConfigBits are not needed in the prims file
+                if "ConfigBits" in module_ports.keys():
+                    del module_ports["ConfigBits"]
+
+                ports_dict = {}
+                for port_name, details in module_ports.items():
+                    if not details["direction"] in ports_dict:
+                        ports_dict[details["direction"]] = []
+                    if len(details["bits"]) > 1:
+                        ports_dict[details["direction"]].append(
+                            f"[{len(details['bits']) - 1}:0] {port_name}"
+                        )
+                    else:
+                        ports_dict[details["direction"]].append(port_name)
+
+                #build portlist
+                for direction, ports in ports_dict.items():
+                    if not first:
+                        modline += ",\n"
+                    else:
+                        first = False
+                    for port in ports:
+                        if port in external_ports:
+                            # add pad attribute to external ports
+                            modline += "    (* iopad_external_pin *)\n"
+                        if port in shared_ports:
+                            # Rename UserCLK to CLK
+                            # Otherwise Yosys can't map the CLK
+                            if port == "UserCLK":
+                                port = "CLK"
+                        modline += f"    {direction} {port}"
+            else:  # No vector support
+                ports =  bel.inputs + bel.outputs + external_ports + shared_ports
+
+                for port in ports:
+                    if not first:
+                        modline += ",\n"
+                    else:
+                        first = False
+                    if port in bel.inputs:
+                        modline += f"    input {port}"
+                    if port in bel.outputs:
+                        modline += f"    output {port}"
+                    if port in external_ports:
+                        modline += "    (* iopad_external_pin *)\n"
+                        if port in external_inputs:
+                            modline += f"    input {port}"
+                        else:
+                            modline += f"    output {port}"
+
+                    if port in shared_ports:
+                        direction = dict(bel.sharedPort)[port]
+                        if port == "UserCLK":
+                            # Rename UserCLK to CLK
+                            # Otherwise Yosys can't map the CLK
+                            port = "CLK"
+                        modline += f"    {str(direction.value).lower()} {port}"
+
+            modline += "\n);"
+
+            belparams: dict[str, int] = {}
+            for parameter in bel.belFeatureMap:
+                parameter = parameter.split("[")[0]
+                if parameter not in belparams:
+                    belparams[parameter] = 0
+                else:
+                    belparams[parameter] += 1
+            for param in belparams:
+                if belparams[param] > 1:
+                    modline += f"\n    parameter [{belparams[param]}:0] {param} = 0;"
+                else:
+                    modline += f"\n    parameter {param} = 0;"
+
+            modline += "\nendmodule\n"
+            primsAdd.append(modline)
+
+            logger.info(
+                f"{bel.module_name} added to yosys primitives file {primsFile}."
+            )
+        elif bel.module_name in prims:
+            logger.info(
+                f"{bel.module_name} already in yosys primitives file {primsFile}."
+            )
+        else:
+            # Module already in list
+            continue
+
+    # write to prims file, line by line
+    with open(primsFile, "a") as f:
+        f.write("\n".join(str(i) for i in primsAdd))
