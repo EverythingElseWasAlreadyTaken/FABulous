@@ -16,30 +16,31 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from contextlib import redirect_stdout
-from fabric_generator.utilities import genFabricObject, GetFabric
-import fabric_generator.model_generation_npnr as model_gen_npnr
-from fabric_generator.code_generation_VHDL import VHDLWriter
-from fabric_generator.code_generation_Verilog import VerilogWriter
-from FABulous_API import FABulous
-import csv
-from glob import glob
-import os
 import argparse
-import pickle
-import re
-import sys
-import subprocess as sp
-import shutil
-from typing import List, Literal
-import docker
 import cmd
-import readline
+import csv
 import logging
-import tkinter as tk
-from pathlib import PurePosixPath, PureWindowsPath
+import os
+import pickle
 import platform
+import re
+import readline
+import shutil
+import subprocess as sp
+import sys
+import tkinter as tk
 import traceback
+from contextlib import redirect_stdout
+from glob import glob
+from pathlib import PurePosixPath, PureWindowsPath
+from typing import List, Literal
+
+import docker
+import FABulous.fabric_generator.model_generation_npnr as model_gen_npnr
+from FABulous.fabric_generator.code_generation_Verilog import VerilogWriter
+from FABulous.fabric_generator.code_generation_VHDL import VHDLWriter
+from FABulous.fabric_generator.utilities import GetFabric, genFabricObject
+from FABulous.FABulous_API import FABulous
 
 readline.set_completer_delims(" \t\n")
 histfile = ""
@@ -62,7 +63,8 @@ if fabulousRoot is None:
 else:
     if not os.path.exists(fabulousRoot):
         logger.error(
-            f"FAB_ROOT environment variable set to {fabulousRoot} but the directory does not exist")
+            f"FAB_ROOT environment variable set to {fabulousRoot} but the directory does not exist"
+        )
         sys.exit()
     else:
         if os.path.exists(f"{fabulousRoot}/FABulous"):
@@ -244,7 +246,8 @@ To run the complete FABulous flow with the default project, run the following co
                 if fun.startswith("do_"):
                     name = fun.strip("do_")
                     tcl.createcommand(
-                        name, wrap_with_except_handling(getattr(self, fun)))
+                        name, wrap_with_except_handling(getattr(self, fun))
+                    )
 
         # os.chdir(args.project_dir)
         tcl.eval(script)
