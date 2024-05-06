@@ -120,21 +120,31 @@ def parseFabricCSV(fileName: str) -> Fabric:
                             external, config, shared, configBit, belMap, userClk))
                 withUserCLK |= userClk
             elif temp[0] == "GEN_IO":
-                clocked = False
-                inverted = False
+                configBit = 0
                 configAccess = False
+                triStateControl = False
+                # Additional params can be added
                 for param in temp[4:]:
-                    if param == "CLOCKED":
-                        clocked = True
-                    elif param == "INVERTED":
-                        inverted = True
-                    elif param == "CONFIGACCESS":
+                    param = param.strip()
+                    param = param.upper()
+
+                    if param == "CONFIGACCESS":
+                        if temp[2] != "OUTPUT":
+                            raise ValueError(
+                                "CONFIGACCESS can only be used with OUTPUT")
                         configAccess = True
                         configBit = int(temp[1])
+                    elif param == "TRISTATECONTROL":
+                        if temp[2] != "INPUT":
+                            raise ValueError(
+                                "TRISTATECONTROL can only be used with INPUT")
+                        triStateControl = True
+                    elif param is None or param == "":
+                        continue
                     else:
                         raise ValueError(
                             f"Unknown parameter {param} in GEN_IO")
-                gen_ios.append(Gen_IO(temp[3],int(temp[1]),IO[temp[2]], clocked, inverted, configAccess))
+                gen_ios.append(Gen_IO(temp[3],int(temp[1]),IO[temp[2]],configBit, configAccess, triStateControl))
             elif temp[0] == "MATRIX":
                 matrixDir = os.path.join(filePath, temp[1])
                 configBit = 0
@@ -899,3 +909,11 @@ def parseConfigMem(fileName: str, maxFramePerCol: int, frameBitPerRow: int, glob
                                                 configBitRanges=configBitsOrder))
 
     return configMemEntry
+
+
+def main():
+    FA = parseFabricCSV('/home/jart/work/uni/FABulous/demo/fabric.csv')
+
+
+if __name__ == "__main__":
+    main()
