@@ -2010,7 +2010,7 @@ class FabricGenerator:
                     configMemList = parseConfigMem(
                         f"{tile.filePath}/{tile.name}_ConfigMem.csv", self.fabric.maxFramesPerCol, self.fabric.frameBitsPerRow, tile.globalConfigBits)
                 elif tile.globalConfigBits > 0:
-                    breakpoint()
+                    #  breakpoint()
                     logger.error(
                         f"No ConfigMem csv file found for {tile.name} which have config bits")
                     exit(-1)

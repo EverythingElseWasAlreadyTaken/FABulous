@@ -85,6 +85,7 @@ def parseFabricCSV(fileName: str) -> Fabric:
         tileTypes.append(tileName)
         ports: List[Port] = []
         bels: List[Bel] = []
+        tileCarry: Dict[IO, str] = {}
         matrixDir = ""
         withUserCLK = False
         configBit = 0
@@ -99,9 +100,20 @@ def parseFabricCSV(fileName: str) -> Fabric:
 
                 ports.append(Port(Direction[temp[0]], temp[1], int(
                     temp[2]), int(temp[3]), temp[4], int(temp[5]), temp[4], IO.INPUT, Side[oppositeDic[temp[0]].upper()]))
-                # wireCount = (abs(int(temp[2])) +
-                #              abs(int(temp[3])))*int(temp[5])
-                # for i in range(wireCount):
+
+                if temp[6] == "CARRY":
+                    if not tileCarry:
+                        #TODO add a counter for wirecount
+                        #  tileCarry[IO.OUTPUT] = f"{temp[1]}{temp[5]}"
+                        #  tileCarry[IO.INPUT] = f"{temp[4]}{temp[5]}"
+                        tileCarry[IO.OUTPUT] = f"{temp[1]}0"
+                        tileCarry[IO.INPUT] = f"{temp[4]}0"
+                    else:
+                        raise ValueError(f"You can only define one carrychain per Tile! \
+                        {temp[1]}/{temp[4]} can't be added as carryOut/carryIn, \
+                        since there are already {tileCarry[IO.INPUT]}/{tileCarry[IO.OUTPUT]}. \
+                        Please check your fabric.csv!")
+
                 commonWirePair.append(
                     (f"{temp[1]}", f"{temp[4]}"))
 
@@ -119,9 +131,9 @@ def parseFabricCSV(fileName: str) -> Fabric:
                 else:
                     raise ValueError(
                         "Invalid file type, only .vhdl and .v are supported")
-                internal, external, config, shared, configBit, userClk, belMap = result
+                internal, external, config, shared, configBit, userClk, belMap, belCarry = result
                 bels.append(Bel(belFilePath, temp[2], internal,
-                            external, config, shared, configBit, belMap, userClk))
+                            external, config, shared, configBit, belMap, userClk, belCarry))
                 withUserCLK |= userClk
             elif temp[0] == "MATRIX":
                 matrixDir = os.path.join(filePath, temp[1])
@@ -160,10 +172,8 @@ def parseFabricCSV(fileName: str) -> Fabric:
                 raise ValueError(
                     f"Unknown tile description {temp[0]} in tile {t}")
 
-        #  TODO: move gen switchmatrix to file_parser, remove tile import and just use bels as inputs and return config bits. 
         if genMatrixList:
-            configBit += generateSwitchmatrixList(tileName, bels, matrixDir)
-
+            configBit += generateSwitchmatrixList(tileName, bels, matrixDir, tileCarry)
 
         tileDefs.append(Tile(tileName, ports, bels,
                         matrixDir, withUserCLK, configBit))
@@ -191,9 +201,9 @@ def parseFabricCSV(fileName: str) -> Fabric:
                     result = parseFileVHDL(belFilePath, line[2])
                 else:
                     result = parseFileVerilog(belFilePath, line[2])
-                internal, external, config, shared, configBit, userClk, belMap = result
+                internal, external, config, shared, configBit, userClk, belMap, belCarry = result
                 bels.append(Bel(belFilePath, line[2], internal,
-                            external, config, shared, configBit, belMap, userClk))
+                            external, config, shared, configBit, belMap, userClk, belCarry))
                 withUserCLK |= userClk
                 continue
 
@@ -434,10 +444,12 @@ def parseFileVHDL(filename: str, belPrefix: str = "") -> Tuple[List[Tuple[str, I
     external: List[Tuple[str, IO]] = []
     config: List[Tuple[str, IO]] = []
     shared: List[Tuple[str, IO]] = []
+    carry: List[Tuple[str, IO]] = []
     isExternal = False
     isConfig = False
     isShared = False
     userClk = False
+    isCarry = False
 
     try:
         with open(filename, "r") as f:
@@ -481,6 +493,8 @@ def parseFileVHDL(filename: str, belPrefix: str = "") -> Tuple[List[Tuple[str, I
             isConfig = True
         if "SHARED_PORT" in line:
             isShared = True
+        if "CARRY" in line:
+            isCarry = True
 
         line = re.sub(r"STD_LOGIC.*", "", line, flags=re.IGNORECASE)
         line = re.sub(r";.*", "", line, flags=re.IGNORECASE)
@@ -490,38 +504,28 @@ def parseFileVHDL(filename: str, belPrefix: str = "") -> Tuple[List[Tuple[str, I
         if not result:
             continue
         portName = f"{belPrefix}{result.group(1)}"
+        direction = IO[result.group(2).upper()]
 
         if isExternal and not isShared:
-            if result.group(2).lower() == "in":
-                external.append((portName, IO.INPUT))
-            elif result.group(2).lower() == "out":
-                external.append((portName, IO.OUTPUT))
+            external.append((portName, direction))
         elif isConfig:
-            if result.group(2).lower() == "in":
-                config.append((portName, IO.INPUT))
-            elif result.group(2).lower() == "out":
-                config.append((portName, IO.OUTPUT))
+            config.append((portName, direction))
         elif isShared:
             # shared port do not have a prefix
-            if result.group(2).lower() == "in":
-                shared.append((result.group(1), IO.INOUT))
-            elif result.group(2).lower() == "out":
-                shared.append((result.group(1), IO.OUTPUT))
-            elif result.group(2).lower() == "inout":
-                shared.append((result.group(1), IO.INOUT))
-            else:
-                raise ValueError(
-                    f"Invalid port type {result.group(2)} in file {filename}")
+            shared.append((portName.removeprefix(belPrefix),direction))
         else:
-            if result.group(2).lower() == "in":
-                internal.append((portName, IO.INPUT))
-            elif result.group(2).lower() == "out":
-                internal.append((portName, IO.OUTPUT))
-            elif result.group(2).lower() == "inout":
-                internal.append((portName, IO.INOUT))
-            else:
-                raise ValueError(
-                    f"Invalid port type {result.group(2)} in file {filename}")
+            internal.append((portName, direction))
+
+            if isCarry:
+                if direction is IO["INOUT"]:
+                    raise ValueError(
+                        f"CARRY can't be used with INOUT ports for port {portName}!")
+                if not direction in carry:
+                    carry[direction] = portName
+                else:
+                    raise ValueError(
+                        f"{portName} can't be a carry {direction}, \
+                        since {carry[direction]} already is!")
 
         if "UserCLK" in portName:
             userClk = True
@@ -529,6 +533,7 @@ def parseFileVHDL(filename: str, belPrefix: str = "") -> Tuple[List[Tuple[str, I
         isExternal = False
         isConfig = False
         isShared = False
+        isCarry = False
 
     result = re.search(
         r"NoConfigBits\s*:\s*integer\s*:=\s*(\w+)", file, re.IGNORECASE | re.DOTALL)
@@ -544,7 +549,7 @@ def parseFileVHDL(filename: str, belPrefix: str = "") -> Tuple[List[Tuple[str, I
         print("Assume the number of configBits is 0")
         noConfigBits = 0
 
-    return internal, external, config, shared, noConfigBits, userClk, belMapDic
+    return internal, external, config, shared, noConfigBits, userClk, belMapDic, carry
 
 
 def parseFileVerilog(filename: str, belPrefix: str = "") -> Tuple[List[Tuple[str, IO]], List[Tuple[str, IO]], List[Tuple[str, IO]], List[Tuple[str, IO]], int, bool, Dict[str, Dict]]:
@@ -620,9 +625,11 @@ def parseFileVerilog(filename: str, belPrefix: str = "") -> Tuple[List[Tuple[str
     external: List[Tuple[str, IO]] = []
     config: List[Tuple[str, IO]] = []
     shared: List[Tuple[str, IO]] = []
+    carry: Dict[IO, str] = {}
     isExternal = False
     isConfig = False
     isShared = False
+    isCarry = False
     userClk = False
     noConfigBits = 0
 
@@ -657,27 +664,38 @@ def parseFileVerilog(filename: str, belPrefix: str = "") -> Tuple[List[Tuple[str
             if attribute := re.search(r"\(\*FABulous,(.*)\*\)", cleanedLine):
                 if "EXTERNAL" in attribute.group(1):
                     isExternal = True
-
                 if "CONFIG" in attribute.group(1):
                     isConfig = True
-
                 if "SHARED_PORT" in attribute.group(1):
                     isShared = True
-
                 if "GLOBAL" in attribute.group(1):
                     break
+                if "CARRY" in attribute.group(1):
+                    isCarry = True
 
             portName = f"{belPrefix}{result.group(2)}"
+            direction = IO[result.group(1).upper()]
 
             if isExternal and not isShared:
-                external.append((portName, IO[result.group(1).upper()]))
+                external.append((portName, direction))
             elif isConfig:
-                config.append((portName, IO[result.group(1).upper()]))
+                config.append((portName, direction))
             elif isShared:
                 # shared port do not have a prefix
-                shared.append((result.group(2), IO[result.group(1).upper()]))
+                shared.append((portName.removeprefix(belPrefix), direction))
             else:
-                internal.append((portName, IO[result.group(1).upper()]))
+                internal.append((portName, direction))
+
+            if isCarry:
+                if direction is IO["INOUT"]:
+                    raise ValueError(
+                        f"CARRY can't be used with INOUT ports for port {portName}!")
+                if not direction in carry:
+                    carry[direction] = portName
+                else:
+                    raise ValueError(
+                        f"{portName} can't be a carry {direction}, \
+                        since {carry[direction]} already is!")
 
             if "UserCLK" in portName:
                 userClk = True
@@ -685,8 +703,9 @@ def parseFileVerilog(filename: str, belPrefix: str = "") -> Tuple[List[Tuple[str
             isExternal = False
             isConfig = False
             isShared = False
+            isCarry = False
 
-    return internal, external, config, shared, noConfigBits, userClk, belMapDic
+    return internal, external, config, shared, noConfigBits, userClk, belMapDic, carry
 
 
 def _belMapProcessing(file: str, filename: str, syntax: Literal["vhdl", "verilog"]) -> Dict:
@@ -902,7 +921,7 @@ def parseConfigMem(fileName: str, maxFramePerCol: int, frameBitPerRow: int, glob
     return configMemEntry
 
 
-def generateSwitchmatrixList(tileName: str, bels: List[Bel], outFile: str) -> int:
+def generateSwitchmatrixList(tileName: str, bels: List[Bel], outFile: str, carryportsTile: Dict[IO, str]) -> int:
     """
     Generate a swichtmatrix listfile.
     """
@@ -914,17 +933,35 @@ def generateSwitchmatrixList(tileName: str, bels: List[Bel], outFile: str) -> in
         file = f.read()
         #  file = re.sub(r"#.*", "", file)
 
-    belIn = sum(len(bel.inputs) for bel in bels)
-    belOut = sum(len(bel.outputs) for bel in bels)
+    #TODO remove carry ports from bel.ports
+    belIns = []
+    belOuts = []
+    belCarrys = []
 
-    if belIn > 32:
+    belIns = sum((bel.inputs for bel in bels), [])
+    belOuts = sum((bel.outputs for bel in bels), [])
+    belCarrys += (bel.carry for bel in bels)
+
+    carryports: Dict[IO, List[str]] = {}
+    carryports[IO.INPUT] = []
+    carryports[IO.OUTPUT] = []
+
+    for carry in belCarrys:
+        print(carry[IO.INPUT])
+        carryports[IO.INPUT].append(carry[IO.INPUT])
+        belIns.remove(carry[IO.INPUT])
+        print(carry[IO.OUTPUT])
+        carryports[IO.OUTPUT].append(carry[IO.OUTPUT])
+        belOuts.remove(carry[IO.OUTPUT])
+
+    if len(belIns) > 32:
         raise ValueError(
-            f"Tile {tileName} has {belIn} Bel inputs, switchmatrix gen can only handle 32 inputs"
+            f"Tile {tileName} has {len(belIns)} Bel inputs, switchmatrix gen can only handle 32 inputs"
         )
 
-    if belOut > 8:
+    if len(belOuts) > 8:
         raise ValueError(
-            f"Tile {tileName} has {belOut} Bel outputs, switchmatrix gen can only handle 8 outputs"
+            f"Tile {tileName} has {len(belOuts)} Bel outputs, switchmatrix gen can only handle 8 outputs"
         )
 
     ## Copied from fileparser -> parseList()
@@ -952,15 +989,10 @@ def generateSwitchmatrixList(tileName: str, bels: List[Bel], outFile: str) -> in
 
     # build a dict, with the old names from the list file and the replacement from the bels
     replaceDic = {}
-    in_i = 0
-    out_i = 0
-    for bel in bels:
-        for port in bel.inputs:
-            replaceDic[f"CLB{math.floor(in_i/4)}_I{in_i%4}"] = f"{port}"
-            in_i = in_i + 1
-        for port in bel.outputs:
-            replaceDic[f"CLB{out_i%8}_O"] = f"{port}"
-            out_i = out_i + 1
+    for i, port in enumerate(belIns):
+        replaceDic[f"CLB{math.floor(i/4)}_I{i%4}"] = f"{port}"
+    for i, port in enumerate(belOuts):
+        replaceDic[f"CLB{i%8}_O"] = f"{port}"
 
     # generate a list of sinks, with their connection count, if they have at least 5 connections
     sinks_num = [sink for _, sink in resultList]
@@ -1007,6 +1039,23 @@ def generateSwitchmatrixList(tileName: str, bels: List[Bel], outFile: str) -> in
             rtmp += "]"
             ltmp += "]"
             listfile.append(f"{ltmp},{rtmp}")
+
+    #TODO: Add support for multi Carrychains, unroll fabric csv wire input
+    if carryports and carryportsTile:
+        #  breakpoint()
+        # append Tile carry in to beginning of output list, since it should be connected to the first bel carry input
+        carryports[IO.OUTPUT].insert(0, carryportsTile[IO.INPUT])
+        # append Tile carry out to the end of output list, since it should be connected to the last bel carry out
+        carryports[IO.INPUT].append(carryportsTile[IO.OUTPUT])
+
+        if len(carryports[IO.INPUT]) is not len(carryports[IO.OUTPUT]):
+            raise ValueError(f"Carryports missmatch! \
+                             There are {len(carryports[IO.INPUT])} INPUTS \
+                             and {len(carryports[IO.OUTPUT])} outputs!")
+
+        listfile.append("# Connect carrychain")
+        for cin, cout in zip(carryports[IO.INPUT], carryports[IO.OUTPUT]):
+            listfile.append(f"{cin},{cout}")
 
     f = open(outFile, "w")
     f.write("\n".join(str(line) for line in listfile))

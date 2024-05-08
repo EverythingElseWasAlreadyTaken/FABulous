@@ -216,6 +216,7 @@ class Bel():
         configBit (int) : The number of config bits of the BEL have.
         belFeatureMap (Dict[str, dict]) : The feature map of the BEL.
         withUserCLK (bool) : Whether the BEL has userCLK port. Default is False.
+        carry (Dict[IO, str]) : Carry chain input and output
     """
     src: str
     prefix: str
@@ -229,8 +230,9 @@ class Bel():
     configBit: int
     belFeatureMap: Dict[str, dict] = field(default_factory=dict)
     withUserCLK: bool = False
+    carry: Dict[IO, str] = field(default_factory=dict)
 
-    def __init__(self, src: str, prefix: str, internal, external, configPort, sharedPort, configBit: int, belMap: Dict[str, dict], userCLK: bool) -> None:
+    def __init__(self, src: str, prefix: str, internal, external, configPort, sharedPort, configBit: int, belMap: Dict[str, dict], userCLK: bool, carry: Dict[IO, str]) -> None:
         self.src = src
         self.prefix = prefix
         self.name = src.split("/")[-1].split(".")[0]
@@ -243,6 +245,7 @@ class Bel():
         self.configBit = configBit
         self.belFeatureMap = belMap
         self.withUserCLK = userCLK
+        self.carry = carry
 
 
 @dataclass(frozen=True, eq=True)
