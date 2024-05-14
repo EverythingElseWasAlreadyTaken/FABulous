@@ -112,7 +112,6 @@ class FabricGenerator:
             for p in sourceName:
                 writer.writerow([p] + [0] * len(destName))
 
-
     @staticmethod
     def list2CSV(InFileName: str, OutFileName: str) -> None:
         """
@@ -2400,7 +2399,7 @@ class FabricGenerator:
                         tile.globalConfigBits,
                     )
                 elif tile.globalConfigBits > 0:
-                    breakpoint()
+                    #  breakpoint()
                     logger.error(
                         f"No ConfigMem csv file found for {tile.name} which have config bits"
                     )
