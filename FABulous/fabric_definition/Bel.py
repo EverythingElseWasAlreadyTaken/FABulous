@@ -42,6 +42,8 @@ class Bel:
         Whether the BEL has userCLK port. Default is False.
     individually_declared : bool
         Indicates if ports are individually declared. Default is False.
+    carry : dict[IO, str]
+        Carry chain input and output
     """
 
     src: pathlib.Path
@@ -57,6 +59,7 @@ class Bel:
     belFeatureMap: dict[str, dict] = field(default_factory=dict)
     withUserCLK: bool = False
     individually_declared: bool = False
+    carry: dict[IO, str] = field(default_factory=dict)
 
     def __init__(
         self,
@@ -70,6 +73,7 @@ class Bel:
         belMap: dict[str, dict],
         userCLK: bool,
         individually_declared: bool,
+        carry: dict[IO, str],
     ) -> None:
         self.src = src
         self.prefix = prefix
@@ -84,3 +88,4 @@ class Bel:
         self.belFeatureMap = belMap
         self.withUserCLK = userCLK
         self.individually_declared = individually_declared
+        self.carry = carry

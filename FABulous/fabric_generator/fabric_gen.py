@@ -115,7 +115,6 @@ class FabricGenerator:
             for p in sourceName:
                 writer.writerow([p] + [0] * len(destName))
 
-
     @staticmethod
     def list2CSV(InFileName: Path, OutFileName: Path) -> None:
         """This function is used to export a given list description into its equivalent CSV switch matrix description.
