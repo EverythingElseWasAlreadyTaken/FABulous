@@ -24,6 +24,7 @@ from FABulous.fabric_definition.define import (
 oppositeDic = {"NORTH": "SOUTH", "SOUTH": "NORTH", "EAST": "WEST", "WEST": "EAST"}
 
 
+
 def parseFabricCSV(fileName: str) -> Fabric:
     """
     Parses a csv file and returns a fabric object.
