@@ -21,10 +21,6 @@ from FABulous.fabric_definition.define import (
 )
 
 
-# from fabric import Fabric, Port, Bel, Tile, SuperTile, ConfigMem
-# from fabric import IO, Direction, Side, MultiplexerStyle, ConfigBitMode
-
-
 oppositeDic = {"NORTH": "SOUTH", "SOUTH": "NORTH", "EAST": "WEST", "WEST": "EAST"}
 
 
@@ -294,9 +290,6 @@ def parseTiles(fileName: str) -> tuple[list[Tile], list[tuple[str, str]]]:
                         Side[oppositeDic[temp[0]].upper()],
                     )
                 )
-                # wireCount = (abs(int(temp[2])) +
-                #              abs(int(temp[3])))*int(temp[5])
-                # for i in range(wireCount):
                 commonWirePair.append((f"{temp[1]}", f"{temp[4]}"))
 
             elif temp[0] == "JUMP":
@@ -940,17 +933,3 @@ def parseConfigMem(
                 )
 
     return configMemEntry
-
-
-if __name__ == "__main__":
-    # result = parseFabricCSV('fabric.csv')
-    # result1 = parseList('RegFile_switch_matrix.list', collect="source")
-    # result = parseFileVerilog('./LUT4c_frame_config_dffesr.v')
-
-    result2 = parseFileVerilog("./test.txt")
-    # print(result[0])
-    # print(result[1])
-    # print(result[2])
-    # print(result[3])
-
-    # print(result.tileDic["W_IO"].portsInfo)
