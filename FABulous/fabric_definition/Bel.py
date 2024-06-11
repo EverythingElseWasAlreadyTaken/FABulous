@@ -59,7 +59,7 @@ class Bel:
     belFeatureMap: dict[str, dict] = field(default_factory=dict)
     withUserCLK: bool = False
     individually_declared: bool = False
-    carry: dict[IO, str] = field(default_factory=dict)
+    carry: dict[str, dict[IO, str]] = field(default_factory=dict)
 
     def __init__(
         self,
@@ -73,7 +73,7 @@ class Bel:
         belMap: dict[str, dict],
         userCLK: bool,
         individually_declared: bool,
-        carry: dict[IO, str],
+        carry: dict[str, dict[IO, str]],
     ) -> None:
         self.src = src
         self.prefix = prefix
