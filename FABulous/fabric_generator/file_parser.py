@@ -3,26 +3,25 @@ import logging
 import math
 import os
 import re
-import shutil
 from copy import deepcopy
-
 from typing import Literal
+
 from FABulous.fabric_definition.Bel import Bel
-from FABulous.fabric_definition.Port import Port
-from FABulous.fabric_definition.Wire import Wire
-from FABulous.fabric_definition.Tile import Tile
-from FABulous.fabric_definition.SuperTile import SuperTile
-from FABulous.fabric_definition.Fabric import Fabric
 from FABulous.fabric_definition.ConfigMem import ConfigMem
 from FABulous.fabric_generator.utilities import parseList, parseMatrix, expandListPorts
 from FABulous.fabric_definition.define import (
     IO,
-    Direction,
-    Side,
     ConfigBitMode,
+    Direction,
     MultiplexerStyle,
+    Side,
 )
-
+from FABulous.fabric_definition.Fabric import Fabric
+from FABulous.fabric_definition.Port import Port
+from FABulous.fabric_definition.SuperTile import SuperTile
+from FABulous.fabric_definition.Tile import Tile
+from FABulous.fabric_definition.Wire import Wire
+from FABulous.fabric_generator.utilities import expandListPorts, parseList, parseMatrix
 
 oppositeDic = {"NORTH": "SOUTH", "SOUTH": "NORTH", "EAST": "WEST", "WEST": "EAST"}
 
@@ -263,7 +262,8 @@ def parseTiles(fileName: str) -> tuple[list[Tile], list[tuple[str, str]]]:
         withUserCLK = False
         configBit = 0
         genMatrixList = False
-        tileCarry: dict[IO, str] = {}
+        tileCarry: dict[str, dict[IO, str]] = {}
+
         for item in t:
             temp: list[str] = item.split(",")
             if not temp or temp[0] == "":
@@ -297,13 +297,22 @@ def parseTiles(fileName: str) -> tuple[list[Tile], list[tuple[str, str]]]:
                     )
                 )
 
-                if temp[6] == "CARRY":
-                    if not tileCarry:
-                        # TODO add a counter for wirecount
-                        #  tileCarry[IO.OUTPUT] = f"{temp[1]}{temp[5]}"
-                        #  tileCarry[IO.INPUT] = f"{temp[4]}{temp[5]}"
-                        tileCarry[IO.OUTPUT] = f"{temp[1]}0"
-                        tileCarry[IO.INPUT] = f"{temp[4]}0"
+                if "CARRY" in temp[6]:
+                    # For prefix after carry
+                    carryPrefix = re.search(r"CARRY:([\w]+)", temp[6])
+                    if not carryPrefix:
+                        carryPrefix = "FABulous_default"
+                    else:
+                        carryPrefix = carryPrefix.group(1)
+
+                    if carryPrefix not in tileCarry:
+                        tileCarry[carryPrefix] = {}
+                        tileCarry[carryPrefix][IO.OUTPUT] = f"{temp[1]}0"
+                        tileCarry[carryPrefix][IO.INPUT] = f"{temp[4]}0"
+                    else:
+                        raise ValueError(
+                            f"There is already a carrychain with the prefix {carryPrefix}"
+                        )
 
                 # wireCount = (abs(int(temp[2])) +
                 #              abs(int(temp[3])))*int(temp[5])
@@ -373,11 +382,6 @@ def parseTiles(fileName: str) -> tuple[list[Tile], list[tuple[str, str]]]:
                 elif temp[1] == "GENERATE":
                     matrixDir = f"{filePath}/Tile/{tileName}/{tileName}_generated_switchmatrix.list"
                     genMatrixList = True
-                    #  matrixDir = f"{filePath}/Tile/{tileName}"
-                    #  logger.info(f"{tile.name} has no matrix file")
-                    #  logger.info(f"bootstrapping {tile.name} to matrix list file")
-                    #  geneateSwitchmatrixList(tile)
-                    #  generateConfigMem(tile)
                 else:
                     raise ValueError("Unknown file extension for matrix")
             else:
@@ -549,11 +553,11 @@ def parseFile(filename: str, belPrefix: str = "", filetype: str = "") -> Bel:
     external: list[tuple[str, IO]] = []
     config: list[tuple[str, IO]] = []
     shared: list[tuple[str, IO]] = []
-    carry: dict[IO, str] = {}
+    carry: dict[str, dict[IO, str]] = {}
+    carryPrefix: str = None
     isExternal = False
     isConfig = False
     isShared = False
-    isCarry = False
     userClk = False
     noConfigBits = 0
 
@@ -634,7 +638,12 @@ def parseFile(filename: str, belPrefix: str = "", filetype: str = "") -> Bel:
             if "GLOBAL" in line:
                 break
             if "CARRY" in line:
-                isCarry = True
+                # For prefix after carry
+                carryPrefix = re.search(r"CARRY:([\w]+)", line)
+                if not carryPrefix:
+                    carryPrefix = "FABulous_default"
+                else:
+                    carryPrefix = carryPrefix.group(1)
 
         if isExternal and not isShared:
             external.append((portName, direction))
@@ -645,9 +654,6 @@ def parseFile(filename: str, belPrefix: str = "", filetype: str = "") -> Bel:
             shared.append((portName.removeprefix(belPrefix), direction))
         else:
             internal.append((portName, direction))
-
-        if "UserCLK" in portName:
-            userClk = True
 
         if isCarry:
             if direction is IO["INOUT"]:
@@ -661,11 +667,27 @@ def parseFile(filename: str, belPrefix: str = "", filetype: str = "") -> Bel:
                     f"{portName} can't be a carry {direction}, \
                     since {carry[direction]} already is!"
                 )
+        if carryPrefix:
+            if direction is IO["INOUT"]:
+                raise ValueError(
+                    f"CARRY can't be used with INOUT ports for port {portName}!"
+                )
+            if carryPrefix not in carry:
+                carry[carryPrefix] = {}
+            if direction not in carry[carryPrefix]:
+                carry[carryPrefix][direction] = portName
+            else:
+                raise ValueError(
+                    f"Port {portName} with prefix {carryPrefix} can't be a carry {direction}, \
+                    since port {carry[carryPrefix][direction]} already is!"
+
+        if "UserCLK" in portName:
+            userClk = True
 
         isExternal = False
         isConfig = False
         isShared = False
-        isCarry = False
+        carryPrefix = ""
 
     return Bel(
         filename,
@@ -779,7 +801,7 @@ def parseConfigMem(
         ValueError: Invalid range entry in config bit range
 
     Returns:
-        list[ConfigMem]: _description_
+        list[ConfigMem]: List of ConfigMem objects
     """
     with open(fileName) as f:
         mappingFile = list(csv.DictReader(f))
@@ -872,39 +894,53 @@ def parseConfigMem(
 
 
 def generateSwitchmatrixList(
-    tileName: str, bels: list[Bel], outFile: str, carryportsTile: dict[IO, str]
+    tileName: str,
+    bels: list[Bel],
+    outFile: str,
+    carryportsTile: dict[str, dict[IO, str]],
 ) -> int:
     """
-    Generate a swichtmatrix listfile.
+    Generate a switchmatrix list file for a given tile ans its bels.
+    This list File is based on a dummy list file from CLB_DUMMY and is based on
+    the LUT4AB switchtmatix list file.
+    It is also possible to automatically generate connections for
+    carry chains between the bels.
+
+    Args:
+        tileName (str): Name of the tile
+        bels (list[Bel]): List of bels in the tile
+        outFile (str): Path to the switchmatrix list file output
+        carryportsTile (dict[str, dict[IO, str]]): Dictionary of carry ports for the tile
+    Raises:
+        ValueError: Bels have more than 32 Bel inputs.
+        ValueError: Bels have more than 8 Bel outputs.
+        ValueError: Invalid list formatting in file.
+        ValueError: Number of carry ins and carry outs do not match.
+
+    Returns:
+        int: Number of configuration bits used for the switchmatrix
     """
-    # TODO: fix outfile name --> should now be tile.filepath
     filePath = os.path.dirname(outFile)
     CLBDummyFile = f"{filePath}/../CLB_DUMMY/CLB_DUMMY_switchmatrix.list"
 
-    with open(CLBDummyFile, "r") as f:
-        file = f.read()
-        #  file = re.sub(r"#.*", "", file)
-
-    # TODO remove carry ports from bel.ports
-    belIns = []
-    belOuts = []
-    belCarrys = []
-
     belIns = sum((bel.inputs for bel in bels), [])
     belOuts = sum((bel.outputs for bel in bels), [])
-    belCarrys += (bel.carry for bel in bels)
+    belCarrys = [bel.carry for bel in bels]
+    portPairs = parseList(CLBDummyFile)
 
-    carryports: dict[IO, list[str]] = {}
-    carryports[IO.INPUT] = []
-    carryports[IO.OUTPUT] = []
-
-    for carry in belCarrys:
-        print(carry[IO.INPUT])
-        carryports[IO.INPUT].append(carry[IO.INPUT])
-        belIns.remove(carry[IO.INPUT])
-        print(carry[IO.OUTPUT])
-        carryports[IO.OUTPUT].append(carry[IO.OUTPUT])
-        belOuts.remove(carry[IO.OUTPUT])
+    # build carryports datastructure and
+    # remove carrys from bel ports for further processing
+    carryports: dict[str, dict[IO, list[str]]] = {}
+    for carrys in belCarrys:
+        for prefix in carrys:
+            if prefix not in carryports:
+                carryports[prefix] = {}
+                carryports[prefix][IO.INPUT] = []
+                carryports[prefix][IO.OUTPUT] = []
+            carryports[prefix][IO.INPUT].append(carrys[prefix][IO.INPUT])
+            belIns.remove(carrys[prefix][IO.INPUT])
+            carryports[prefix][IO.OUTPUT].append(carrys[prefix][IO.OUTPUT])
+            belOuts.remove(carrys[prefix][IO.OUTPUT])
 
     if len(belIns) > 32:
         raise ValueError(
@@ -916,41 +952,19 @@ def generateSwitchmatrixList(
             f"Tile {tileName} has {len(belOuts)} Bel outputs, switchmatrix gen can only handle 8 outputs"
         )
 
-    ## Copied from fileparser -> parseList()
-    ## Converts listfile to portpairs
-    ## TODO cleanup
-    file = re.sub(r"#.*", "", file)
-    file = file.split("\n")
-    resultList = []
-    for i, line in enumerate(file):
-        line = line.replace(" ", "").replace("\t", "").split(",")
-        line = [i for i in line if i != ""]
-        if not line:
-            continue
-        if len(line) != 2:
-            print(line)
-            raise ValueError(f"Invalid list formatting in file: {line}")
-        left, right = line[0], line[1]
-
-        leftList = []
-        rightList = []
-        expandListPorts(left, leftList)
-        expandListPorts(right, rightList)
-        resultList += list(zip(leftList, rightList))
-
     # build a dict, with the old names from the list file and the replacement from the bels
     replaceDic = {}
     for i, port in enumerate(belIns):
-        replaceDic[f"CLB{math.floor(i/4)}_I{i%4}"] = f"{port}"
+        replaceDic[f"CLB{math.floor(i/4)}_I{i % 4}"] = f"{port}"
     for i, port in enumerate(belOuts):
-        replaceDic[f"CLB{i%8}_O"] = f"{port}"
+        replaceDic[f"CLB{i % 8}_O"] = f"{port}"
 
     # generate a list of sinks, with their connection count, if they have at least 5 connections
-    sinks_num = [sink for _, sink in resultList]
+    sinks_num = [sink for _, sink in portPairs]
     sinks_num = {i: sinks_num.count(i) for i in sinks_num if sinks_num.count(i) > 4}
 
     connections = {}
-    for source, sink in resultList:
+    for source, sink in portPairs:
         # replace the old names with the new ones
         if source in replaceDic:
             source = replaceDic[source]
@@ -959,18 +973,30 @@ def generateSwitchmatrixList(
         if "CLB" in source:
             # drop the whole multiplexer, if its not connected
             continue
-        if "CLB" in sink:
-            # replace sink with the sink with the lowest connection count
-            sink = min(sinks_num, key=sinks_num.get)
-            sinks_num[sink] = sinks_num[sink] + 1
 
         if source not in connections:
             connections[source] = []
+
+        if "CLB" in sink:
+            # replace sink with the sink with the lowest connection count and check if it's already connected
+            while True:
+                sink = min(sinks_num, key=sinks_num.get)
+                sinks_num[sink] = sinks_num[sink] + 1
+                if sink not in connections[sink]:
+                    break
+
         connections[source].append(sink)
 
     # generate listfile strings
     configBit = 0
     listfile = []
+    listfile.append("# --------------WARNING-----------------")
+    listfile.append("# This is a generated listfile!")
+    listfile.append("# Your changes will be overwritten!")
+    listfile.append("# If you want to keep your changes,")
+    listfile.append("# please make a copy of this file and edit your fabric.csv.")
+    listfile.append("# --------------WARNING-----------------")
+
     for source, sinks in connections.items():
         muxsize = len(sinks)
         if muxsize % 2 != 0 and muxsize > 1:
@@ -983,7 +1009,6 @@ def generateSwitchmatrixList(
             listfile.append(f"{source},{sinks[0]}")
         else:  # generate a line for listfile
             configBit += muxsize.bit_length() - 1
-            #  listfile.append(f"# Muxsize {muxsize} for source {source}")
             ltmp = f"[{source}"
             rtmp = f"[{sinks[0]}"
             for sink in sinks[1:]:
@@ -993,24 +1018,29 @@ def generateSwitchmatrixList(
             ltmp += "]"
             listfile.append(f"{ltmp},{rtmp}")
 
-    # TODO: Add support for multi Carrychains, unroll fabric csv wire input
     if carryports and carryportsTile:
-        #  breakpoint()
-        # append Tile carry in to beginning of output list, since it should be connected to the first bel carry input
-        carryports[IO.OUTPUT].insert(0, carryportsTile[IO.INPUT])
-        # append Tile carry out to the end of output list, since it should be connected to the last bel carry out
-        carryports[IO.INPUT].append(carryportsTile[IO.OUTPUT])
+        for prefix in carryportsTile:
+            # append Tile carry in to beginning of output list,
+            # since it should be connected to the first bel carry input
+            carryports[prefix][IO.OUTPUT].insert(0, carryportsTile[prefix][IO.INPUT])
+            # append Tile carry out to the end of output list,
+            # since it should be connected to the last bel carry out
+            carryports[prefix][IO.INPUT].append(carryportsTile[prefix][IO.OUTPUT])
 
-        if len(carryports[IO.INPUT]) is not len(carryports[IO.OUTPUT]):
-            raise ValueError(
-                f"Carryports missmatch! \
-                             There are {len(carryports[IO.INPUT])} INPUTS \
-                             and {len(carryports[IO.OUTPUT])} outputs!"
-            )
+            if len(carryports[prefix][IO.INPUT]) is not len(
+                carryports[prefix][IO.OUTPUT]
+            ):
+                raise ValueError(
+                    f"Carryports missmatch! \
+                                 There are {len(carryports[prefix][IO.INPUT])} INPUTS \
+                                 and {len(carryports[prefix][IO.OUTPUT])} outputs!"
+                )
 
-        listfile.append("# Connect carrychain")
-        for cin, cout in zip(carryports[IO.INPUT], carryports[IO.OUTPUT]):
-            listfile.append(f"{cin},{cout}")
+            listfile.append("# Connect carrychain")
+            for cin, cout in zip(
+                carryports[prefix][IO.INPUT], carryports[prefix][IO.OUTPUT]
+            ):
+                listfile.append(f"{cin},{cout}")
 
     f = open(outFile, "w")
     f.write("\n".join(str(line) for line in listfile))
@@ -1019,7 +1049,7 @@ def generateSwitchmatrixList(
     return configBit
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # result = parseFabricCSV('fabric.csv')
     # result1 = parseList('RegFile_switch_matrix.list', collect="source")
     # result = parseFileVerilog('./LUT4c_frame_config_dffesr.v')
