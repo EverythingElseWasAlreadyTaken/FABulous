@@ -41,7 +41,7 @@ class Bel:
     configBit: int
     belFeatureMap: dict[str, dict] = field(default_factory=dict)
     withUserCLK: bool = False
-    carry: dict[IO, str] = field(default_factory=dict)
+    carry: dict[str, dict[IO, str]] = field(default_factory=dict)
 
     def __init__(
         self,
@@ -54,7 +54,7 @@ class Bel:
         configBit: int,
         belMap: dict[str, dict],
         userCLK: bool,
-        carry: dict[IO, str],
+        carry: dict[str, dict[IO, str]],
     ) -> None:
         self.src = src
         self.prefix = prefix
