@@ -21,7 +21,12 @@ from FABulous.fabric_definition.Port import Port
 from FABulous.fabric_definition.SuperTile import SuperTile
 from FABulous.fabric_definition.Tile import Tile
 from FABulous.fabric_definition.Wire import Wire
-from FABulous.fabric_generator.utilities import expandListPorts, parseList, parseMatrix
+from FABulous.fabric_generator.utilities import (
+    expandListPorts,
+    parseList,
+    parseMatrix,
+    generateSwitchmatrixList,
+)
 
 oppositeDic = {"NORTH": "SOUTH", "SOUTH": "NORTH", "EAST": "WEST", "WEST": "EAST"}
 
@@ -655,18 +660,6 @@ def parseFile(filename: str, belPrefix: str = "", filetype: str = "") -> Bel:
         else:
             internal.append((portName, direction))
 
-        if isCarry:
-            if direction is IO["INOUT"]:
-                raise ValueError(
-                    f"CARRY can't be used with INOUT ports for port {portName}!"
-                )
-            if direction not in carry:
-                carry[direction] = portName
-            else:
-                raise ValueError(
-                    f"{portName} can't be a carry {direction}, \
-                    since {carry[direction]} already is!"
-                )
         if carryPrefix:
             if direction is IO["INOUT"]:
                 raise ValueError(
@@ -680,6 +673,7 @@ def parseFile(filename: str, belPrefix: str = "", filetype: str = "") -> Bel:
                 raise ValueError(
                     f"Port {portName} with prefix {carryPrefix} can't be a carry {direction}, \
                     since port {carry[carryPrefix][direction]} already is!"
+                )
 
         if "UserCLK" in portName:
             userClk = True
@@ -891,162 +885,6 @@ def parseConfigMem(
                 )
 
     return configMemEntry
-
-
-def generateSwitchmatrixList(
-    tileName: str,
-    bels: list[Bel],
-    outFile: str,
-    carryportsTile: dict[str, dict[IO, str]],
-) -> int:
-    """
-    Generate a switchmatrix list file for a given tile ans its bels.
-    This list File is based on a dummy list file from CLB_DUMMY and is based on
-    the LUT4AB switchtmatix list file.
-    It is also possible to automatically generate connections for
-    carry chains between the bels.
-
-    Args:
-        tileName (str): Name of the tile
-        bels (list[Bel]): List of bels in the tile
-        outFile (str): Path to the switchmatrix list file output
-        carryportsTile (dict[str, dict[IO, str]]): Dictionary of carry ports for the tile
-    Raises:
-        ValueError: Bels have more than 32 Bel inputs.
-        ValueError: Bels have more than 8 Bel outputs.
-        ValueError: Invalid list formatting in file.
-        ValueError: Number of carry ins and carry outs do not match.
-
-    Returns:
-        int: Number of configuration bits used for the switchmatrix
-    """
-    filePath = os.path.dirname(outFile)
-    CLBDummyFile = f"{filePath}/../CLB_DUMMY/CLB_DUMMY_switchmatrix.list"
-
-    belIns = sum((bel.inputs for bel in bels), [])
-    belOuts = sum((bel.outputs for bel in bels), [])
-    belCarrys = [bel.carry for bel in bels]
-    portPairs = parseList(CLBDummyFile)
-
-    # build carryports datastructure and
-    # remove carrys from bel ports for further processing
-    carryports: dict[str, dict[IO, list[str]]] = {}
-    for carrys in belCarrys:
-        for prefix in carrys:
-            if prefix not in carryports:
-                carryports[prefix] = {}
-                carryports[prefix][IO.INPUT] = []
-                carryports[prefix][IO.OUTPUT] = []
-            carryports[prefix][IO.INPUT].append(carrys[prefix][IO.INPUT])
-            belIns.remove(carrys[prefix][IO.INPUT])
-            carryports[prefix][IO.OUTPUT].append(carrys[prefix][IO.OUTPUT])
-            belOuts.remove(carrys[prefix][IO.OUTPUT])
-
-    if len(belIns) > 32:
-        raise ValueError(
-            f"Tile {tileName} has {len(belIns)} Bel inputs, switchmatrix gen can only handle 32 inputs"
-        )
-
-    if len(belOuts) > 8:
-        raise ValueError(
-            f"Tile {tileName} has {len(belOuts)} Bel outputs, switchmatrix gen can only handle 8 outputs"
-        )
-
-    # build a dict, with the old names from the list file and the replacement from the bels
-    replaceDic = {}
-    for i, port in enumerate(belIns):
-        replaceDic[f"CLB{math.floor(i/4)}_I{i % 4}"] = f"{port}"
-    for i, port in enumerate(belOuts):
-        replaceDic[f"CLB{i % 8}_O"] = f"{port}"
-
-    # generate a list of sinks, with their connection count, if they have at least 5 connections
-    sinks_num = [sink for _, sink in portPairs]
-    sinks_num = {i: sinks_num.count(i) for i in sinks_num if sinks_num.count(i) > 4}
-
-    connections = {}
-    for source, sink in portPairs:
-        # replace the old names with the new ones
-        if source in replaceDic:
-            source = replaceDic[source]
-        if sink in replaceDic:
-            sink = replaceDic[sink]
-        if "CLB" in source:
-            # drop the whole multiplexer, if its not connected
-            continue
-
-        if source not in connections:
-            connections[source] = []
-
-        if "CLB" in sink:
-            # replace sink with the sink with the lowest connection count and check if it's already connected
-            while True:
-                sink = min(sinks_num, key=sinks_num.get)
-                sinks_num[sink] = sinks_num[sink] + 1
-                if sink not in connections[sink]:
-                    break
-
-        connections[source].append(sink)
-
-    # generate listfile strings
-    configBit = 0
-    listfile = []
-    listfile.append("# --------------WARNING-----------------")
-    listfile.append("# This is a generated listfile!")
-    listfile.append("# Your changes will be overwritten!")
-    listfile.append("# If you want to keep your changes,")
-    listfile.append("# please make a copy of this file and edit your fabric.csv.")
-    listfile.append("# --------------WARNING-----------------")
-
-    for source, sinks in connections.items():
-        muxsize = len(sinks)
-        if muxsize % 2 != 0 and muxsize > 1:
-            logger.warning(
-                f"For source {source} mux size is {len(sinks)} with sinks: {sinks}"
-            )
-            listfile.append(f"# WARNING: Muxsize {muxsize} for source {source}")
-
-        if muxsize == 1:
-            listfile.append(f"{source},{sinks[0]}")
-        else:  # generate a line for listfile
-            configBit += muxsize.bit_length() - 1
-            ltmp = f"[{source}"
-            rtmp = f"[{sinks[0]}"
-            for sink in sinks[1:]:
-                ltmp += f"|{source}"
-                rtmp += f"|{sink}"
-            rtmp += "]"
-            ltmp += "]"
-            listfile.append(f"{ltmp},{rtmp}")
-
-    if carryports and carryportsTile:
-        for prefix in carryportsTile:
-            # append Tile carry in to beginning of output list,
-            # since it should be connected to the first bel carry input
-            carryports[prefix][IO.OUTPUT].insert(0, carryportsTile[prefix][IO.INPUT])
-            # append Tile carry out to the end of output list,
-            # since it should be connected to the last bel carry out
-            carryports[prefix][IO.INPUT].append(carryportsTile[prefix][IO.OUTPUT])
-
-            if len(carryports[prefix][IO.INPUT]) is not len(
-                carryports[prefix][IO.OUTPUT]
-            ):
-                raise ValueError(
-                    f"Carryports missmatch! \
-                                 There are {len(carryports[prefix][IO.INPUT])} INPUTS \
-                                 and {len(carryports[prefix][IO.OUTPUT])} outputs!"
-                )
-
-            listfile.append("# Connect carrychain")
-            for cin, cout in zip(
-                carryports[prefix][IO.INPUT], carryports[prefix][IO.OUTPUT]
-            ):
-                listfile.append(f"{cin},{cout}")
-
-    f = open(outFile, "w")
-    f.write("\n".join(str(line) for line in listfile))
-    f.close()
-
-    return configBit
 
 
 if __name__ == "__main__":
