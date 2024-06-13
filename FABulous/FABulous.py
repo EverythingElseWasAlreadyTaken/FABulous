@@ -1184,6 +1184,7 @@ To run the complete FABulous flow with the default project, run the following co
         parent = path.parent
         verilog_file = path.name
         top_module_name = path.stem
+
         if path.suffix != ".v":
             logger.error(
                 """
@@ -1193,12 +1194,19 @@ To run the complete FABulous flow with the default project, run the following co
             )
             return
 
+        primsLib = f"{self.projectDir}/user_design/custom_prims.v"
+        if os.path.exists(primsLib):
+            primsLib = f" -extra-plib {primsLib}"
+        else:
+            logger.info("No external primsLib found.")
+            primsLib = ""
+
         json_file = top_module_name + ".json"
         yosys = check_if_application_exists(os.getenv("FAB_YOSYS_PATH", "yosys"))
         runCmd = [
             f"{yosys}",
             "-p",
-            f"synth_fabulous -top top_wrapper -json {self.projectDir}/{parent}/{json_file}",
+            f"synth_fabulous -top top_wrapper -json {self.projectDir}/{parent}/{json_file}{primsLib}",
             f"{self.projectDir}/{parent}/{verilog_file}",
             f"{self.projectDir}/{parent}/top_wrapper.v",
         ]

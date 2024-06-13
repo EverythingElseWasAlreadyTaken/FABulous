@@ -9,7 +9,6 @@ from copy import deepcopy
 
 from typing import Literal, overload
 from pathlib import Path
-from FABulous.fabric_generator.utilities import expandListPorts
 from FABulous.fabric_definition.Bel import Bel
 from FABulous.fabric_definition.ConfigMem import ConfigMem
 from FABulous.fabric_definition.define import (
@@ -24,6 +23,7 @@ from FABulous.fabric_definition.Port import Port
 from FABulous.fabric_definition.SuperTile import SuperTile
 from FABulous.fabric_definition.Tile import Tile
 from FABulous.fabric_definition.Wire import Wire
+from FABulous.fabric_generator.utilities import expandListPorts
 
 oppositeDic = {"NORTH": "SOUTH", "SOUTH": "NORTH", "EAST": "WEST", "WEST": "EAST"}
 
@@ -519,6 +519,10 @@ def parseTiles(fileName: Path) -> tuple[list[Tile], list[tuple[str, str]]]:
                     bels.append(parseBelFile(belFilePath, temp[2], "vhdl"))
                 elif temp[1].endswith(".v"):
                     bels.append(parseBelFile(belFilePath, temp[2], "verilog"))
+                    if "ADD_AS_CUSTOM_PRIM" in temp[4:]:
+                        primsFile = proj_dir.joinpath("user_design/custom_prims.v")
+                        logger.info(f"Adding bels to custom prims file: {primsFile}")
+                        addBelsToPrim(primsFile, [bels[-1]])
                 else:
                     raise ValueError(
                         f"Invalid file type in {belFilePath} only .vhdl and .v are supported."
@@ -1289,32 +1293,45 @@ def parseConfigMem(
 def generateSwitchmatrixList(
     tileName: str,
     bels: list[Bel],
-    outFile: str,
+    outFile: Path,
     carryportsTile: dict[str, dict[IO, str]],
 ) -> int:
-    """
-    Generate a switchmatrix list file for a given tile ans its bels.
-    This list File is based on a dummy list file from CLB_DUMMY and is based on
-    the LUT4AB switchtmatix list file.
-    It is also possible to automatically generate connections for
-    carry chains between the bels.
+    """Generate a switchmatrix list file for a given tile ans its bels.
+     This list File is based on a dummy list file from CLB_DUMMY and is based on
+     the LUT4AB switchtmatix list file.
+     It is also possible to automatically generate connections for
+     carry chains between the bels.
 
-    Args:
-        tileName (str): Name of the tile
-        bels (list[Bel]): List of bels in the tile
-        outFile (str): Path to the switchmatrix list file output
-        carryportsTile (dict[str, dict[IO, str]]): Dictionary of carry ports for the tile
-    Raises:
-        ValueError: Bels have more than 32 Bel inputs.
-        ValueError: Bels have more than 8 Bel outputs.
-        ValueError: Invalid list formatting in file.
-        ValueError: Number of carry ins and carry outs do not match.
+     Parameters
+     ----------
+         tileName :str
+             Name of the tile
+         bels : list[Bel]
+             List of bels in the tile
+         outFile : Path
+             Path to the switchmatrix list file output
+         carryportsTile : dict[str, dict[IO, str]]
+             Dictionary of carry ports for the tile
 
-    Returns:
-        int: Number of configuration bits used for the switchmatrix
+    Returns
+     -------
+         int
+             Number of configuration bits used for the switchmatrix
+
+     Raises
+     ------
+         ValueError
+             Bels have more than 32 Bel inputs.
+         ValueError
+             Bels have more than 8 Bel outputs.
+         ValueError
+             Invalid list formatting in file.
+         ValueError
+             Number of carry ins and carry outs do not match.
+
     """
-    filePath = os.path.dirname(outFile)
-    CLBDummyFile = f"{filePath}/../CLB_DUMMY/CLB_DUMMY_switchmatrix.list"
+    projdir = Path(os.getenv("FAB_PROJ_DIR"))
+    CLBDummyFile = projdir.joinpath("Tile/CLB_DUMMY/CLB_DUMMY_switchmatrix.list")
 
     belIns = sum((bel.inputs for bel in bels), [])
     belOuts = sum((bel.outputs for bel in bels), [])
@@ -1439,18 +1456,100 @@ def generateSwitchmatrixList(
     f.write("\n".join(str(line) for line in listfile))
     f.close()
 
+    primsFile = projdir.joinpath("user_design/custom_prims.v")
+    addBelsToPrim(primsFile, bels)
+
     return configBit
 
 
-if __name__ == "__main__":
-    # result = parseFabricCSV('fabric.csv')
-    # result1 = parseList('RegFile_switch_matrix.list', collect="source")
-    # result = parseFileVerilog('./LUT4c_frame_config_dffesr.v')
+def addBelsToPrim(
+    primsFile: Path,
+    bels: list[Bel],
+) -> None:
+    """Adds a list of Bels as primitves to yosys prims file.
 
-    result2 = parseFileVerilog("./test.txt")
-    # print(result[0])
-    # print(result[1])
-    # print(result[2])
-    # print(result[3])
+    Parameters
+    ----------
+        primsFile : str
+            Path to yosys prims file
+        bels : list[Bel]
+            List of bels to add
+    Raises
+    ------
+        FileNotFoundError :
+            Prims file is not found
+    """
+    prims: str = ""  # prims.v
+    primsAdd: list[str] = []  # append to prims.v
 
-    # print(result.tileDic["W_IO"].portsInfo)
+    if primsFile.is_file():
+        with open(primsFile, "r") as f:
+            prims = f.read()
+    else:
+        logger.error(f"Prims file {primsFile} not found.")
+        raise FileNotFoundError(f"Prims file {primsFile} not found.")
+
+    for bel in bels:
+        if bel.src.suffix == "v" or bel.src.suffix == "V":
+            with open(bel.src) as b:
+                belsrc = b.read()
+        else:
+            logger.warning(
+                f"Bel {bel.src} is not a Verilog file, so it can't be added to {primsFile}"
+            )
+            continue
+        # Regex to get module name from verilog bel file
+        match = re.search(
+            r"module\s+(\w+)\s*\(([^;]*?)\)\s*;", belsrc, re.DOTALL | re.IGNORECASE
+        )
+        belname = match.group(1)
+
+        # check if belname is already in prims.v or in the list to add to prims.v
+        if belname not in prims and belname not in " ".join(primsAdd):
+            # Find all ports with their directions
+            ports = re.findall(r"(input|output|inout)\s+([\w]+)\s*;", belsrc)
+
+            inputs = []
+            outputs = []
+            inouts = []
+
+            for direction, port_name in ports:
+                if direction == "input":
+                    port_name = port_name.replace(
+                        "UserCLK", "CLK"
+                    )  # UserCLK needs to be renamed, otherwise yosys can't map the CLK
+                    inputs.append(port_name)
+                elif direction == "output":
+                    outputs.append(port_name)
+                elif direction == "inout":
+                    inouts.append(port_name)
+
+            primsAdd.append(
+                f"\n//Warning the following primitive {belname} was added automatically."
+            )
+            primsAdd.append("(* blackbox, keep *)")
+
+            # build module sting for prim file
+            modline = f"module {belname} ("
+            if inputs:
+                modline += f"input {', '.join(inputs)}"
+                if outputs or inouts:
+                    modline += ", "
+            if outputs:
+                modline += f"output {', '.join(outputs)}"
+                if inouts:
+                    modline += ", "
+            if inouts:
+                modline += f"inout {', '.join(inouts)}"
+
+            modline += ");"
+            modline += "\nendmodule\n"
+            primsAdd.append(modline)
+
+            logger.debug(f"{belname} added to yosys primitves file {primsFile}.")
+        elif belname in prims:
+            logger.debug(f"{belname} already in yosys primitives file {primsFile}.")
+
+    # write to prims file, line by line
+    with open(primsFile, "a") as f:
+        f.write("\n".join(str(i) for i in primsAdd))
