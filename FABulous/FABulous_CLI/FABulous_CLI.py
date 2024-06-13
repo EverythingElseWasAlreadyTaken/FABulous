@@ -221,6 +221,8 @@ class FABulous_CLI(Cmd):
 
     do_quit = do_exit
 
+    do_synthesis = cmd_synthesis.do_synthesis
+
     filePathOptionalParser = Cmd2ArgumentParser()
     filePathOptionalParser.add_argument(
         "file",
@@ -609,8 +611,6 @@ class FABulous_CLI(Cmd):
 
         logger.info("Generated npnr model")
 
-    do_synthesis = cmd_synthesis.do_synthesis
-
     @with_category(CMD_FABRIC_FLOW)
     @with_argparser(filePathRequireParser)
     def do_place_and_route(self, args):
@@ -887,7 +887,15 @@ class FABulous_CLI(Cmd):
         json_file_path = file_path_no_suffix.with_suffix(".json")
         fasm_file_path = file_path_no_suffix.with_suffix(".fasm")
 
-        self.do_synthesis(str(args.file))
+        do_synth_args = str(args.file)
+
+        primsLib = f"{self.projectDir}/user_design/custom_prims.v"
+        if os.path.exists(primsLib):
+            do_synth_args += f" -extra-plib {primsLib}"
+        else:
+            logger.info("No external primsLib found.")
+
+        self.do_synthesis(do_synth_args)
         self.do_place_and_route(str(json_file_path))
         self.do_gen_bitStream_binary(str(fasm_file_path))
 
