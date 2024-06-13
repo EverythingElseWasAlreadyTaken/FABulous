@@ -23,6 +23,10 @@ class Bel:
         The prefix of the BEL given in the CSV file.
     name : str
         The name of the BEL, extracted from the source directory.
+    module_name : str
+        The name of the module, described in the bel file.
+    filetype : str
+        The file type of the BEL.
     inputs : list[str]
         All the normal input ports of the BEL.
     outputs : list[str]
@@ -51,6 +55,8 @@ class Bel:
     src: pathlib.Path
     prefix: str
     name: str
+    module_name: str
+    filetype: str
     inputs: list[str]
     outputs: list[str]
     externalInput: list[str]
@@ -67,6 +73,8 @@ class Bel:
         self,
         src: pathlib.Path,
         prefix: str,
+        module_name: str,
+        filetype: str,
         internal,
         external,
         configPort,
@@ -80,6 +88,8 @@ class Bel:
         self.src = src
         self.prefix = prefix
         self.name = src.stem
+        self.module_name = module_name
+        self.filetype = filetype
         self.inputs = [p for p, io in internal if io == IO.INPUT]
         self.outputs = [p for p, io in internal if io == IO.OUTPUT]
         self.externalInput = [p for p, io in external if io == IO.INPUT]
