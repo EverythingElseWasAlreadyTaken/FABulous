@@ -782,6 +782,7 @@ To run the complete FABulous flow with the default project, run the following co
                       "-o", f"fasm={self.projectDir}/{path}/{name}_des.fasm",
                       "--verbose",
                       "--log", f"{self.projectDir}/{path}/{name}_npnr_log.txt"]
+            print(" ".join(runCmd))
             sp.run(" ".join(runCmd), stdout=sys.stdout,
                    stderr=sp.STDOUT, check=True, shell=True)
         else:
@@ -890,8 +891,11 @@ To run the complete FABulous flow with the default project, run the following co
             self.do_place_and_route_vpr(args[1])
             self.do_gen_bitStream_binary(args[1])
         else:
+            print(">>>>>>>>>>>do_synthesis_npnr<<<<<<<<<<<<<<<<<<<<<<<<")
             self.do_synthesis_npnr(args[1])
+            print(">>>>>>>>>>>do_place_and_route_npnr<<<<<<<<<<<<<<<<<<<<<<<<")
             self.do_place_and_route_npnr(args[1])
+            print(">>>>>>>>>>>do_gen_bitStream_binary<<<<<<<<<<<<<<<<<<<<<<<<")
             self.do_gen_bitStream_binary(args[1])
 
         return 0

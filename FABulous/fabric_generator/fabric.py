@@ -202,12 +202,25 @@ class Gen_IO():
         prefix (str): The prefix of the GEN_IO given in the CSV file.
         pins (int): Number of IOs.
         IO (IO) : Direction of the IOs, either INPUT or OUTPUT.
-        params (Dict[str, str]): Additional parameters for GEN_IO.
+        configBit (int) : The number of accessible config bits for config access GEN_IO.
+        params : Additional parameters of GEN_IOs.
+            - configAccess (bool) : Whether the GEN_IO is config access.
+                                    Routes access to config bits, directly to TOP.
+                                    This GEN_IOs are not connected to the switchmatrix,
+                                    Can only be used as an OUTPUT.
+            - triStateControl (bool) :  GEN_IO is a tri-state control pin.
+                                        Can only be used as an OUTPUT.
         """
 
     prefix: str
     pins: int
     IO: IO
+    configBit: int = 0
+
+    # Paramters for GEN_IO:
+    configAccess: bool = False
+    triStateControl: bool = False
+
 
 @dataclass
 class Bel():
@@ -321,8 +334,13 @@ class Tile():
         self.wireList = []
         self.filePath = os.path.split(matrixDir)[0]
 
+        #### TODO: Move this to file_parser.py# parseFabricCSV
         for b in self.bels:
             self.globalConfigBits += b.configBit
+
+        for gio in self.gen_ios:
+            if gio.configAccess:
+                self.globalConfigBits += gio.configBit
 
     def __eq__(self, __o: Any) -> bool:
         if __o is None or not isinstance(__o, Tile):
