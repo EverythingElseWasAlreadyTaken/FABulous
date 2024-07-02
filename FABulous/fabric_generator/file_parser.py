@@ -5,6 +5,7 @@ from copy import deepcopy
 
 from typing import Literal
 from FABulous.fabric_definition.Bel import Bel
+from FABulous.fabric_definition.Gen_IO import Gen_IO
 from FABulous.fabric_definition.Port import Port
 from FABulous.fabric_definition.Wire import Wire
 from FABulous.fabric_definition.Tile import Tile
@@ -19,7 +20,6 @@ from FABulous.fabric_definition.define import (
     ConfigBitMode,
     MultiplexerStyle,
 )
-
 
 oppositeDic = {"NORTH": "SOUTH", "SOUTH": "NORTH", "EAST": "WEST", "WEST": "EAST"}
 
@@ -82,7 +82,6 @@ def parseFabricCSV(fileName: str) -> Fabric:
     tileTypes = []
     tileDefs = []
     commonWirePair: list[tuple[str, str]] = []
-
     fabricTiles = []
     tileDic = {}
 
@@ -255,6 +254,7 @@ def parseTiles(fileName: str) -> tuple[list[Tile], list[tuple[str, str]]]:
         tileName = t[0].split(",")[1]
         ports: list[Port] = []
         bels: list[Bel] = []
+        gen_ios: list[Gen_IO] = []
         matrixDir = ""
         withUserCLK = False
         configBit = 0
@@ -329,6 +329,8 @@ def parseTiles(fileName: str) -> tuple[list[Tile], list[tuple[str, str]]]:
                     raise ValueError(
                         f"Invalid file type in {belFilePath} only .vhdl and .v are supported."
                     )
+            elif temp[0] == "GEN_IO":
+                gen_ios.append(Gen_IO(temp[3], int(temp[1]), IO[temp[2]]))
             elif temp[0] == "MATRIX":
                 matrixDir = os.path.join(filePath, temp[1])
                 configBit = 0
@@ -360,7 +362,7 @@ def parseTiles(fileName: str) -> tuple[list[Tile], list[tuple[str, str]]]:
 
             withUserCLK = any(bel.withUserCLK for bel in bels)
             new_tiles.append(
-                Tile(tileName, ports, bels, matrixDir, withUserCLK, configBit)
+                Tile(tileName, ports, bels, gen_ios, matrixDir, withUserCLK, configBit)
             )
 
     return (new_tiles, commonWirePair)
