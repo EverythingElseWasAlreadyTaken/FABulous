@@ -3,6 +3,7 @@ from enum import Enum
 from dataclasses import dataclass, field
 from FABulous.fabric_definition.define import IO, Direction, Side
 from FABulous.fabric_definition.Bel import Bel
+from FABulous.fabric_definition.Gen_IO import Gen_IO
 from FABulous.fabric_definition.Port import Port
 from FABulous.fabric_definition.Wire import Wire
 from typing import Any
@@ -16,6 +17,8 @@ class Tile:
     attributes:
         name (str) : The name of the tile
         portsInfo (list[Port]) : The list of ports of the tile
+        bels (List[Bel]) : The list of bels of the tile
+        gen_ios (List[Gen_IO]) : The list of GEN_IOs of the tile
         matrixDir (str) : The directory of the tile matrix
         globalConfigBits (int) : The number of config bits the tile have
         withUserCLK (bool) : Whether the tile has userCLK port. Default is False.
@@ -26,6 +29,7 @@ class Tile:
     name: str
     portsInfo: list[Port]
     bels: list[Bel]
+    gen_ios = list[Gen_IO]
     matrixDir: str
     globalConfigBits: int = 0
     withUserCLK: bool = False
@@ -38,6 +42,7 @@ class Tile:
         name: str,
         ports: list[Port],
         bels: list[Bel],
+        gen_ios: list[Gen_IO],
         matrixDir: str,
         userCLK: bool,
         configBit: int = 0,
@@ -45,6 +50,7 @@ class Tile:
         self.name = name
         self.portsInfo = ports
         self.bels = bels
+        self.gen_ios = gen_ios
         self.matrixDir = matrixDir
         self.withUserCLK = userCLK
         self.globalConfigBits = configBit
