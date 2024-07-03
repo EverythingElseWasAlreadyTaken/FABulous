@@ -398,7 +398,7 @@ class codeGenerator(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def addAssignScalar(self, left, right, delay=0, indentLevel=0):
+    def addAssignScalar(self, left, right, delay=0, indentLevel=0, inverted=False):
         """
         Add a scalar assign statement. Delay is provided by currently not being used by any of the code generator.
         If **right** is a list, it will be concatenated.
@@ -414,11 +414,14 @@ class codeGenerator(abc.ABC):
             right : The right hand side of the assign statement.
             delay (int, optional): delay in the assignment. Defaults to 0.
             indentLevel (int, optional): The indentation Level. Defaults to 0.
+            inverted (bool, optional): Invert **right**. Default False.
         """
         pass
 
     @abc.abstractmethod
-    def addAssignVector(self, left, right, widthL, widthR, indentLevel=0):
+    def addAssignVector(
+        self, left, right, widthL, widthR, indentLevel=0, inverted=False
+    ):
         """
         Add a vector assign statement.
 
@@ -432,6 +435,7 @@ class codeGenerator(abc.ABC):
             widthL : The start index of the vector. Can be a string.
             widthR : The end index of the vector. Can be a string.
             indentLevel (int, optional): The indentation Level. Defaults to 0.
+            inverted (bool, optional): Invert **right**. Default False.
         """
         pass
 
