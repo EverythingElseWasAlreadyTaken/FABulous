@@ -398,6 +398,13 @@ class codeGenerator(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def addRegister(self, reg, regIn, clk="CLK", inverted=False, indentLevel=0):
+        """
+        Add register
+        """
+        pass
+
+    @abc.abstractmethod
     def addAssignScalar(self, left, right, delay=0, indentLevel=0, inverted=False):
         """
         Add a scalar assign statement. Delay is provided by currently not being used by any of the code generator.
