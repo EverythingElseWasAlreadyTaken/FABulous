@@ -20,6 +20,7 @@ class Gen_IO:
                                     This GEN_IOs are not connected to the switchmatrix,
                                     Can only be used as an OUTPUT.
             - inverted (bool) : GEN_IO will be inverted.
+            - clocked (bool) : Adds a register to GEN_IO
     """
 
     prefix: str
@@ -30,3 +31,4 @@ class Gen_IO:
     # Paramters for GEN_IO:
     configAccess: bool = False
     inverted: bool = False
+    clocked: bool = False
