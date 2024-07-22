@@ -393,7 +393,6 @@ def parseTiles(fileName: str) -> tuple[list[Tile], list[tuple[str, str]]]:
                 raise ValueError(f"Unknown tile description {temp[0]} in tile {t}")
 
             withUserCLK = any(bel.withUserCLK for bel in bels)
-            #  TODO: move gen switchmatrix to file_parser, remove tile import and just use bels as inputs and return config bits.
             if genMatrixList:
                 configBit += generateSwitchmatrixList(
                     tileName, bels, matrixDir, tileCarry
@@ -885,17 +884,3 @@ def parseConfigMem(
                 )
 
     return configMemEntry
-
-
-if __name__ == "__main__":
-    # result = parseFabricCSV('fabric.csv')
-    # result1 = parseList('RegFile_switch_matrix.list', collect="source")
-    # result = parseFileVerilog('./LUT4c_frame_config_dffesr.v')
-
-    result2 = parseFileVerilog("./test.txt")
-    # print(result[0])
-    # print(result[1])
-    # print(result[2])
-    # print(result[3])
-
-    # print(result.tileDic["W_IO"].portsInfo)
