@@ -1632,7 +1632,94 @@ def generateSwitchmatrixList(
     f.write("\n".join(str(line) for line in listfile))
     f.close()
 
+    primsFile = filePath.split("Tile")[0]
+    primsFile += "user_design/custom_prims.v"
+    addBelsToPrim(primsFile, bels)
+
     return configBit
+
+
+def addBelsToPrim(
+    primsFile: str,
+    bels: list[Bel],
+) -> None:
+    """
+    Adds a list of Bels as primitves to yosys prims file.
+
+    Args:
+        primsFile (str): Path to yosys prims file
+        bels (list[Bel]): List of bels to add
+    """
+    prims: str = ""  # prims.v
+    primsAdd: list[str] = []  # append to prims.v
+
+    if os.path.exists(primsFile):
+        with open(primsFile, "r") as f:
+            prims = f.read()
+    for bel in bels:
+        if bel.src.endswith(".v") or bel.src.endswith(".V"):
+            with open(bel.src) as b:
+                belsrc = b.read()
+        else:
+            logger.info(
+                f"Bel {bel.src} is not a Verilog file, so it can't be added to {primsFile}"
+            )
+            continue
+        # Regex to get module name from verilog bel file
+        match = re.search(
+            r"module\s+(\w+)\s*\(([^;]*?)\)\s*;", belsrc, re.DOTALL | re.IGNORECASE
+        )
+        belname = match.group(1)
+
+        # check if belname is already in prims.v or in the list to add to prims.v
+        if belname not in prims and belname not in " ".join(primsAdd):
+            # Find all ports with their directions
+            ports = re.findall(r"(input|output|inout)\s+([\w]+)\s*;", belsrc)
+
+            inputs = []
+            outputs = []
+            inouts = []
+
+            for direction, port_name in ports:
+                if direction == "input":
+                    port_name = port_name.replace(
+                        "UserCLK", "CLK"
+                    )  # UserCLK needs to be renamed, otherwise yosys can't map the CLK
+                    inputs.append(port_name)
+                elif direction == "output":
+                    outputs.append(port_name)
+                elif direction == "inout":
+                    inouts.append(port_name)
+
+            primsAdd.append(
+                f"\n//Warning the following primitive {belname} was added automatically."
+            )
+            primsAdd.append("(* blackbox, keep *)")
+
+            # build module sting for prim file
+            modline = f"module {belname} ("
+            if inputs:
+                modline += f"input {', '.join(inputs)}"
+                if outputs or inouts:
+                    modline += ", "
+            if outputs:
+                modline += f"output {', '.join(outputs)}"
+                if inouts:
+                    modline += ", "
+            if inouts:
+                modline += f"inout {', '.join(inouts)}"
+
+            modline += ");"
+            modline += "\nendmodule\n"
+            primsAdd.append(modline)
+
+            logger.debug(f"{belname} added to yosys primitves file {primsFile}.")
+        elif belname in prims:
+            logger.debug(f"{belname} already in yosys primitives file {primsFile}.")
+
+    # write to prims file, line by line
+    with open(primsFile, "a") as f:
+        f.write("\n".join(str(i) for i in primsAdd))
 
 
 if __name__ == "__main__":
