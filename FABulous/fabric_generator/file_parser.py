@@ -8,7 +8,12 @@ from typing import Literal
 
 from FABulous.fabric_definition.Bel import Bel
 from FABulous.fabric_definition.ConfigMem import ConfigMem
-from FABulous.fabric_generator.utilities import parseList, parseMatrix, expandListPorts
+from FABulous.fabric_generator.utilities import (
+    parseList,
+    parseMatrix,
+    expandListPorts,
+    addBelsToPrim,
+)
 from FABulous.fabric_definition.define import (
     IO,
     ConfigBitMode,
@@ -357,6 +362,10 @@ def parseTiles(fileName: str) -> tuple[list[Tile], list[tuple[str, str]]]:
                     bels.append(parseFile(belFilePath, temp[2], "vhdl"))
                 elif temp[1].endswith(".v"):
                     bels.append(parseFile(belFilePath, temp[2], "verilog"))
+                    if "ADD_AS_CUSTOM_PRIM" in temp[4:]:
+                        primsFile = belFilePath.split("Tile")[0]
+                        primsFile += "user_design/custom_prims.v"
+                        addBelsToPrim(primsFile, [bels[-1]])
                 else:
                     raise ValueError(
                         f"Invalid file type in {belFilePath} only .vhdl and .v are supported."
