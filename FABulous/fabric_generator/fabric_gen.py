@@ -1112,19 +1112,18 @@ class FabricGenerator:
             signal = []
             userclk_pair = None
 
-            # Internal ports
-            for port in bel.inputs + bel.outputs:
+            # internal + external ports
+            for port in (
+                bel.inputs + bel.outputs + bel.externalInput + bel.externalOutput
+            ):
                 port_name = port.removeprefix(bel.prefix)
-                if r := re.match(r"([a-zA-Z_]+)(\d*)", port_name):
-                    portname, number = r.groups()
-                    port_dict[portname].append((port, number))
-
-            # External ports
-            for port in bel.externalInput + bel.externalOutput:
-                port_name = port.removeprefix(bel.prefix)
-                if r := re.match(r"([a-zA-Z_]+)(\d*)", port_name):
-                    portname, number = r.groups()
-                    port_dict[portname].append((port, number))
+                if r := re.search(r"\d+$", port_name):
+                    number = r.group()
+                    portname = port_name.removesuffix(number)
+                else:
+                    portname = port_name
+                    number = ""
+                port_dict[portname].append((port, number))
 
             # Shared ports
             for port in bel.sharedPort:
