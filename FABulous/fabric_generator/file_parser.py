@@ -498,6 +498,7 @@ def parseTiles(fileName: Path) -> tuple[list[Tile], list[tuple[str, str]]]:
         configBit = 0
         genMatrixList = False
         tileCarry: dict[str, dict[IO, str]] = {}
+        localSharedPorts: dict[str, list[Port]] = {}
 
         for item in t:
             temp: list[str] = item.split(",")
@@ -521,6 +522,20 @@ def parseTiles(fileName: Path) -> tuple[list[Tile], list[tuple[str, str]]]:
                         raise ValueError(
                             f"There is already a carrychain with the prefix {carryPrefix}"
                         )
+                if "LOCAL_SHARED" in temp[6]:
+                    if "JUMP" not in temp[0]:
+                        logger.error("LOCAL_SHARED can only be used with JUMP ports.")
+                        raise ValueError
+                    localShared = temp[6].split("=")[1]
+                    if localShared is None or localShared == "":
+                        logger.error("LOCAL_SHARED cannot be None.")
+                        raise ValueError
+                    if localShared not in localSharedPorts:
+                        localSharedPorts[localShared] = port
+                    else:
+                        logger.error(f"LOCAL_SHARED port {localShared} already exists.")
+                        raise ValueError
+
                 ports.extend(port)
                 if commonWirePair:
                     commonWirePairs.append(commonWirePair)
@@ -627,7 +642,7 @@ def parseTiles(fileName: Path) -> tuple[list[Tile], list[tuple[str, str]]]:
             withUserCLK = any(bel.withUserCLK for bel in bels)
             if genMatrixList:
                 configBit += generateSwitchmatrixList(
-                    tileName, bels, matrixDir, tileCarry
+                    tileName, bels, matrixDir, tileCarry, localSharedPorts
                 )
 
             new_tiles.append(
@@ -822,6 +837,7 @@ def parseBelFile(
     external: list[tuple[str, IO]] = []
     config: list[tuple[str, IO]] = []
     shared: list[tuple[str, IO]] = []
+    localShared: list[tuple[str, IO]] = []
     belMapDic = {}
     carry: dict[str, dict[IO, str]] = {}
     carryPrefix: str = ""
@@ -919,6 +935,13 @@ def parseBelFile(
                         carryPrefix = "FABulous_default"
                     else:
                         carryPrefix = carryPrefix.group(1)
+                if "LOCAL_SHARED" in line:
+                    if direction is IO["INOUT"] or direction is IO["OUTPUT"]:
+                        logger.error(
+                            "LOCAL_SHARED can only be used with INPUT ports."
+                        )
+                        raise ValueError
+                    localShared.append((portName, direction))
                 if "GLOBAL" in line:
                     break
 
@@ -1026,6 +1049,13 @@ def parseBelFile(
                         shared.append((new_port_name, direction))
                     else:
                         internal.append((f"{belPrefix}{new_port_name}", direction))
+                    if "LOCAL_SHARED" in attributes:
+                        if direction is IO["INOUT"] or direction is IO["OUTPUT"]:
+                            logger.error(
+                                "LOCAL_SHARED can only be used with INPUT ports."
+                            )
+                            raise ValueError
+                        localShared.append((new_port_name, direction))
                     if "CARRY" in attributes:
                         # For prefix after carry
                         carryPrefix = attributes.get("CARRY")
@@ -1074,6 +1104,7 @@ def parseBelFile(
         userCLK=userClk,
         individually_declared=individually_declared,
         carry=carry,
+        localShared=localShared,
     )
 
 
@@ -1359,6 +1390,7 @@ def generateSwitchmatrixList(
     bels: list[Bel],
     outFile: Path,
     carryportsTile: dict[str, dict[IO, str]],
+    localSharedPortsTile: dict[str, list[Port]],
 ) -> int:
     """Generate a switchmatrix list file for a given tile ans its bels. This list File
     is based on a dummy list file from CLB_DUMMY and is based on the LUT4AB switchtmatix
@@ -1375,6 +1407,8 @@ def generateSwitchmatrixList(
              Path to the switchmatrix list file output
          carryportsTile : dict[str, dict[IO, str]]
              Dictionary of carry ports for the tile
+         localSharedPorts : dicst[str, list[Port]]
+            list of local shared ports for the tile, based on JUMP wire definitions
 
     Returns
      -------
@@ -1402,6 +1436,17 @@ def generateSwitchmatrixList(
     belOuts = sum((bel.outputs for bel in bels), [])
     belCarrys = [bel.carry for bel in bels]
     portPairs = parseList(CLBDummyFile)
+    belLocalSharedPorts = [bel.localShared for bel in bels]
+
+    localSharedPorts: dict[str, list[str]] = {}
+
+    for item in belLocalSharedPorts:
+        # do i need the bel prefix here???
+        # do they already have a prefix? 
+        # identfy the bel by prefix?
+        for portname, direction in item:
+
+
 
     # build carryports datastructure and
     # remove carrys from bel ports for further processing
