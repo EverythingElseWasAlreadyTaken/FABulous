@@ -50,6 +50,10 @@ class Bel:
     carry : dict[str, dict[IO, str]]
         Carry chains by name.
         carry_name : {direction : port_name}
+    localShared: dict[str,tuple[str, IO]]
+        {RESET/ENABLE,(portname, IO)}
+        Local shared ports of the BEL.
+        Are only shared in the Tile, not in the fabric.
     """
 
     src: pathlib.Path
@@ -68,6 +72,7 @@ class Bel:
     withUserCLK: bool = False
     individually_declared: bool = False
     carry: dict[str, dict[IO, str]] = field(default_factory=dict)
+    localShared: dict[str,tuple[str, IO]] = field(default_factory=dict)
 
     def __init__(
         self,
@@ -84,6 +89,7 @@ class Bel:
         userCLK: bool,
         individually_declared: bool,
         carry: dict[str, dict[IO, str]],
+        localShared: dict[str,tuple[str, IO]],
     ) -> None:
         self.src = src
         self.prefix = prefix
@@ -101,3 +107,4 @@ class Bel:
         self.withUserCLK = userCLK
         self.individually_declared = individually_declared
         self.carry = carry
+        self.localShared = localShared
