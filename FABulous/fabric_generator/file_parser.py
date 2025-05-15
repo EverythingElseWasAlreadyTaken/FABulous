@@ -1583,18 +1583,18 @@ def generateSwitchmatrixList(
         sharedResetTile = localSharedPortsTile["RESET"]
         listfile.append("# Connect shared reset")
         # values taken from LUT4AB switchmatrix list, added VDD and GND0
-        listfile.append(f"{{8}}{sharedResetTile[0].name}0,[GND0|VCC0|J2MID_EFb_END0|J2MID_GHa_END0|JN2END1|JE2END1|JS2END1|JW2END1]")
+        listfile.append(f"{{8}}{sharedResetTile[0].name}0,[J2MID_ABb_END0|J2MID_CDb_END0|J2MID_EFb_END0|J2MID_GHa_END0|JN2END1|JE2END1|JS2END1|JW2END1]")
         for belport in belLocalSharedPorts:
             if bel_reset:= belport["RESET"]:
-                listfile.append(f"{bel_reset[0]},{sharedResetTile[1].name}0")
+                listfile.append(f"{{2}}{bel_reset[0]},[{sharedResetTile[1].name}0|GND0]")
     if "ENABLE" in localSharedPortsTile:
         sharedResetTile = localSharedPortsTile["ENABLE"]
         listfile.append("# Connect shared enable")
         # values taken from LUT4AB switchmatrix list, added VDD and GND0
-        listfile.append(f"{{8}}{sharedResetTile[0].name}0,[GND0|VCC0|J2MID_EFb_END3|J2MID_GHa_END3|JN2END2|JE2END2|JS2END2|JW2END2]")
+        listfile.append(f"{{8}}{sharedResetTile[0].name}0,[J2MID_ABb_END3|J2MID_CDb_END3|J2MID_EFb_END3|J2MID_GHa_END3|JN2END2|JE2END2|JS2END2|JW2END2]")
         for belport in belLocalSharedPorts:
             if bel_enable:= belport["ENABLE"]:
-                listfile.append(f"{bel_enable[0]},{sharedResetTile[1].name}0")
+                listfile.append(f"{{2}}{bel_enable[0]},[{sharedResetTile[1].name}0|VCC0]")
 
 
     f = open(outFile, "w")
