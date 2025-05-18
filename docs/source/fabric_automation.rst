@@ -1,9 +1,11 @@
+.. _fabric_automation:
+
 Generating Custom Tiles
 =======================
 
 Defining a custom fabric, custom tiles or just add some custom functionality
 can be a complex task.
-The section `fabric_definition`_ describes in detail, how to model FABulous fabrics
+The section :ref:`fabric_definition` describes in detail, how to model FABulous fabrics
 with all its components.
 In addition to that, we provide a set of tools to automate the generation of custom
 tiles and switch matrices, as well as basic integration in CAD tools.
@@ -103,7 +105,7 @@ The folder name, will be also used as the tile name.
 
 For the start, we create a new FABulous demo project and create the folder structure.
 We assume, that you have already installed FABulous and the needed dependencies,
-as described in the `Quick start`_ section.
+as described in the :ref:`Quick start` section.
 
 .. code-block:: console
 
@@ -116,8 +118,8 @@ Annotating the BEL
 ++++++++++++++++++
 
 FABulous requires a set of annotations in the BEL file to handle it correctly.
-The `primitives`_ section explains the basic FABulous annotations in detail.
-How to add and access bitstream bits in the BEL is described in the `BELmap`_ section.
+The :ref:`primitives` section explains the basic FABulous annotations in detail.
+How to add and access bitstream bits in the BEL is described in the :ref:`BELmap` section.
 
 In our case, we just need to annotate the `clk` port of our BEL with the
 SHARED_PORT and EXTERNAL.
@@ -232,7 +234,7 @@ Lets take a look into the `CRC5.csv`:
 It contains the standard tile information, includes the base routing .csv, which provides
 the standard tile interconnect information for the tiles, and the provided
 BEL file. If you want to add more BELs, duplicate a BEL, add a prefix or add additional
-routing, you can do it there, like described in the `fabric_definition`_ section.
+routing, you can do it there, like described in the :ref:`fabric_definition` section.
 
 Switch Matrix Generation
 ++++++++++++++++++++++++
@@ -440,7 +442,7 @@ Testing the Tile
 ++++++++++++++++
 
 To test our custom tile, we need to modify our current test setup.
-The current simulation setup is described in section `simulation_setup`_.
+The current simulation setup is described in section :ref:`simulation_setup`.
 
 Our current simulation setup uses a simple counter to test the fabric.
 You can find the testbench `sequential_16bit_en_tb.v` in the `Test` folder of your FABulous project.
