@@ -192,7 +192,7 @@ class VerilogWriter(codeGenerator):
 """
         self._add(template, indentLevel)
 
-    def addRegister(self, reg, regIn, clk="CLK", inverted=False, indentLevel=0):
+    def addRegister(self, reg, regIn, clk="UserCLK", inverted=False, indentLevel=0):
         inv = "~" if inverted else ""
         template = f"""
 reg {reg};

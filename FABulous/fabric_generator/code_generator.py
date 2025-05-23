@@ -524,7 +524,7 @@ class codeGenerator(abc.ABC):
         regIn : str
             The input signal of the register.
         clk : str, optional
-            The clock signal of the register. Defaults to "CLK".
+            The clock signal of the register. Defaults to "UserCLK".
         inverted : bool, optional
             Invert the input signal. Defaults to False.
         indentLevel : int, optional

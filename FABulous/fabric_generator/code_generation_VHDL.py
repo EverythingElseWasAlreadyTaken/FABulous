@@ -108,7 +108,7 @@ class VHDLWriter(codeGenerator):
     def addLogicEnd(self, indentLevel=0):
         self._add("\n" f"end" "\n", indentLevel)
 
-    def addRegister(self, reg, regIn, clk="CLK", inverted=False, indentLevel=0):
+    def addRegister(self, reg, regIn, clk="UserCLK", inverted=False, indentLevel=0):
         inv = "not " if inverted else ""
         template = f"""
 process({clk})
