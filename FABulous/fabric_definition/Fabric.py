@@ -11,6 +11,7 @@ from FABulous.fabric_definition.SuperTile import SuperTile
 from FABulous.fabric_definition.Bel import Bel
 from FABulous.fabric_definition.ConfigMem import ConfigMem
 
+from loguru import logger
 
 @dataclass
 class Fabric:
@@ -104,11 +105,15 @@ class Fabric:
                 if tile == None:
                     continue
                 for port in tile.portsInfo:
+                    # port is direct connected or a SUPER port:
                     if (
-                        abs(port.xOffset) <= 1
-                        and abs(port.yOffset) <= 1
-                        and port.sourceName != "NULL"
-                        and port.destinationName != "NULL"
+                        ( #  offset is 0 or 1
+                            abs(port.xOffset) <= 1
+                            and abs(port.yOffset) <= 1
+                            and port.sourceName != "NULL"
+                            and port.destinationName != "NULL"
+                        )
+                        or port.wireDirection == "SUPER"
                     ):
                         for i in range(port.wireCount):
                             tile.wireList.append(
@@ -124,6 +129,7 @@ class Fabric:
                             )
                     elif port.sourceName != "NULL" and port.destinationName != "NULL":
                         # clamp the xOffset to 1 or -1
+                        # unroll ports
                         value = min(max(port.xOffset, -1), 1)
                         cascadedI = 0
                         for i in range(port.wireCount * abs(port.xOffset)):
@@ -224,6 +230,16 @@ class Fabric:
                                     destinationTile=f"X{x+port.xOffset}Y{y+value}",
                                 )
                             )
+                    else:
+                        # We don't add the path sourceName = NULL and destinationName != NUll wires here,
+                        # since this is already added to the fabric as s source
+                        # path of the destination Tile!
+                        # But for SUPER wires, we could need these?
+                        # Or not, if we keep the concept of needing to add 
+                        # the retrun and back path.
+                        #
+                        continue
+
                 tile.wireList = list(dict.fromkeys(tile.wireList))
 
     def __repr__(self) -> str:

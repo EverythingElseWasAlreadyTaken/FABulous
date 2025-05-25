@@ -839,6 +839,17 @@ class FabricGenerator:
                 self.writer.addPortVector(p.name, p.inOut, wireSize, indentLevel=2)
                 self.writer.addComment(str(p), indentLevel=2, onNewLine=False)
 
+        # SUPER ports (not unrolled)
+        super_ports = tile.getAnySidePorts(Direction.SUPER)
+        if super_ports:
+            self.writer.addComment("SUPER ports", onNewLine=True)
+            for port in super_ports:
+                self.writer.addPortVector(
+                    port.name, port.inOut, port.wireCount - 1, indentLevel=2
+                )
+                self.writer.addComment(str(port), indentLevel=2, onNewLine=False)
+
+
         # now we have to scan all BELs if they use external pins, because they have to be exported to the tile entity
         externalPorts = []
         for i in tile.bels:
@@ -1474,7 +1485,6 @@ class FabricGenerator:
         for y, row in enumerate(superTile.tileMap):
             for x, tile in enumerate(row):
                 northInput, southInput, eastInput, westInput = [], [], [], []
-                outputSignalList = []
                 portsPairs = []
                 if tile == None:
                     continue
@@ -1780,10 +1790,7 @@ class FabricGenerator:
         # Tile instantiations
         for y, row in enumerate(self.fabric.tile):
             for x, tile in enumerate(row):
-                tilePortList: List[str] = []
-                tilePortsInfo: List[Tuple[List[Port], int, int]] = []
-                outputSignalList = []
-                tileLocationOffset: List[Tuple[int, int]] = []
+                tileLocationOffset: list[tuple[int, int]] = []
                 superTileLoc = []
                 superTile = None
                 if tile == None:
@@ -1801,6 +1808,9 @@ class FabricGenerator:
                         if tile.name in [i.name for i in v.tiles]:
                             superTile = self.fabric.superTileDic[k]
                             break
+                elif tile.getAnySidePorts(Direction.SUPER):
+                    logger.error(f"Tile {tile.name} is not part of a super tile, but has SUPER wires!")
+                    raise ValueError
 
                 if superTile:
                     portsAround = superTile.getPortsAroundTile()

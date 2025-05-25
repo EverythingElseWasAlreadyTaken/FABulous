@@ -14,6 +14,7 @@ class Direction(Enum):
     EAST = "EAST"
     WEST = "WEST"
     JUMP = "JUMP"
+    SUPER = "SUPER"
 
 
 class Side(Enum):

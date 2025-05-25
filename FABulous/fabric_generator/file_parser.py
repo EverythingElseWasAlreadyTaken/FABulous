@@ -24,7 +24,7 @@ from FABulous.fabric_definition.define import (
     MultiplexerStyle,
 )
 
-oppositeDic = {"NORTH": "SOUTH", "SOUTH": "NORTH", "EAST": "WEST", "WEST": "EAST"}
+oppositeDic = {"NORTH": "SOUTH", "SOUTH": "NORTH", "EAST": "WEST", "WEST": "EAST", "ANY":"ANY"}
 
 
 def parseFabricCSV(fileName: str) -> Fabric:
@@ -385,71 +385,109 @@ def parseList(
 
 
 def parsePortLine(line: str) -> tuple[list[Port], tuple[str, str] | None]:
-    ports = []
-    commonWirePair: tuple[str, str] | None
+    """
+    Parses a line from the tile configuration file and returns a list of ports and a common wire pair.
+
+    Parameters
+    ----------
+    line: str
+        line of the csv file
+
+    Returns
+    -------
+    list[Port]
+        Source and destination ports
+    tuple[str, str]
+        common wire pair
+
+    Raises
+    ------
+    ValueError
+        Port type is not valid
+    ValueError
+        Source and destination cannot both be NULL
+    ValueError
+        JUMP and SUPER ports cannot have any offset
+    ValueError
+        SUPER ports cannot have a source and a destination
+    """
+    ports: list[Port] = []
+    common_wire_pair: tuple[str, str] | None
     temp: list[str] = line.split(",")
-    if temp[0] in ["NORTH", "SOUTH", "EAST", "WEST"]:
-        ports.append(
-            Port(
-                Direction[temp[0]],
-                temp[1],
-                int(temp[2]),
-                int(temp[3]),
-                temp[4],
-                int(temp[5]),
-                temp[1],
-                IO.OUTPUT,
-                Side[temp[0]],
-            )
-        )
+    direction = temp[0]
+    source_name = temp[1]
+    x_offset = int(temp[2])
+    y_offset = int(temp[3])
+    destination_name = temp[4]
+    wire_count = int(temp[5])
+    destination_name = temp[4]
+    side_of_tile = temp[0]
 
-        ports.append(
-            Port(
-                Direction[temp[0]],
-                temp[1],
-                int(temp[2]),
-                int(temp[3]),
-                temp[4],
-                int(temp[5]),
-                temp[4],
-                IO.INPUT,
-                Side[oppositeDic[temp[0]].upper()],
-            )
-        )
-        commonWirePair = (f"{temp[1]}", f"{temp[4]}")
+    # check if the direction is valid
+    if direction not in [directions.value for directions in Direction]:
+        logger.error(f"Unknown port type: {temp[0]} in line {line}")
+        raise ValueError
 
-    elif temp[0] == "JUMP":
-        ports.append(
-            Port(
-                Direction.JUMP,
-                temp[1],
-                int(temp[2]),
-                int(temp[3]),
-                temp[4],
-                int(temp[5]),
-                temp[1],
-                IO.OUTPUT,
-                Side.ANY,
-            )
-        )
-        ports.append(
-            Port(
-                Direction.JUMP,
-                temp[1],
-                int(temp[2]),
-                int(temp[3]),
-                temp[4],
-                int(temp[5]),
-                temp[4],
-                IO.INPUT,
-                Side.ANY,
-            )
-        )
-        commonWirePair = None
+    if source_name == "NULL" and destination_name == "NULL":
+        logger.error("Source and destination cannot both be NULL.")
+        raise ValueError
+
+    # define sides of tiles
+    if direction in ["JUMP", "SUPER"]:
+        side_of_tile = "ANY"
     else:
-        logger.error(f"Unknown port type: {temp[0]}")
-        raise ValueError("Unknown port type.")
-    return (ports, commonWirePair)
+        side_of_tile = temp[0]
+
+    # define common wire pairs
+    if direction == "JUMP":
+        common_wire_pair = None
+    else:
+        common_wire_pair = (source_name, destination_name)
+
+    # check if JUMP wires have no offset and no NULL ports
+    if direction == "JUMP" and (x_offset != 0 or y_offset != 0):
+        logger.error(
+            f"JUMP ports cannot have any offset. {line} is invalid."
+        )
+        raise ValueError
+
+    if direction == "SUPER" and "NULL" not in [source_name, destination_name]:
+        logger.error(
+            f"SUPER ports cannot have a source and a destination, one port hast to be NULL. {line} is invalid."
+        )
+        raise ValueError
+
+    # Add source port
+    ports.append(
+        Port(
+            Direction[direction],
+            source_name,
+            x_offset,
+            y_offset,
+            destination_name,
+            wire_count,
+            source_name,
+            IO.OUTPUT,
+            Side[side_of_tile],
+        )
+    )
+
+    # Add destination port
+    ports.append(
+        Port(
+            Direction[direction],
+            source_name,
+            x_offset,
+            y_offset,
+            destination_name,
+            wire_count,
+            destination_name,
+            IO.INPUT,
+            Side[oppositeDic[side_of_tile]],
+        )
+    )
+
+    return (ports, common_wire_pair)
 
 
 def parseTiles(fileName: Path) -> tuple[list[Tile], list[tuple[str, str]]]:
@@ -504,7 +542,7 @@ def parseTiles(fileName: Path) -> tuple[list[Tile], list[tuple[str, str]]]:
             temp: list[str] = item.split(",")
             if not temp or temp[0] == "":
                 continue
-            if temp[0] in ["NORTH", "SOUTH", "EAST", "WEST", "JUMP"]:
+            if temp[0] in ["NORTH", "SOUTH", "EAST", "WEST", "JUMP", "SUPER"]:
                 port, commonWirePair = parsePortLine(item)
                 if "CARRY" in temp[6]:
                     # For prefix after carry
@@ -722,6 +760,7 @@ def parseSupertiles(fileName: Path, tileDic: dict[str, Tile]) -> list[SuperTile]
             row = []
 
             if line[0] == "BEL":
+                logger.warning("BEL is currently not supported in supertile.")
                 belFilePath = filePath.joinpath(line[1])
                 if line[1].endswith(".vhdl"):
                     bels.append(parseBelFile(belFilePath, line[2], "vhdl"))

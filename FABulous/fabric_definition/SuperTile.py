@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from FABulous.fabric_definition.Tile import Tile
 from FABulous.fabric_definition.Port import Port
 from FABulous.fabric_definition.Bel import Bel
+from FABulous.fabric_definition.define import Direction
 
 
 @dataclass
@@ -75,4 +76,22 @@ class SuperTile:
                     internalConnections.append((tile.getSouthSidePorts(), x, y))
                 if 0 <= x - 1 < len(self.tileMap[0]) and self.tileMap[y][x - 1] != None:
                     internalConnections.append((tile.getWestSidePorts(), x, y))
+                if tile.getAnySidePorts(Direction.SUPER) != None:
+                    internalConnections.append((tile.getAnySidePorts(Direction.SUPER), x, y))
         return internalConnections
+
+    def getSuperPorts(self) -> list[Port]:
+        """Return a list of all SUPER wires of the super tile.
+
+        Returns
+        -------
+        list: Port
+            List of all SUPER ports of all tiles in the super tile
+        """
+        super_ports: list[Port] = []
+
+        for tile in self.tiles:
+            super_ports.append(tile.getAnyPorts(Direction.SUPER))
+        return super_ports
+
+

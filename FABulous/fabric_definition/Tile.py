@@ -88,6 +88,11 @@ class Tile:
             p for p in self.portsInfo if p.sideOfTile == Side.SOUTH and p.name != "NULL"
         ]
 
+    def getAnySidePorts(self, direction: Direction) -> list[Port]:
+        return [
+            p for p in self.portsInfo if p.sideOfTile == Side.ANY and p.wireDirection == direction and p.name != "NULL"
+        ]
+
     def getNorthPorts(self, io: IO) -> list[Port]:
         return [
             p
@@ -115,6 +120,14 @@ class Tile:
             for p in self.portsInfo
             if p.wireDirection == Direction.WEST and p.name != "NULL" and p.inOut == io
         ]
+
+    def getSuperPorts(self, io: IO) -> list[Port]:
+        return [
+            p
+            for p in self.portsInfo
+            if p.wireDirection == Direction.SUPER and p.name != "NULL" and p.inOut == io
+        ]
+
 
     def getTileInputNames(self) -> list[str]:
         return [
