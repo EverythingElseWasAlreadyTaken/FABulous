@@ -631,6 +631,7 @@ class FABulous_CLI(Cmd):
         Does this by calling the respective functions 'do_gen_[function]'.
         """
         logger.info("Running FABulous")
+        self.do_gen_io_fabric()
         self.do_gen_fabric()
         self.do_gen_bitStream_spec()
         self.do_gen_top_wrapper()
@@ -1030,3 +1031,15 @@ class FABulous_CLI(Cmd):
 
         if not args.no_switch_matrix:
             parseTiles(tile_csv)
+
+    @with_category(CMD_FABRIC_FLOW)
+    @with_argparser(tile_list_parser)
+    def do_gen_io_tiles(self, args):
+        if args.tiles:
+            for tile in args.tiles:
+                self.fabulousAPI.genIOBelForTile(tile)
+
+    @with_category(CMD_FABRIC_FLOW)
+    @allow_blank
+    def do_gen_io_fabric(self, args):
+        self.fabulousAPI.genFabricIOBels()
