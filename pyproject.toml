@@ -149,3 +149,18 @@ clean-all = "find . -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null ||
 # Provide flags after first '--'.
 
 test = "uv run scripts/run_tests.py"
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.0"
+tag_format = "v$version"
+version_files = [
+    "pyproject.toml:version"
+]
+update_changelog_on_bump = true
+
+# Commit message format enforcement
+# Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+# Example: feat(fabric): add new tile type support
+# Example: fix(parser): handle edge case in CSV parsing
+# Example: docs: update installation instructions
