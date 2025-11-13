@@ -59,6 +59,7 @@ class FABulousSettings(BaseSettings):
     debug: bool = False
     verbose: int = 0
     editor: str | None = None
+    default_editor: str | None = None
 
     @field_validator("proj_version", "proj_version_created", "version", mode="before")
     @classmethod
@@ -399,6 +400,35 @@ def reset_context() -> None:
     logger.debug("FABulous context reset")
 
 
+def get_global_env_file(create_if_missing: bool = True) -> Path:
+    """Get the path to the global .env file.
+
+    Parameters
+    ----------
+    create_if_missing : bool, optional
+        If True, create the .env file and parent directory if they don't exist.
+        Default is True.
+
+    Returns
+    -------
+    Path
+        Path to the global .env file.
+    """
+    user_config_dir = FAB_USER_CONFIG_DIR
+
+    if create_if_missing and not user_config_dir.exists():
+        logger.info(f"Creating user config directory at {user_config_dir}")
+        user_config_dir.mkdir(parents=True, exist_ok=True)
+
+    env_file = user_config_dir / ".env"
+
+    if create_if_missing and not env_file.exists():
+        logger.info(f"Creating global .env file at {env_file}")
+        env_file.touch()
+
+    return env_file
+
+
 def add_var_to_global_env(key: str, value: str) -> None:
     """Add or update a key-value pair to the global .env file.
 
@@ -409,14 +439,5 @@ def add_var_to_global_env(key: str, value: str) -> None:
     value: str
         The value to set for the environment variable.
     """
-    # Use user config directory for global .env file
-    user_config_dir = FAB_USER_CONFIG_DIR
-
-    if not user_config_dir.exists():
-        logger.info(f"Creating user config directory at {user_config_dir}")
-        user_config_dir.mkdir(parents=True, exist_ok=True)
-
-    env_file = user_config_dir / ".env"
-    if not env_file.exists():
-        env_file.touch()
+    env_file = get_global_env_file(create_if_missing=True)
     set_key(env_file, key, value)

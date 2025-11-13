@@ -29,6 +29,7 @@ The following global environment variables are available:
 | FAB_DEBUG          | Enable debug mode                               | False                                                                      |
 | FAB_VERBOSE        | Enable verbose mode                             | 0                                                                          |
 | FAB_EDITOR         | Set the editor to be used by the `edit` command | \<None>                                                                    |
+| FAB_DEFAULT_EDITOR | Set the default editor for the `config` command | Uses VISUAL, EDITOR, or falls back to nano                                 |
 
 ## Project Specific Environment Variables
 

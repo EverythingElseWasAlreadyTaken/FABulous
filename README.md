@@ -200,6 +200,22 @@ To run a simulation of a test bitstream on the design with Icarus Verilog:
 The tool also supports using TCL script to drive the build process. Assuming you have created a demo project using
 `(venv)$ FABulous -c demo`, you can call `(venv)$ FABulous demo -s ./demo/FABulous.tcl` to run the demo flow with the TCL interface.
 
+### Configuration Management
+
+You can edit the global FABulous configuration file using:
+
+```bash
+(venv)$ FABulous config
+```
+
+This opens the global `.env` file in your preferred editor. The editor is determined by (in order):
+1. `FAB_DEFAULT_EDITOR` environment variable
+2. `VISUAL` environment variable
+3. `EDITOR` environment variable
+4. Falls back to `nano` if none are set
+
+If the configuration file doesn't exist, it will be created automatically.
+
 ### Using uv (optional)
 
 If you have [uv](https://github.com/astral-sh/uv) installed (see Prerequisites section), you can use it for faster dependency management and automatic virtual environment handling:

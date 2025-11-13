@@ -358,6 +358,57 @@ def update_project_version_cmd() -> None:
     logger.info("Project version updated successfully")
 
 
+@app.command("config")
+def config_cmd() -> None:
+    """Open the global FABulous configuration file in an editor.
+
+    This command opens the global .env file located in the
+    FABulous user config directory.
+    The editor is determined by (in order):
+    1. FAB_DEFAULT_EDITOR environment variable
+    2. VISUAL environment variable
+    3. EDITOR environment variable
+    4. Falls back to 'nano' if none are set
+    """
+    import os
+    import shutil
+    import subprocess
+
+    from FABulous.FABulous_settings import get_global_env_file
+
+    # Get or create the global .env file
+    env_file = get_global_env_file(create_if_missing=True)
+
+    # Determine which editor to use
+    editor = (
+        os.getenv("FAB_DEFAULT_EDITOR")
+        or os.getenv("VISUAL")
+        or os.getenv("EDITOR")
+        or "nano"
+    )
+
+    # Check if the editor exists
+    if not shutil.which(editor):
+        logger.error(
+            f"Editor '{editor}' not found. Please set FAB_DEFAULT_EDITOR, "
+            "VISUAL, or EDITOR to a valid editor command."
+        )
+        raise typer.Exit(1)
+
+    logger.info(f"Opening global .env file: {env_file}")
+    logger.info(f"Using editor: {editor}")
+
+    try:
+        subprocess.run([editor, str(env_file)], check=True)
+        logger.info("Configuration file closed.")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to open editor: {e}")
+        raise typer.Exit(1) from None
+    except KeyboardInterrupt:
+        logger.info("Editor interrupted by user.")
+        raise typer.Exit(0) from None
+
+
 @app.command("script")
 def script_cmd(
     script_file: Annotated[
