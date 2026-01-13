@@ -441,7 +441,17 @@ class FABulous_CLI(Cmd):
         ]
         tileByFabric = list(self.fabulousAPI.fabric.tileDic.keys())
         superTileByFabric = list(self.fabulousAPI.fabric.superTileDic.keys())
+        # This means, that we require that the tile name is similar to the tile folder
+        # do we really want this?
+        # It seems we want...
         self.allTile = list(set(tileByPath) & set(tileByFabric + superTileByFabric))
+
+        if not self.allTile:
+            logger.error(
+                "No tiles found in the project directory that match the tiles defined "
+                "in the fabric."
+            )
+            raise ValueError
 
         proj_dir = get_context().proj_dir
         if (proj_dir / "eFPGA_geometry.csv").exists():

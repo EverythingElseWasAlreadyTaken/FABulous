@@ -8,6 +8,7 @@ venv
 oss-cad-suite
 .ltex
 docker-image
+test_frame_data
 
 # Documentation build artifacts (auto-generated in CI)
 docs/build/
