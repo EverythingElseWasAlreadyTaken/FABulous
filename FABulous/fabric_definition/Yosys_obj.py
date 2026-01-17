@@ -395,7 +395,7 @@ class YosysJson:
             If no top module is found in the design.
         """
         for name, module in self.modules.items():
-            if "top" in module.attributes:
+            if "top" in module.attributes or "blackbox" in module.attributes:
                 return name, module
         raise ValueError("No top module found in Yosys JSON")
 
