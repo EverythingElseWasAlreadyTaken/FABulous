@@ -37,6 +37,7 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
         The bits stream specification of the fabric.
     """
     specData = {
+        "legacy": True,
         "TileMap": {},
         "TileSpecs": {},
         "TileSpecs_No_Mask": {},
@@ -58,6 +59,14 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
 
     specData["TileMap"] = tileMap
     configMemList: list[ConfigMem] = []
+
+    # TODO: Temporary fix for legacy support
+    for t in fabric.tile[0] + fabric.tile[-1]:
+        if t is None:
+            continue
+        if t.globalConfigBits > 0:
+            specData["legacy"] = False
+
     for y, row in enumerate(fabric.tile):
         for x, tile in enumerate(row):
             if tile is None:
