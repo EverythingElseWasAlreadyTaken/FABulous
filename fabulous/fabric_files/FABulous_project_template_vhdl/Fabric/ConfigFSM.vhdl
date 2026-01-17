@@ -87,13 +87,13 @@ begin
                   state <= "00";
                 else
                   FrameAddressRegister_Reg <= WriteData;
-                  FrameShiftState <= to_unsigned(NumberOfRows,FrameShiftState'length);
+                  FrameShiftState <= to_unsigned(NumberOfRows - 1,FrameShiftState'length);
                   state <= "10";
                 end if;
               end if;
             when "10" =>
               if WriteStrobe = '1' then
-                FrameShiftState <= FrameShiftState - "00001";
+                FrameShiftState <= FrameShiftState - "00000";
                 if Resize(FrameShiftState, 32) = X"00000001" then
                   FrameStrobe <= '1';
                   state <= "01";
