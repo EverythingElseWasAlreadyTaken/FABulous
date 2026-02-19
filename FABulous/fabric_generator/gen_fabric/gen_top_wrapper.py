@@ -164,10 +164,10 @@ def generateTopWrapper(writer: CodeGenerator, fabric: Fabric) -> None:
     if "RAM2FAB_D_I" in portGroups and fabric.numberOfBRAMs > 0:
         writer.addComment("BlockRAM ports", onNewLine=True)
         writer.addNewLine()
-        writer.addConnectionVector("RAM2FAB_D_I", f"{(numberOfRows -2) * 4 * 4}-1")
-        writer.addConnectionVector("FAB2RAM_D_O", f"{(numberOfRows -2) * 4 * 4}-1")
-        writer.addConnectionVector("FAB2RAM_A_O", f"{(numberOfRows -2) * 4 * 2}-1")
-        writer.addConnectionVector("FAB2RAM_C_O", f"{(numberOfRows -2) * 4}-1")
+        writer.addConnectionVector("RAM2FAB_D_I", f"{(numberOfRows - 2) * 4 * 4}-1")
+        writer.addConnectionVector("FAB2RAM_D_O", f"{(numberOfRows - 2) * 4 * 4}-1")
+        writer.addConnectionVector("FAB2RAM_A_O", f"{(numberOfRows - 2) * 4 * 2}-1")
+        writer.addConnectionVector("FAB2RAM_C_O", f"{(numberOfRows - 2) * 4}-1")
 
     writer.addNewLine()
     writer.addComment("Signal declarations", onNewLine=True)
@@ -322,9 +322,9 @@ def generateTopWrapper(writer: CodeGenerator, fabric: Fabric) -> None:
 
     # the BRAM module
     if "RAM2FAB_D_I" in portGroups and fabric.numberOfBRAMs > 0:
-        data_cap = int(((numberOfRows-2) * 4 * 4) / (fabric.numberOfBRAMs - 1))
-        addr_cap = int(((numberOfRows-2) * 4 * 2) / (fabric.numberOfBRAMs - 1))
-        config_cap = int(((numberOfRows-2) * 4) / (fabric.numberOfBRAMs - 1))
+        data_cap = int(((numberOfRows - 2) * 4 * 4) / (fabric.numberOfBRAMs - 1))
+        addr_cap = int(((numberOfRows - 2) * 4 * 2) / (fabric.numberOfBRAMs - 1))
+        config_cap = int(((numberOfRows - 2) * 4) / (fabric.numberOfBRAMs - 1))
         for i in range(fabric.numberOfBRAMs - 1):
             portsPairs = [
                 ("clk", "CLK"),

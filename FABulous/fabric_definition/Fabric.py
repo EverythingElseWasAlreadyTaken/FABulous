@@ -87,7 +87,9 @@ class Fabric:
     configBitMode: ConfigBitMode = ConfigBitMode.FRAME_BASED
     frameBitsPerRow: int = 32
     # maxFramesPerCol: int = 20
-    maxFramesPerCol: int = 32 # FIXME: temporary change to 32 for testing larger designs
+    maxFramesPerCol: int = (
+        32  # FIXME: temporary change to 32 for testing larger designs
+    )
     package: str = "use work.my_package.all"
     generateDelayInSwitchMatrix: int = 80
     multiplexerStyle: MultiplexerStyle = MultiplexerStyle.CUSTOM
@@ -215,7 +217,7 @@ class Fabric:
                         # if sourcename is not in a common pair wire we assume
                         # the source name is the same as destination name
                         # REMEMEBER THIS!!!!! WE NEED TO ADJUST EXT WIRES!!!!!!
-                       # we can maybe ignore since this is for supertiles, and we are like the term tiles 
+                        # we can maybe ignore since this is for supertiles, and we are like the term tiles
                         wire_pair = dict(self.commonWirePair)
                         if sourceName in wire_pair:
                             destName = wire_pair[sourceName]

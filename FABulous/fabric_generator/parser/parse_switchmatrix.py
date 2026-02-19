@@ -9,8 +9,6 @@ import re
 from pathlib import Path
 from typing import Literal, overload
 
-from loguru import logger
-
 from FABulous.custom_exception import (
     InvalidListFileDefinition,
     InvalidPortType,
