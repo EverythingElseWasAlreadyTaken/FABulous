@@ -319,6 +319,14 @@ def parseBelFile(
             "config bits"
         )
 
+    portDetails = {
+        port_name: {
+            "direction": direction.value.lower(),
+            "width": len(bits),
+        }
+        for port_name, (direction, bits) in filtered_ports.items()
+    }
+
     return Bel(
         src=filename,
         prefix=belPrefix,
@@ -333,4 +341,5 @@ def parseBelFile(
         ports_vectors=ports_vectors,
         carry=carry,
         localShared=localSharedPorts,
+        portDetails=portDetails,
     )

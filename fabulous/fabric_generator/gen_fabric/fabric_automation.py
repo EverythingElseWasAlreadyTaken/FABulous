@@ -1,6 +1,5 @@
 """Functions for fabric automation, such as generating tile configurations and IOs."""
 
-import json
 import math
 from importlib import resources
 from pathlib import Path
@@ -453,28 +452,19 @@ def addBelsToPrim(
             external_ports = external_inputs + external_outputs
 
             if support_vectors:
-                # Find all ports with their directions
-                # need to parse the json file again, since port width
-                # is not known in BEL object
-                with bel.src.with_suffix(".json").open() as f:
-                    bel_dict = json.load(f)
-                module_ports = bel_dict["modules"][bel.module_name]["ports"]
+                module_ports = bel.portDetails.copy()
 
                 # UserCLK needs to be renamed, otherwise yosys can't map the CLK
-                if module_ports["UserCLK"]:
-                    module_ports["CLK"] = module_ports["UserCLK"]
-                    del module_ports["UserCLK"]
-                # ConfigBits are not needed in the prims file
-                if "ConfigBits" in module_ports:
-                    del module_ports["ConfigBits"]
+                if "UserCLK" in module_ports:
+                    module_ports["CLK"] = module_ports.pop("UserCLK")
 
                 ports_dict = {}
                 for port_name, details in module_ports.items():
                     if details["direction"] not in ports_dict:
                         ports_dict[details["direction"]] = []
-                    if len(details["bits"]) > 1:
+                    if details["width"] > 1:
                         ports_dict[details["direction"]].append(
-                            f"[{len(details['bits']) - 1}:0] {port_name}"
+                            f"[{details['width'] - 1}:0] {port_name}"
                         )
                     else:
                         ports_dict[details["direction"]].append(port_name)

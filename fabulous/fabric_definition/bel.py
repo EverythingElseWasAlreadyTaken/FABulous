@@ -54,6 +54,10 @@ class Bel:
         Carry chains by name.
     localShared : dict[str, tuple[str, IO]]
         Local shared ports of the BEL.
+    portDetails : dict[str, dict[str, object]] | None, optional
+        Raw port details from the yosys netlist, keyed by port name.
+        Each value has ``"direction"`` (``"input"``, ``"output"``, or ``"inout"``)
+        and ``"width"`` (int). ConfigBits are excluded. Defaults to empty dict.
 
     Attributes
     ----------
@@ -99,6 +103,10 @@ class Bel:
         {RESET/ENABLE,(portname, IO)}
         Local shared ports of the BEL.
         Are only shared in the Tile, not in the fabric.
+    portDetails : dict[str, dict[str, object]]
+        Raw port details from the yosys netlist, keyed by port name.
+        Each value has "direction" (input/output/inout) and "width" (int bits).
+        ConfigBits are excluded. Defaults to empty dict.
 
     Raises
     ------
@@ -124,6 +132,7 @@ class Bel:
     ports_vectors: dict[str, dict[str, tuple[IO, int]]] = field(default_factory=dict)
     carry: dict[str, dict[IO, str]] = field(default_factory=dict)
     localShared: dict[str, tuple[str, IO]] = field(default_factory=dict)
+    portDetails: dict[str, dict[str, object]] = field(default_factory=dict)
 
     def __init__(
         self,
@@ -140,6 +149,7 @@ class Bel:
         ports_vectors: dict[str, dict[str, tuple[IO, int]]],
         carry: dict[str, dict[IO, str]],
         localShared: dict[str, tuple[str, IO]],
+        portDetails: dict[str, dict[str, object]] | None = None,
     ) -> None:
         self.src = src
         self.prefix = prefix
@@ -165,3 +175,4 @@ class Bel:
             raise ValueError(f"Unknown file type {self.src.suffix} for BEL {self.src}")
         self.carry = carry
         self.localShared = localShared
+        self.portDetails = portDetails if portDetails is not None else {}
