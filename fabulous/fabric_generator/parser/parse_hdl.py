@@ -64,6 +64,11 @@ def belMapProcessing(module_info: YosysModule) -> dict:
         "cells_not_processed",
         "src",
         "top",
+        # Port-level signal attributes from older GHDL plugins that may
+        # leak into module attributes as string values
+        "GLOBAL",
+        "EXTERNAL",
+        "SHARED_PORT",
     }
 
     # Second pass: convert keys to appropriate format
