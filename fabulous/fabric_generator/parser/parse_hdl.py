@@ -33,12 +33,25 @@ def belMapProcessing(module_info: YosysModule) -> dict:
     """
     belMapDic = {}
 
-    # update attributes to remove the fab_attr_ prefix, ignoring case
-    fab_attrs = [key for key in module_info.attributes if "fab_attr_" in key.casefold()]
-    for key in fab_attrs:
-        attr = module_info.attributes.pop(key)
-        key = re.sub(r"fab_attr_", "", key, flags=re.IGNORECASE)
-        module_info.attributes[key] = attr
+    # Old GHDL versions prefix all user VHDL attributes with fab_attr_.
+    # The GHDL yosys plugin preserves original names. Detect which mode
+    # we are in: if any user attribute appears unprefixed, skip stripping.
+    yosys_meta_attrs = {"top", "src", "cells_not_processed", "dynports"}
+    has_unprefixed_user_attrs = any(
+        k.casefold() not in yosys_meta_attrs
+        and not k.casefold().startswith("fab_attr_")
+        for k in module_info.attributes
+    )
+    if not has_unprefixed_user_attrs:
+        fab_attrs = [
+            key
+            for key in module_info.attributes
+            if key.casefold().startswith("fab_attr_")
+        ]
+        for key in fab_attrs:
+            attr = module_info.attributes.pop(key)
+            key = re.sub(r"^fab_attr_", "", key, flags=re.IGNORECASE)
+            module_info.attributes[key] = attr
 
     # if BelMap not present defaults belMapDic to {}
     if "belmap" not in (attr.casefold() for attr in module_info.attributes):

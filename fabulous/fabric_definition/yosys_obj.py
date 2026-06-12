@@ -345,11 +345,10 @@ class YosysJson:
                     f"Module {module_name} not found in Yosys JSON for {self.srcPath}"
                 )
 
-            if r := re.search(r"\(\*.*?BelMap(.*?) \*\)", vhdl_content):
-                res = r.group(1).split(",")
-                res = [x.strip() for x in res]
-                res = [x for x in res if x]  # Remove empty strings
-                res = dict(x.split("=", 1) for x in res)
+            if r := re.search(r"\(\*.*?BelMap\b(.*?) \*\)", vhdl_content, re.DOTALL):
+                raw = r.group(1)
+                pairs = re.findall(r"(\w+)\s*=\s*(\d+)", raw)
+                res = {key: int(value) for key, value in pairs}
                 # FIXME: This is a workaround for the VHDL parser until GHDL
                 # fixes the issue that all attributes are converted to lowercase.
                 # https://github.com/ghdl/ghdl/issues/3067
