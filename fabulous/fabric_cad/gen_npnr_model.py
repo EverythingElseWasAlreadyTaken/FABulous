@@ -10,7 +10,10 @@ placement and routing for user designs.
 """
 
 import string
+from functools import cache
 from pathlib import Path
+
+from jinja2 import Environment, PackageLoader, StrictUndefined
 
 from fabulous.custom_exception import InvalidState
 from fabulous.fabric_cad.timing_model.FABulous_timing_model_interface import (
@@ -18,6 +21,30 @@ from fabulous.fabric_cad.timing_model.FABulous_timing_model_interface import (
 )
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.fabric import Fabric
+
+
+@cache
+def _npnr_template_env() -> Environment:
+    """Return the cached Jinja environment for nextpnr model templates.
+
+    Templates live in the ``fabulous/template`` package directory. Mirrors
+    `fabulous.tools.tool`'s environment but with ``keep_trailing_newline=False``:
+    each template renders one line/block and the module joins them, so a kept
+    trailing newline would break the byte-exact output contract.
+
+    Returns
+    -------
+    Environment
+        The cached Jinja environment.
+    """
+    return Environment(
+        loader=PackageLoader("fabulous", "template"),
+        undefined=StrictUndefined,
+        trim_blocks=True,
+        lstrip_blocks=True,
+        keep_trailing_newline=False,
+    )
+
 
 # Dummy BEL timing values (ns), mirroring nextpnr's historical hardcoded
 # constants (fabulous.cc, update_cell_timing).
@@ -44,37 +71,73 @@ CARRY_PREDICT_DELAY = 0.5
 # Arbitrary placeholder pip delay used when no delay_model is supplied.
 DUMMY_PIP_DELAY = 8
 
+
+def _build_timing_arcs(cType: str, inputs: list[str], outputs: list[str]) -> list[str]:
+    """Return the bel.v3 timing-arc lines for a BEL type (empty if untimed).
+
+    Only the BEL types nextpnr times get arcs: ``FABULOUS_LC`` and the
+    ``In/OutPass4_frame_config`` families. The arc set and ordering reproduce
+    nextpnr's historical hardcoded constants.
+
+    Parameters
+    ----------
+    cType : str
+        The nextpnr cell type (``FABULOUS_LC`` for LUT4c bels).
+    inputs : list[str]
+        Prefix-stripped input port names.
+    outputs : list[str]
+        Prefix-stripped output port names.
+
+    Returns
+    -------
+    list[str]
+        The timing-arc lines, in emission order.
+    """
+    # Port selection stays in Python; the template owns the arc line shapes.
+    rendered = (
+        _npnr_template_env()
+        .get_template("npnr_timing_arcs.j2")
+        .render(
+            cType=cType,
+            in_ports=[p for p in inputs if p.startswith("I") and p[1:].isdigit()],
+            out_ports=[p for p in outputs if p.startswith("O") and p[1:].isdigit()],
+            lut_delay=LUT_DELAY,
+            carry_cico_delay=CARRY_CICO_DELAY,
+            carry_i_delay=CARRY_I_DELAY,
+            ff_setup=FF_SETUP,
+            ff_hold=FF_HOLD,
+            ff_clk_to_q=FF_CLK_TO_Q,
+            io_setup=IO_SETUP,
+            io_hold=IO_HOLD,
+            io_clk_to_out=IO_CLK_TO_OUT,
+        )
+        .strip("\n")
+    )
+    return rendered.split("\n") if rendered else []
+
+
 # Representative FABULOUS_LC timing arcs for nextpnr's placement estimate.
 # Static while every LC instance shares these constants (I0-I3 LUT4); a real
 # per-instance timing model would regenerate this.
-_LC_LUT_INPUTS = ("I0", "I1", "I2", "I3")
-LC_ESTIMATE_LINES: list[str] = [
-    "Clock,CLK,FF=1",
-    *[f"Delay,{p},O,{LUT_DELAY},FF=0" for p in _LC_LUT_INPUTS],
-    f"Delay,Ci,O,{LUT_DELAY},FF=0&I0MUX=1",
-    f"Delay,Ci,Co,{CARRY_CICO_DELAY},Ci/Co?",
-    f"Delay,I1,Co,{CARRY_I_DELAY},Ci/Co?",
-    f"Delay,I2,Co,{CARRY_I_DELAY},Ci/Co?",
-    *[f"SetupHold,{p},CLK,{FF_SETUP},{FF_HOLD},FF=1" for p in _LC_LUT_INPUTS],
-    f"SetupHold,Ci,CLK,{FF_SETUP},{FF_HOLD},FF=1&I0MUX=1",
-    f"ClkToOut,Q,CLK,{FF_CLK_TO_Q},FF=1",
-]
+LC_ESTIMATE_LINES: list[str] = _build_timing_arcs(
+    "FABULOUS_LC", ["I0", "I1", "I2", "I3"], []
+)
 
 # Full static placement_estimate.txt content: nextpnr placer/router tunables
 # plus the representative FABULOUS_LC estimate. All values reproduce nextpnr's
-# historical hardcoded defaults, so P&R behaviour is unchanged.
+# historical hardcoded defaults, so P&R behaviour is unchanged. The template
+# emits exactly one trailing newline.
 PLACEMENT_ESTIMATE_TEXT: str = (
-    "\n".join(
-        [
-            f"delayScale={BASE_DELAY_DEFAULT}",
-            f"delayOffset={BASE_DELAY_DEFAULT}",
-            f"delayEpsilon={DELAY_EPSILON}",
-            f"ripupPenalty={RIPUP_PENALTY}",
-            f"carryPredictDelay={CARRY_PREDICT_DELAY}",
-            *LC_ESTIMATE_LINES,
-        ]
+    _npnr_template_env()
+    .get_template("placement_estimate.j2")
+    .render(
+        delayScale=BASE_DELAY_DEFAULT,
+        delayOffset=BASE_DELAY_DEFAULT,
+        delayEpsilon=DELAY_EPSILON,
+        ripupPenalty=RIPUP_PENALTY,
+        carryPredictDelay=CARRY_PREDICT_DELAY,
+        lc_estimate_lines=LC_ESTIMATE_LINES,
     )
-    + "\n"
 )
 
 # BEL types whose ports are exposed as fabric pins in the per-tile
@@ -118,56 +181,47 @@ def belLines(
     cType = bel.name
     if bel.name in ("LUT4c_frame_config", "LUT4c_frame_config_dffesr"):
         cType = "FABULOUS_LC"
-    v1_line = (
-        f"X{x}Y{y},X{x},Y{y},{letter},{cType},{','.join(bel.inputs + bel.outputs)}"
-    )
     inputs = [p.removeprefix(bel.prefix) for p in bel.inputs]
     outputs = [p.removeprefix(bel.prefix) for p in bel.outputs]
 
+    env = _npnr_template_env()
+    v1_line = env.get_template("npnr_bel_v1.j2").render(
+        x=x, y=y, letter=letter, cType=cType, ports=bel.inputs + bel.outputs
+    )
+
+    inports = [
+        {"raw": raw, "stripped": stripped}
+        for raw, stripped in zip(bel.inputs, inputs, strict=True)
+    ]
+    outports = [
+        {"raw": raw, "stripped": stripped}
+        for raw, stripped in zip(bel.outputs, outputs, strict=True)
+    ]
+    features = [feat for feat, _cfg in sorted(bel.belFeatureMap.items())]
+
     def block(timing: bool) -> list[str]:
-        lines = [f"BelBegin,X{x}Y{y},{letter},{cType},{bel.prefix}"]
-        for inp, stripped in zip(bel.inputs, inputs, strict=True):
-            lines.append(f"I,{stripped},X{x}Y{y}.{inp}")
-        for outp, stripped in zip(bel.outputs, outputs, strict=True):
-            lines.append(f"O,{stripped},X{x}Y{y}.{outp}")
-        for feat, _cfg in sorted(bel.belFeatureMap.items(), key=lambda x: x[0]):
-            lines.append(f"CFG,{feat}")
-        if timing and cType == "FABULOUS_LC":
-            lutInputs = [p for p in inputs if p.startswith("I") and p[1:].isdigit()]
-            lines.append("Clock,CLK,FF=1")
-            # Combinational (LUT) mode: active when the FF is disabled.
-            for p in lutInputs:
-                lines.append(f"Delay,{p},O,{LUT_DELAY},FF=0")
-            lines.append(f"Delay,Ci,O,{LUT_DELAY},FF=0&I0MUX=1")
-            # Carry chain: active when carry-in or carry-out is connected.
-            lines.append(f"Delay,Ci,Co,{CARRY_CICO_DELAY},Ci/Co?")
-            lines.append(f"Delay,I1,Co,{CARRY_I_DELAY},Ci/Co?")
-            lines.append(f"Delay,I2,Co,{CARRY_I_DELAY},Ci/Co?")
-            # Registered (FF) mode.
-            for p in lutInputs:
-                lines.append(f"SetupHold,{p},CLK,{FF_SETUP},{FF_HOLD},FF=1")
-            lines.append(f"SetupHold,Ci,CLK,{FF_SETUP},{FF_HOLD},FF=1&I0MUX=1")
-            # Q is the cell's renamed FF output (pack.cc renames O -> Q when
-            # used); clock-to-Q is BEL-internal, not derivable from pip delay.
-            lines.append(f"ClkToOut,Q,CLK,{FF_CLK_TO_Q},FF=1")
-        elif timing and cType.startswith("OutPass4_frame_config"):
-            for p in inputs:
-                if p.startswith("I") and p[1:].isdigit():
-                    lines.append(f"SetupHold,{p},CLK,{IO_SETUP},{IO_HOLD}")
-        elif timing and cType.startswith("InPass4_frame_config"):
-            for p in outputs:
-                if p.startswith("O") and p[1:].isdigit():
-                    lines.append(f"ClkToOut,{p},CLK,{IO_CLK_TO_OUT}")
-        if bel.withUserCLK:
-            lines.append("GlobalClk")
-        lines.append("BelEnd")
-        return lines
+        # Business logic (which arcs apply) stays in Python; the template only
+        # emits the resulting line list. Split back to lines so the caller keeps
+        # extending list[str] and the reference line-diff is unchanged.
+        rendered = env.get_template("npnr_bel_block.j2").render(
+            x=x,
+            y=y,
+            letter=letter,
+            cType=cType,
+            prefix=bel.prefix,
+            inports=inports,
+            outports=outports,
+            features=features,
+            timing_arcs=_build_timing_arcs(cType, inputs, outputs) if timing else [],
+            withUserCLK=bel.withUserCLK,
+        )
+        return rendered.split("\n")
 
     v2_lines = block(timing=False)
     v3_lines = block(timing=True)
 
     constrain_lines = (
-        [f"set_io Tile_X{x}Y{y}_{letter} Tile_X{x}Y{y}.{letter}"]
+        [env.get_template("npnr_pcf.j2").render(x=x, y=y, letter=letter)]
         if bel.name in IO_BEL_TYPES
         else []
     )
@@ -201,39 +255,33 @@ def genNextpnrModel(
     InvalidState
         If a wire in a tile points to an invalid tile outside the fabric bounds.
     """
-    pipStr = []
-    belStr = []
-    belv2Str = []
-    belv3Str = []
-    belStr.append(
-        f"# BEL descriptions: top left corner Tile_X0Y0,"
-        f" bottom right Tile_X{fabric.numberOfColumns}Y{fabric.numberOfRows}"
-    )
-    belv2Str.append(
+    header = (
         f"# BEL descriptions: top left corner Tile_X0Y0, "
         f"bottom right Tile_X{fabric.numberOfColumns}Y{fabric.numberOfRows}"
     )
-    belv3Str.append(
-        f"# BEL descriptions: top left corner Tile_X0Y0, "
-        f"bottom right Tile_X{fabric.numberOfColumns}Y{fabric.numberOfRows}"
-    )
-    constrainStr = []
+    belStr = [header]
+    belv2Str = [header]
+    belv3Str = [header]
+    constrainStr: list[str] = []
+
+    # Pip context for npnr_pips.j2: one entry per non-None tile (row-major),
+    # plus supertile switch-matrix pips appended at the end.
+    tiles: list[dict] = []
+    supertile_pips: list[dict] = []
 
     for y, row in enumerate(fabric.tile):
         for x, tile in enumerate(row):
             if tile is None:
                 continue
-            pipStr.append(f"#Tile-internal pips on tile X{x}Y{y}:")
+            internal = []
             for source, sinkList in tile.switch_matrix.connections.items():
                 for sink in sinkList:
-                    delay: float = DUMMY_PIP_DELAY
+                    delay = DUMMY_PIP_DELAY
                     if delay_model is not None:
                         delay = delay_model.pip_delay(tile.name, sink, source)
-                    pipStr.append(
-                        f"X{x}Y{y},{sink},X{x}Y{y},{source},{delay},{sink}.{source}"
-                    )
+                    internal.append({"sink": sink, "source": source, "delay": delay})
 
-            pipStr.append(f"#Tile-external pips on tile X{x}Y{y}:")
+            external = []
             for wire in tile.wireList:
                 xDst = x + wire.xOffset
                 yDst = y + wire.yOffset
@@ -245,20 +293,21 @@ def genNextpnrModel(
                         f"X{xDst}Y{yDst}. "
                         "Please check your tile CSV file for unmatching wires/offsets!"
                     )
-
-                delay: float = DUMMY_PIP_DELAY
+                delay = DUMMY_PIP_DELAY
                 if delay_model is not None:
                     delay = delay_model.pip_delay(
-                        tile.name,
-                        wire.source,
-                        wire.destination,
+                        tile.name, wire.source, wire.destination
                     )
-                pipStr.append(
-                    f"X{x}Y{y},{wire.source},"
-                    f"X{x + wire.xOffset}Y{y + wire.yOffset},{wire.destination},"
-                    f"{delay},"
-                    f"{wire.source}.{wire.destination}"
+                external.append(
+                    {
+                        "source": wire.source,
+                        "destination": wire.destination,
+                        "xDst": xDst,
+                        "yDst": yDst,
+                        "delay": delay,
+                    }
                 )
+            tiles.append({"x": x, "y": y, "internal": internal, "external": external})
 
             # BEL definitions: legacy v1, and new-style v2 / v3 (with timing arcs).
             belStr.append(f"#Tile_X{x}Y{y}")
@@ -302,15 +351,30 @@ def genNextpnrModel(
         if super_tile.switch_matrix is not None:
             for sink, sources in super_tile.switch_matrix.connections.items():
                 for src in sources:
-                    delay: float = DUMMY_PIP_DELAY
+                    delay = DUMMY_PIP_DELAY
                     if delay_model is not None:
                         delay = delay_model.pip_delay(super_tile.name, sink, src)
-                    pipStr.append(
-                        f"X{ftx}Y{fty},{src},X{ftx}Y{fty},{sink},{delay},{src}.{sink}"
+                    supertile_pips.append(
+                        {
+                            "ftx": ftx,
+                            "fty": fty,
+                            "src": src,
+                            "sink": sink,
+                            "delay": delay,
+                        }
                     )
 
+    # Whole-file pips render ends with the last data line's newline; strip it so
+    # the output matches the old "\n".join (no trailing newline).
+    pip_str = (
+        _npnr_template_env()
+        .get_template("npnr_pips.j2")
+        .render(tiles=tiles, supertile_pips=supertile_pips)
+        .rstrip("\n")
+    )
+
     return (
-        "\n".join(pipStr),
+        pip_str,
         "\n".join(belStr),
         "\n".join(belv2Str),
         "\n".join(belv3Str),

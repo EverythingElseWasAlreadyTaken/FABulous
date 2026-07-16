@@ -1,0 +1,17 @@
+BelBegin,X{{ x }}Y{{ y }},{{ letter }},{{ cType }},{{ prefix }}
+{% for p in inports %}
+I,{{ p.stripped }},X{{ x }}Y{{ y }}.{{ p.raw }}
+{% endfor %}
+{% for p in outports %}
+O,{{ p.stripped }},X{{ x }}Y{{ y }}.{{ p.raw }}
+{% endfor %}
+{% for feat in features %}
+CFG,{{ feat }}
+{% endfor %}
+{% for arc in timing_arcs %}
+{{ arc }}
+{% endfor %}
+{% if withUserCLK %}
+GlobalClk
+{% endif %}
+BelEnd

@@ -1,0 +1,13 @@
+{% for t in tiles %}
+#Tile-internal pips on tile X{{ t.x }}Y{{ t.y }}:
+{% for p in t.internal %}
+X{{ t.x }}Y{{ t.y }},{{ p.sink }},X{{ t.x }}Y{{ t.y }},{{ p.source }},{{ p.delay }},{{ p.sink }}.{{ p.source }}
+{% endfor %}
+#Tile-external pips on tile X{{ t.x }}Y{{ t.y }}:
+{% for p in t.external %}
+X{{ t.x }}Y{{ t.y }},{{ p.source }},X{{ p.xDst }}Y{{ p.yDst }},{{ p.destination }},{{ p.delay }},{{ p.source }}.{{ p.destination }}
+{% endfor %}
+{% endfor %}
+{% for p in supertile_pips %}
+X{{ p.ftx }}Y{{ p.fty }},{{ p.src }},X{{ p.ftx }}Y{{ p.fty }},{{ p.sink }},{{ p.delay }},{{ p.src }}.{{ p.sink }}
+{% endfor %}

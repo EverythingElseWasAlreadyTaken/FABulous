@@ -1,0 +1,28 @@
+{% if cType == "FABULOUS_LC" %}
+Clock,CLK,FF=1
+{# Combinational (LUT) mode: active when the FF is disabled. #}
+{% for p in in_ports %}
+Delay,{{ p }},O,{{ lut_delay }},FF=0
+{% endfor %}
+Delay,Ci,O,{{ lut_delay }},FF=0&I0MUX=1
+{# Carry chain: active when carry-in or carry-out is connected. #}
+Delay,Ci,Co,{{ carry_cico_delay }},Ci/Co?
+Delay,I1,Co,{{ carry_i_delay }},Ci/Co?
+Delay,I2,Co,{{ carry_i_delay }},Ci/Co?
+{# Registered (FF) mode. #}
+{% for p in in_ports %}
+SetupHold,{{ p }},CLK,{{ ff_setup }},{{ ff_hold }},FF=1
+{% endfor %}
+SetupHold,Ci,CLK,{{ ff_setup }},{{ ff_hold }},FF=1&I0MUX=1
+{# Q is the cell's renamed FF output (pack.cc renames O -> Q when used);
+   clock-to-Q is BEL-internal, not derivable from pip delay. #}
+ClkToOut,Q,CLK,{{ ff_clk_to_q }},FF=1
+{% elif cType.startswith("OutPass4_frame_config") %}
+{% for p in in_ports %}
+SetupHold,{{ p }},CLK,{{ io_setup }},{{ io_hold }}
+{% endfor %}
+{% elif cType.startswith("InPass4_frame_config") %}
+{% for p in out_ports %}
+ClkToOut,{{ p }},CLK,{{ io_clk_to_out }}
+{% endfor %}
+{% endif %}
