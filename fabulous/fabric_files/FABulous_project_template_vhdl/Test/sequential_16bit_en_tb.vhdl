@@ -2,9 +2,16 @@ library ieee;
   use ieee.std_logic_1164.all;
   use ieee.numeric_std.all;
   use std.env.finish;
-  use std.textio.all;
 
 entity sequential_16bit_en_tb is
+  generic (
+    -- Path to the bitstream produced by bit_gen. Override at elaboration
+    -- (nvc -gBITSTREAM_FILE=...) or at run time (ghdl -r ... -gBITSTREAM_FILE=...).
+    BITSTREAM_FILE : string := "build/sequential_16bit_en.bin";
+    -- Upper bound on the buffer only, not the bitstream length: the actual
+    -- length is counted while reading the file.
+    BITSTREAM_BUF_BYTES : integer := 65536
+  );
 end entity sequential_16bit_en_tb;
 
 architecture Behavior of sequential_16bit_en_tb is
@@ -49,8 +56,6 @@ architecture Behavior of sequential_16bit_en_tb is
     );
   end component sequential_16bit_en;
 
-  constant MAX_BITBYTES : integer := 16384;
-
   signal I_top         : std_logic_vector( 27 downto 0);
   signal T_top         : std_logic_vector(27 downto 0);
   signal O_top         : std_logic_vector( 27 downto 0);
@@ -72,37 +77,48 @@ architecture Behavior of sequential_16bit_en_tb is
   signal s_data          : std_logic;
   signal ReceiveLED      : std_logic;
 
-  type bitstream_Type is array (MAX_BITBYTES downto 0) of std_logic_vector(7 downto 0);
+  type bitstream_Type is array (0 to BITSTREAM_BUF_BYTES - 1) of std_logic_vector(7 downto 0);
+
+  -- Reading the bitstream one character at a time gives the raw bytes of the
+  -- binary produced by bit_gen, so no intermediate text format is needed.
+
+  type byte_file is file of character;
 
   signal bitstream : bitstream_Type;
 
-  impure function readmemh (
-    filename : string
-  ) return bitstream_Type is
+  procedure read_bitstream (
+    filename :     in string;
+    bs       : out bitstream_Type;
+    length   : out natural
+  ) is
 
-    variable bs        : bitstream_Type;
-    file     read_file : text open read_mode is "build/sequential_16bit_en.hex";
-    variable counter   : integer;
-    variable L         : LINE;
-    variable temp      : std_logic_vector(7 downto 0);
-    variable good_v    : boolean;
+    file     read_file : byte_file;
+    variable c         : character;
+    variable counter   : natural;
 
   begin
 
     counter := 0;
+    bs      := (others => x"00");
+    file_open(read_file, filename, read_mode);
 
     while not endfile(read_file) loop
 
-      readline (read_file, L);
-      hread (L, temp, good_v);
-      bs(counter) := temp;
+      -- Truncating here would silently configure the fabric with a partial
+      -- bitstream, so fail loudly instead.
+      assert counter < BITSTREAM_BUF_BYTES
+        report "Bitstream exceeds BITSTREAM_BUF_BYTES; raise the generic."
+        severity failure;
+      read(read_file, c);
+      bs(counter) := std_logic_vector(to_unsigned(character'pos(c), 8));
       counter     := counter + 1;
 
     end loop;
 
-    return bs;
+    file_close(read_file);
+    length := counter;
 
-  end function readmemh;
+  end procedure read_bitstream;
 
 begin
 
@@ -170,7 +186,9 @@ begin
 
   process is
 
-    variable i : integer;
+    variable i               : integer;
+    variable bs              : bitstream_Type;
+    variable bitstream_bytes : natural;
 
   begin
 
@@ -178,19 +196,11 @@ begin
     SelfWriteStrobe <= '0';
     SelfWriteData   <= (others => '0');
 
-    i := 0;
-
-    while i < MAX_BITBYTES loop
-
-      bitstream(i) <= x"00";
-      i            := i + 1;
-
-    end loop;
-
     i         := 0;
-    bitstream <= readmemh("bitstream.hex");
+    read_bitstream(BITSTREAM_FILE, bs, bitstream_bytes);
+    bitstream <= bs;
     wait for 100 ps;
-    report "Bitstream loaded into memory array";
+    report "Read " & integer'image(bitstream_bytes) & " bitstream bytes from " & BITSTREAM_FILE;
     resetn    <= '0';
     wait for 10000 ps;
     resetn    <= '1';
@@ -204,7 +214,7 @@ begin
 
     wait for 2500 ps;
 
-    while i < MAX_BITBYTES loop
+    while i < bitstream_bytes loop
 
       SelfWriteData <= bitstream(i) & bitstream(i + 1) & bitstream(i + 2) & bitstream(i + 3);
       -- wait 2 clock cycles

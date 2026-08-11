@@ -1,7 +1,7 @@
 """Tests for the ``run_simulation`` CLI command, including ``--gl``.
 
-The command-branch tests mock the EDA tools (``run_task`` / ``make_hex``) so
-they run without iverilog or a hardened project. The source-resolution tests
+The command-branch tests mock the EDA tools (``run_task``) so they run without
+iverilog or a hardened project. The source-resolution tests
 exercise the gate-level helpers directly against a tmp-path project layout. The
 end-to-end gate-level run lives in
 ``tests/fabric_gen_test/integration_test/test_designs_pattern_gl.py`` behind
@@ -33,7 +33,6 @@ def test_run_simulation_uses_plain_task(
 ) -> None:
     """Without ``--gl`` the plain ``run-simulation`` task is used."""
     bitstream = _make_bitstream(cli)
-    mocker.patch(f"{_CMD_MODULE}.make_hex")
     collect = mocker.patch(f"{_CMD_MODULE}.collect_gl_sources")
     run_task = mocker.patch(f"{_CMD_MODULE}.run_task")
 
@@ -42,12 +41,15 @@ def test_run_simulation_uses_plain_task(
     run_task.assert_called_once()
     assert run_task.call_args.args[0] == "run-simulation"
     collect.assert_not_called()
+    # The testbench reads this binary directly, so the resolved path is the only
+    # thing tying the command to the simulator.
+    task_vars = run_task.call_args.kwargs["task_vars"]
+    assert task_vars["BITSTREAM_BIN"] == str(bitstream.resolve())
 
 
 def test_gl_branch_invokes_gl_task(cli: FABulousREPL, mocker: MockerFixture) -> None:
     """``--gl`` resolves GL sources and runs the ``run-gl-simulation`` task."""
     bitstream = _make_bitstream(cli)
-    mocker.patch(f"{_CMD_MODULE}.make_hex")
     mocker.patch(
         f"{_CMD_MODULE}.collect_gl_sources",
         return_value=[
@@ -75,7 +77,6 @@ def test_gl_branch_invokes_gl_task(cli: FABulousREPL, mocker: MockerFixture) -> 
 def test_gl_sim_libs_forwarded(cli: FABulousREPL, mocker: MockerFixture) -> None:
     """``--gl-sim-libs`` overrides reach ``collect_gl_sources``."""
     bitstream = _make_bitstream(cli)
-    mocker.patch(f"{_CMD_MODULE}.make_hex")
     mocker.patch(f"{_CMD_MODULE}.run_task")
     collect = mocker.patch(
         f"{_CMD_MODULE}.collect_gl_sources", return_value=[Path("n.v")]
@@ -95,7 +96,6 @@ def test_gl_rejects_vhdl(
 ) -> None:
     """Gate-level simulation is Verilog-only; a VHDL project is rejected."""
     bitstream = _make_bitstream(cli)
-    mocker.patch(f"{_CMD_MODULE}.make_hex")
     run_task = mocker.patch(f"{_CMD_MODULE}.run_task")
     collect = mocker.patch(f"{_CMD_MODULE}.collect_gl_sources")
     cli.extension = "vhdl"

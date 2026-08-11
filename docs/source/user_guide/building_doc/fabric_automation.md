@@ -575,10 +575,10 @@ running the steps individually, to see what is actually going on.
 
 ```console
 iverilog -s sequential_16bit_en_tb -o build/sequential_16bit_en.vvp build/fabric_files/* ../user_design/sequential_16bit_en.v sequential_16bit_en_tb.v -g2012
-vvp build/sequential_16bit_en.vvp +output_waveform=build/sequential_16bit_en.fst +bitstream_hex=build/sequential_16bit_en.hex -fst
+vvp build/sequential_16bit_en.vvp +output_waveform=build/sequential_16bit_en.fst +bitstream_bin=build/sequential_16bit_en.bin -fst
 FST info: dumpfile build/sequential_16bit_en.fst opened for output.
 Output waveform set to build/sequential_16bit_en.fst
-Read bitstream hex from build/sequential_16bit_en.hex
+Read 12024 bitstream bytes from build/sequential_16bit_en.bin
 fabric(I_top) = 0x01f0000 gold = 0x01f0000, fabric(T_top) = 0xffffffe gold = 0xffffffe
 fabric(I_top) = 0x0010001 gold = 0x0010001, fabric(T_top) = 0xffffffe gold = 0xffffffe
 fabric(I_top) = 0x01e0002 gold = 0x01e0002, fabric(T_top) = 0xffffffe gold = 0xffffffe

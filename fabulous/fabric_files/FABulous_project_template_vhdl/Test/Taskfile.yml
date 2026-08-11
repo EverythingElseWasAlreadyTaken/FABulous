@@ -12,7 +12,6 @@ includes:
     taskfile: "./compile.Taskfile.yml"
 
 vars:
-  MAX_BITBYTES: '{{.MAX_BITBYTES | default "16384"}}'
   FAB_PROJ_ROOT: '{{.FAB_PROJ_ROOT | default ".."}}'
   BUILD_DIR: '{{.BUILD_DIR | default "build"}}'
   DESIGN: '{{.DESIGN | default "sequential_16bit_en"}}'
@@ -29,7 +28,7 @@ vars:
   GHDL_ANALYZE_FLAGS: '{{.GHDL_ANALYZE_FLAGS | default ""}}'
   GHDL_ELAB_FLAGS: '{{.GHDL_ELAB_FLAGS | default "-fexplicit"}}'
   EXTRA_GHDL_FLAGS: '{{.EXTRA_GHDL_FLAGS | default ""}}'
-  BITSTREAM_BIN: '{{.BITSTREAM_BIN | default "{{.BUILD_DIR}}/{{.DESIGN}}.bin"}}'
+  BITSTREAM_BIN: '{{.BITSTREAM_BIN | default (printf "%s/%s.bin" .BUILD_DIR .DESIGN)}}'
 
 tasks:
   fab-sim:
@@ -99,7 +98,7 @@ tasks:
           NEXTPNR_VERBOSE: '{{.NEXTPNR_VERBOSE | default ""}}'
 
   run-bitgen:
-    desc: Generate bitstream and hex file
+    desc: Generate the bitstream
     deps: [mkdir-build]
     vars:
       RESOLVED_FASM_FILE: '{{.FASM_FILE | default (printf "%s/%s.fasm" .BUILD_DIR .DESIGN)}}'
@@ -110,11 +109,6 @@ tasks:
           FAB_PROJ_ROOT: "{{.FAB_PROJ_ROOT}}"
           FASM_FILE: "{{.RESOLVED_FASM_FILE}}"
           BIN_FILE: "{{.RESOLVED_BIN_FILE}}"
-      - >-
-        python3 makehex.py
-        {{.RESOLVED_BIN_FILE}}
-        {{.MAX_BITBYTES}}
-        {{.BUILD_DIR}}/{{.DESIGN}}.hex
 
   run-simulation:
     desc: Run simulation (auto-detects NVC/GHDL, or use SIMULATOR=nvc/ghdl)
@@ -151,12 +145,14 @@ tasks:
       DESIGN: '{{.DESIGN}}'
       TESTBENCH: '{{.TESTBENCH}}'
       WAVEFORM_TYPE: '{{.WAVEFORM_TYPE}}'
+      BITSTREAM_BIN: '{{.BITSTREAM_BIN}}'
     cmds:
       - nvc {{.NVC_GLOBAL_FLAGS}} -a {{.NVC_ANALYZE_FLAGS}} {{.EXTRA_NVC_FLAGS}} $FAB_PROJ_ROOT/Fabric/models_pack.vhdl
       - sh -c 'for f in $(find $FAB_PROJ_ROOT/Tile/ -name "*.vhdl" -type f); do nvc {{.NVC_GLOBAL_FLAGS}} -a {{.NVC_ANALYZE_FLAGS}} {{.EXTRA_NVC_FLAGS}} "$f"; done'
       - sh -c 'for f in $(find $FAB_PROJ_ROOT/Fabric/ -name "*.vhdl" -type f ! -name "models_pack.vhdl"); do nvc {{.NVC_GLOBAL_FLAGS}} -a {{.NVC_ANALYZE_FLAGS}} {{.EXTRA_NVC_FLAGS}} "$f"; done'
       - nvc {{.NVC_GLOBAL_FLAGS}} -a {{.NVC_ANALYZE_FLAGS}} {{.EXTRA_NVC_FLAGS}} $USER_DESIGN_DIR/$DESIGN.vhdl $TESTBENCH.vhdl
-      - nvc {{.NVC_GLOBAL_FLAGS}} -e {{.NVC_ELAB_FLAGS}} {{.EXTRA_NVC_FLAGS}} $TESTBENCH
+      # nvc binds generics at elaboration, ghdl at run time.
+      - nvc {{.NVC_GLOBAL_FLAGS}} -e {{.NVC_ELAB_FLAGS}} {{.EXTRA_NVC_FLAGS}} -gBITSTREAM_FILE=$BITSTREAM_BIN $TESTBENCH
       - sh -c 'ulimit -s unlimited; nvc {{.NVC_GLOBAL_FLAGS}} -r {{.EXTRA_NVC_FLAGS}} $TESTBENCH -w$BUILD_DIR/$TESTBENCH.$WAVEFORM_TYPE --stats'
 
   run-simulation-ghdl:
@@ -167,13 +163,14 @@ tasks:
       DESIGN: '{{.DESIGN}}'
       TESTBENCH: '{{.TESTBENCH}}'
       WAVEFORM_TYPE: '{{.WAVEFORM_TYPE}}'
+      BITSTREAM_BIN: '{{.BITSTREAM_BIN}}'
     cmds:
       - ghdl -a {{.GHDL_GLOBAL_FLAGS}} {{.GHDL_ANALYZE_FLAGS}} {{.EXTRA_GHDL_FLAGS}} $FAB_PROJ_ROOT/Fabric/models_pack.vhdl
       - sh -c 'for f in $(find $FAB_PROJ_ROOT/Tile/ -name "*.vhdl" -type f); do ghdl -a {{.GHDL_GLOBAL_FLAGS}} {{.GHDL_ANALYZE_FLAGS}} {{.EXTRA_GHDL_FLAGS}} "$f"; done'
       - sh -c 'for f in $(find $FAB_PROJ_ROOT/Fabric/ -name "*.vhdl" -type f ! -name "models_pack.vhdl"); do ghdl -a {{.GHDL_GLOBAL_FLAGS}} {{.GHDL_ANALYZE_FLAGS}} {{.EXTRA_GHDL_FLAGS}} "$f"; done'
       - ghdl -a {{.GHDL_GLOBAL_FLAGS}} {{.GHDL_ANALYZE_FLAGS}} {{.EXTRA_GHDL_FLAGS}} $USER_DESIGN_DIR/$DESIGN.vhdl $TESTBENCH.vhdl
       - ghdl -e {{.GHDL_GLOBAL_FLAGS}} {{.GHDL_ELAB_FLAGS}} {{.EXTRA_GHDL_FLAGS}} $TESTBENCH
-      - sh -c 'ulimit -s unlimited; ghdl -r {{.GHDL_GLOBAL_FLAGS}} {{.EXTRA_GHDL_FLAGS}} $TESTBENCH --stats --ieee-asserts=disable --{{.WAVEFORM_TYPE}}=$BUILD_DIR/$TESTBENCH.{{.WAVEFORM_TYPE}}'
+      - sh -c 'ulimit -s unlimited; ghdl -r {{.GHDL_GLOBAL_FLAGS}} {{.EXTRA_GHDL_FLAGS}} $TESTBENCH -gBITSTREAM_FILE=$BITSTREAM_BIN --stats --ieee-asserts=disable --{{.WAVEFORM_TYPE}}=$BUILD_DIR/$TESTBENCH.{{.WAVEFORM_TYPE}}'
 
   gtkwave:
     desc: Open waveform in GTKWave

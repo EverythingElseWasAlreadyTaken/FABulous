@@ -48,16 +48,22 @@ module sequential_16bit_en_tb ();
 
     assign T_top_gold = ~oeb_gold;
 
-    localparam integer       MAX_BITBYTES               = 16384;
-    reg                [7:0] bitstream   [MAX_BITBYTES]        ;
+    // Upper bound on the buffer only, not the bitstream length: the actual
+    // length comes from $fread. Override with `iverilog -P` for a fabric whose
+    // bitstream outgrows it.
+    parameter integer BITSTREAM_BUF_BYTES = 65536;
+
+    reg [7:0] bitstream [0:BITSTREAM_BUF_BYTES-1];
 
     // a slower clock to make it easier to meet timing in gate-level sim
     always #500000 CLK = (CLK === 1'b0);
 
     integer i                 ;
+    integer bitstream_fd      ;
+    integer bitstream_bytes   ;
     reg     have_errors = 1'b0;
 
-    reg [2047:0] bitstream_hex_arg  ; // 256 bytes for characters
+    reg [2047:0] bitstream_bin_arg  ; // 256 bytes for characters
     reg [2047:0] output_waveform_arg; // 256 bytes for characters
 
     // Gate-level only: the hardened fabric powers up X-pessimistic. The
@@ -77,11 +83,24 @@ module sequential_16bit_en_tb ();
 
 `ifndef EMULATION
 
-        if ($value$plusargs("bitstream_hex=%s", bitstream_hex_arg)) begin
-            $readmemh(bitstream_hex_arg, bitstream);
-            $display("Read bitstream hex from %s", bitstream_hex_arg);
+        if ($value$plusargs("bitstream_bin=%s", bitstream_bin_arg)) begin
+            bitstream_fd = $fopen(bitstream_bin_arg, "rb");
+            if (bitstream_fd == 0) begin
+                $display("Error: Cannot open bitstream %0s.", bitstream_bin_arg);
+                $fatal;
+            end
+            bitstream_bytes = $fread(bitstream, bitstream_fd);
+            $fclose(bitstream_fd);
+            $display("Read %0d bitstream bytes from %0s", bitstream_bytes, bitstream_bin_arg);
         end else begin
-            $display("Error: No bitstream provided as $plusargs bitstream_hex.");
+            $display("Error: No bitstream provided as $plusargs bitstream_bin.");
+            $fatal;
+        end
+
+        // A bitstream that fills the buffer was probably truncated on read, which
+        // would configure the fabric with a silently incomplete bitstream.
+        if (bitstream_bytes == BITSTREAM_BUF_BYTES) begin
+            $display("Error: Bitstream fills the whole buffer; raise BITSTREAM_BUF_BYTES.");
             $fatal;
         end
 
@@ -93,7 +112,7 @@ module sequential_16bit_en_tb ();
         #10000;
         repeat (20) @(posedge CLK);
         #2500;
-        for (i = 0; i < MAX_BITBYTES; i = i + 4) begin
+        for (i = 0; i < bitstream_bytes; i = i + 4) begin
             self_write_data <= {bitstream[i], bitstream[i+1], bitstream[i+2], bitstream[i+3]};
             repeat (2) @(posedge CLK);
             self_write_strobe <= 1'b1;

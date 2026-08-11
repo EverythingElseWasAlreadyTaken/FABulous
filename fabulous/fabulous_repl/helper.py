@@ -36,8 +36,6 @@ if TYPE_CHECKING:
 
     from fabulous.fabulous_repl.fabulous_repl import FABulousREPL
 
-MAX_BITBYTES = 16384
-
 # Yosys master broke FABulous; pin the OSS-CAD-Suite install to a known-good
 # release. Set to None to track the latest nightly again.
 OSS_CAD_SUITE_VERSION: str | None = "2026-06-29"
@@ -387,33 +385,6 @@ def register_tile_in_fabric_csv(csv_path: Path, dst_dir: Path) -> None:
             result.extend(new_entries)
         result.append(line)
     csv_path.write_text("".join(result), encoding="utf-8")
-
-
-def make_hex(binfile: Path, outfile: Path) -> None:
-    """Convert a binary file into hex file.
-
-    If the binary file exceeds MAX_BITBYTES, logs error.
-
-    Parameters
-    ----------
-    binfile : Path
-        Path to binary file.
-    outfile : Path
-        Path to ouput hex file.
-    """
-    with Path(binfile).open("rb") as f:
-        bindata = f.read()
-
-    if len(bindata) > MAX_BITBYTES:
-        logger.error("Binary file too big.")
-        return
-
-    with Path(outfile).open("w") as f:
-        for i in range(MAX_BITBYTES):
-            if i < len(bindata):
-                print(f"{bindata[i]:02x}", file=f)
-            else:
-                print("0", file=f)
 
 
 def wrap_with_except_handling(fun_to_wrap: Callable) -> Callable:

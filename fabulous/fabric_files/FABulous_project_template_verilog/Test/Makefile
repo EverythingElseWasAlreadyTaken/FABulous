@@ -1,4 +1,3 @@
-MAX_BITBYTES=16384
 FAB_PROJ_ROOT=..
 BUILD_DIR=build
 YOSYS?=$(or $(FAB_YOSYS_PATH),yosys)
@@ -14,7 +13,7 @@ TOP_WRAPPER_VERILOG=${USER_DESIGN_DIR}/${TOP_WRAPPER}.v
 WAVEFORM_TYPE=fst
 
 VVP_ARGS=+output_waveform=${BUILD_DIR}/${DESIGN}.${WAVEFORM_TYPE}
-VVP_ARGS+=+bitstream_hex=${BUILD_DIR}/${DESIGN}.hex
+VVP_ARGS+=+bitstream_bin=${BUILD_DIR}/${DESIGN}.bin
 ifeq ($(WAVEFORM_TYPE),fst)
     VVP_ARGS+=-fst
 endif
@@ -42,7 +41,6 @@ run_FABulous_demo:
 	FABulous ${FAB_PROJ_ROOT} -fs ${FAB_PROJ_ROOT}/FABulous.tcl
 	mkdir -p ${BUILD_DIR}
 	mkdir -p ${FABRIC_FILES_DIR}
-	mv -f ${DESIGN}.hex ${BUILD_DIR}/
 	mv -f ${DESIGN}.fst ${BUILD_DIR}/
 	cp -fu ${USER_DESIGN_DIR}/* ${BUILD_DIR}
 
@@ -58,7 +56,6 @@ run_nextpnr: mkdir_build
 
 run_bitgen: mkdir_build
 	bit_gen -genBitstream ${BUILD_DIR}/${DESIGN}.fasm ${FAB_PROJ_ROOT}/.FABulous/bitStreamSpec.bin ${BUILD_DIR}/${DESIGN}.bin
-	python3 makehex.py ${BUILD_DIR}/${DESIGN}.bin ${MAX_BITBYTES} ${BUILD_DIR}/${DESIGN}.hex
 
 copy_files: mkdir_build
 	find ${FAB_PROJ_ROOT}/Tile/ -name '*.v' -type f -exec cp {} ${FABRIC_FILES_DIR}/ \;

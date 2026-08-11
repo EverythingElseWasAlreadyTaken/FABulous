@@ -1,4 +1,3 @@
-MAX_BITBYTES=16384
 FAB_PROJ_ROOT=..
 BUILD_DIR=build
 YOSYS?=$(or $(FAB_YOSYS_PATH),yosys)
@@ -77,7 +76,6 @@ run_nextpnr: mkdir_build
 
 run_bitgen: mkdir_build
 	bit_gen -genBitstream ${BUILD_DIR}/${DESIGN}.fasm ${FAB_PROJ_ROOT}/.FABulous/bitStreamSpec.bin ${BUILD_DIR}/${DESIGN}.bin
-	python3 makehex.py ${BUILD_DIR}/${DESIGN}.bin ${MAX_BITBYTES} ${BUILD_DIR}/${DESIGN}.hex
 
 mkdir_build:
 	mkdir -p ${BUILD_DIR}

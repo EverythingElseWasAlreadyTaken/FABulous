@@ -21,7 +21,7 @@ from loguru import logger
 
 from fabulous.custom_exception import CommandError, InvalidFileType
 from fabulous.fabulous_repl.command_set_base import CMD_USER_DESIGN_FLOW, ReplCommandSet
-from fabulous.fabulous_repl.helper import make_hex, run_task
+from fabulous.fabulous_repl.helper import run_task
 from fabulous.fabulous_settings import get_context
 
 
@@ -672,12 +672,10 @@ class UserDesignCommandSet(ReplCommandSet):
 
         design_name = design or bitstream_path.stem
 
-        # Prepare build directory and convert .bin to .hex for simulation
+        # The testbench reads the bitstream binary directly, so it only needs
+        # the build directory to exist for its outputs.
         build_dir = test_path / "build"
         build_dir.mkdir(parents=True, exist_ok=True)
-        hex_path = build_dir / f"{design_name}.hex"
-        make_hex(bitstream_path, hex_path)
-        logger.info(f"Converted {bitstream_path} to {hex_path}")
 
         task_vars = {
             "WAVEFORM_TYPE": output_format,

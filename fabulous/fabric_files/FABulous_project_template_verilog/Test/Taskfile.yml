@@ -12,7 +12,6 @@ includes:
     taskfile: "./compile.Taskfile.yml"
 
 vars:
-  MAX_BITBYTES: '{{.MAX_BITBYTES | default "16384"}}'
   FAB_PROJ_ROOT: '{{.FAB_PROJ_ROOT | default ".."}}'
   BUILD_DIR: '{{.BUILD_DIR | default "build"}}'
   DESIGN: '{{.DESIGN | default "sequential_16bit_en"}}'
@@ -21,7 +20,7 @@ vars:
   USER_DESIGN_DIR: "{{.FAB_PROJ_ROOT}}/user_design"
   WAVEFORM_TYPE: '{{.WAVEFORM_TYPE | default "fst"}}'
   EXTRA_IVERILOG_FLAGS: '{{.EXTRA_IVERILOG_FLAGS | default ""}}'
-  BITSTREAM_BIN: '{{.BITSTREAM_BIN | default "{{.BUILD_DIR}}/{{.DESIGN}}.bin"}}'
+  BITSTREAM_BIN: '{{.BITSTREAM_BIN | default (printf "%s/%s.bin" .BUILD_DIR .DESIGN)}}'
   FABRIC_FILES_DIR: "{{.BUILD_DIR}}/fabric_files"
 
 tasks:
@@ -57,7 +56,6 @@ tasks:
       - FABulous {{.FAB_PROJ_ROOT}} -fs {{.FAB_PROJ_ROOT}}/FABulous.tcl
       # FABulous removes build dirs during simulation; re-create afterwards.
       - mkdir -p {{.BUILD_DIR}} {{.FABRIC_FILES_DIR}}
-      - mv -f {{.DESIGN}}.hex {{.BUILD_DIR}}/
       - mv -f {{.DESIGN}}.fst {{.BUILD_DIR}}/
       - cp -fu {{.USER_DESIGN_DIR}}/* {{.BUILD_DIR}}
 
@@ -98,7 +96,7 @@ tasks:
           NEXTPNR_VERBOSE: '{{.NEXTPNR_VERBOSE | default ""}}'
 
   run-bitgen:
-    desc: Generate bitstream and hex file
+    desc: Generate the bitstream
     deps: [mkdir-build]
     vars:
       RESOLVED_FASM_FILE: '{{.FASM_FILE | default (printf "%s/%s.fasm" .BUILD_DIR .DESIGN)}}'
@@ -109,11 +107,6 @@ tasks:
           FAB_PROJ_ROOT: "{{.FAB_PROJ_ROOT}}"
           FASM_FILE: "{{.RESOLVED_FASM_FILE}}"
           BIN_FILE: "{{.RESOLVED_BIN_FILE}}"
-      - >-
-        python3 makehex.py
-        {{.RESOLVED_BIN_FILE}}
-        {{.MAX_BITBYTES}}
-        {{.BUILD_DIR}}/{{.DESIGN}}.hex
 
   copy-files:
     desc: Copy Verilog fabric files to build directory
@@ -137,7 +130,7 @@ tasks:
       - >-
         vvp {{.BUILD_DIR}}/{{.DESIGN}}.vvp
         +output_waveform={{.BUILD_DIR}}/{{.DESIGN}}.{{.WAVEFORM_TYPE}}
-        +bitstream_hex={{.BUILD_DIR}}/{{.DESIGN}}.hex
+        +bitstream_bin={{.BITSTREAM_BIN}}
         {{if eq .WAVEFORM_TYPE "fst"}}-fst{{end}}
 
   gen-force-block:
@@ -188,7 +181,7 @@ tasks:
       - >-
         vvp {{.BUILD_DIR}}/{{.DESIGN}}_gl.vvp
         +output_waveform={{.BUILD_DIR}}/{{.DESIGN}}_gl.{{.WAVEFORM_TYPE}}
-        +bitstream_hex={{.BUILD_DIR}}/{{.DESIGN}}.hex
+        +bitstream_bin={{.BITSTREAM_BIN}}
         {{if eq .WAVEFORM_TYPE "fst"}}-fst{{end}}
 
   run-emulation:
@@ -207,7 +200,6 @@ tasks:
       - >-
         vvp {{.BUILD_DIR}}/{{.DESIGN}}.vvp
         +output_waveform={{.BUILD_DIR}}/{{.DESIGN}}.{{.WAVEFORM_TYPE}}
-        +bitstream_hex={{.BUILD_DIR}}/{{.DESIGN}}.hex
         {{if eq .WAVEFORM_TYPE "fst"}}-fst{{end}}
 
   gtkwave:
