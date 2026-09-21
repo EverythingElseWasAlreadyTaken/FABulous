@@ -15,7 +15,6 @@ from fabulous.fabric_definition.port import (
     Pin,
     Port,
     SharedPort,
-    SlicedPort,
     TilePort,
 )
 from tests.conftest import sjump_port
@@ -243,60 +242,6 @@ class TestConfigPort:
             features=features,
         )
         assert port.features == features
-
-
-class TestSlicedPort:
-    """Tests for SlicedPort's inclusive high/low bit range."""
-
-    def test_width_spans_high_to_low_inclusive(self) -> None:
-        """The slice width counts both endpoints."""
-        original = BelPort(name="bus", io_direction=IO.OUTPUT, width=8)
-        assert SlicedPort(original, high=5, low=2).width == 4
-        assert SlicedPort(original, high=3, low=3).width == 1
-
-    def test_expand_indexes_the_original_port(self) -> None:
-        """Expansion names the original port's bits from low up to high."""
-        original = BelPort(name="bus", io_direction=IO.OUTPUT, width=8)
-        assert SlicedPort(original, high=3, low=1).expand() == [
-            "bus[1]",
-            "bus[2]",
-            "bus[3]",
-        ]
-
-    def test_expand_of_nested_slice_indexes_the_parent(self) -> None:
-        """A slice of a slice selects into the parent's expansion."""
-        original = BelPort(name="bus", io_direction=IO.OUTPUT, width=8)
-        parent = SlicedPort(original, high=5, low=2)
-        assert SlicedPort(parent, high=2, low=1).expand() == ["bus[3]", "bus[4]"]
-
-    def test_serialize_carries_high_and_low(self) -> None:
-        """Serialization records the endpoints separately."""
-        original = BelPort(name="bus", io_direction=IO.OUTPUT, width=8)
-        data = SlicedPort(original, high=6, low=4).serialize()
-        assert data["high"] == 6
-        assert data["low"] == 4
-        assert data["original_port"] == "bus"
-
-    @pytest.mark.parametrize(
-        ("high", "low", "match"),
-        [
-            (3, -1, "must not be negative"),
-            (2, 5, "high downto low"),
-            (8, 0, "outside the width"),
-            (-1, -1, "must not be negative"),
-        ],
-    )
-    def test_invalid_range_raises(self, high: int, low: int, match: str) -> None:
-        """A slice outside the original port or written low-to-high is rejected."""
-        original = BelPort(name="bus", io_direction=IO.OUTPUT, width=8)
-        with pytest.raises(ValueError, match=match):
-            SlicedPort(original, high=high, low=low)
-
-    def test_endpoints_are_required(self) -> None:
-        """The range must be given explicitly; there is no default slice."""
-        original = BelPort(name="bus", io_direction=IO.OUTPUT, width=8)
-        with pytest.raises(TypeError):
-            SlicedPort(original)  # type: ignore[call-arg]
 
 
 class TestSharedPort:

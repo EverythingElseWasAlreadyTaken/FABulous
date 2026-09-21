@@ -6,7 +6,6 @@ in the FPGA fabric:
 - Port: Base class for all port types
 - TilePort: Port on a tile with side and termination information
 - BelPort: Port on a BEL (Basic Element of Logic)
-- SlicedPort: A sliced portion of another port
 - SharedPort: A port shared between multiple BELs
 - ConfigPort: A configuration port with features
 """
@@ -625,104 +624,6 @@ class TilePort(Port):
         return inputs, outputs
 
 
-class SlicedPort(Port):
-    """A port that represents a slice of another port.
-
-    The range is written `high downto low`, following VHDL: both endpoints are
-    inclusive 0-based indices into the original port's own expansion, and `high`
-    selects the most significant bit. `expand()` still lists bits least
-    significant first, matching `Port.expand()`.
-
-    Parameters
-    ----------
-    original_port : Port
-        The original port being sliced.
-    high : int
-        The most significant bit index of the slice, inclusive.
-    low : int
-        The least significant bit index of the slice, inclusive.
-
-    Raises
-    ------
-    ValueError
-        If `low` is negative, if `high` is below `low`, or if `high` falls
-        outside the original port's width.
-    """
-
-    _high: int
-    _low: int
-    _original_port: Port
-
-    def __init__(
-        self,
-        original_port: Port,
-        high: int,
-        low: int,
-    ) -> None:
-        if low < 0:
-            raise ValueError(f"Slice low index must not be negative, got {low}")
-        if high < low:
-            raise ValueError(
-                f"Slice must be written high downto low, got high={high} low={low}"
-            )
-        if high >= original_port.width:
-            raise ValueError(
-                f"Slice high index {high} is outside the width of "
-                f"{original_port.name} ({original_port.width} bits)"
-            )
-        super().__init__(
-            original_port.name,
-            original_port.io_direction,
-            high - low + 1,
-        )
-        self._original_port = original_port
-        self._high = high
-        self._low = low
-
-    @property
-    def original_port(self) -> Port:
-        """The original port being sliced."""
-        return self._original_port
-
-    @property
-    def high(self) -> int:
-        """The most significant bit index of the slice, inclusive."""
-        return self._high
-
-    @property
-    def low(self) -> int:
-        """The least significant bit index of the slice, inclusive."""
-        return self._low
-
-    def expand(self) -> list[str]:
-        """Expand the slice into indexed wire names, least significant bit first."""
-        low, high = self.low, self.high
-        if isinstance(self.original_port, (BelPort, TilePort)):
-            return [f"{self.original_port.name}[{i}]" for i in range(low, high + 1)]
-        if isinstance(self.original_port, SlicedPort):
-            # Index the parent's expansion relatively: the parent already carries
-            # its own bit offset, so low..high select into that sub-list.
-            parent_bits = self.original_port.expand()
-            return [parent_bits[i] for i in range(low, high + 1)]
-        raise ValueError(f"type {type(self.original_port)} not supported for slicing")
-
-    def __repr__(self) -> str:
-        """Return a string representation of the SlicedPort."""
-        return (
-            f"SlicedPort({self.io_direction.value} "
-            f"{self.name}[{self.high}:{self.low}] "
-            f"from {self.original_port.name})"
-        )
-
-    def serialize(self) -> dict:
-        """Serialize the sliced port to a dictionary."""
-        return super().serialize() | {
-            "high": self.high,
-            "low": self.low,
-            "original_port": self.original_port.name,
-        }
-
-
 class BelPort(Port):
     """A port on a BEL (Basic Element of Logic).
 
@@ -927,4 +828,4 @@ class SharedPort(Port):
 
 
 # Type alias for any port type
-GenericPort = Port | TilePort | SlicedPort | BelPort | ConfigPort | SharedPort
+GenericPort = Port | TilePort | BelPort | ConfigPort | SharedPort
