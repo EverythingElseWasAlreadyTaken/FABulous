@@ -12,8 +12,8 @@ from decimal import Decimal
 from pathlib import Path
 
 from fabulous.fabric_definition.bel import Bel
-from fabulous.fabric_definition.define import Side
-from fabulous.fabric_definition.port import TilePort
+from fabulous.fabric_definition.define import IO, SWITCH_MATRIX_CONSTANTS, Side
+from fabulous.fabric_definition.port import SwitchMatrixPort, TilePort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
 
@@ -205,40 +205,38 @@ class SuperTile:
                         result.append((x, y, p))
         return result
 
-    def get_matrix_port_names(self) -> tuple[set[str], set[str]]:
-        """Return the valid source and sink names for the supertile switch matrix.
+    def switch_matrix_ports(self) -> tuple[SwitchMatrixPort, ...]:
+        """Return the ports of the supertile switch matrix in canonical order.
 
-        The names mirror what `gen_super_tile_switch_matrix` declares as matrix
-        ports, so they form the authoritative set against which a
-        `supertile_matrix` file is validated. Constant sources (`GND0` etc.)
-        are not included here; callers add them separately.
+        Child-tile SJUMP wires reach the matrix under `{tile}_` prefixed pin
+        names, followed by the supertile BELs and the constant sources; the
+        order matches `switch_matrix_ports`.
 
         Returns
         -------
-        tuple[set[str], set[str]]
-            `(valid_sources, valid_sinks)` where sources drive the matrix muxes
-            (child OUTPUT SJUMP wires and BEL outputs) and sinks are the mux
-            outputs (BEL inputs and child INPUT SJUMP wires).
+        tuple[SwitchMatrixPort, ...]
+            The matrix ports.
         """
-        valid_sources: set[str] = set()
-        valid_sinks: set[str] = set()
-
+        ports: list[SwitchMatrixPort] = []
         for row in self.tileMap:
             for tile in row:
                 if tile is None:
                     continue
                 for p in tile.get_sjump_ports():
-                    names = {f"{tile.name}_{p.name}{k}" for k in range(p.wire_count)}
-                    if p.is_output:
-                        valid_sources |= names
-                    else:
-                        valid_sinks |= names
-
+                    # The child's output drives this matrix, so the direction
+                    # is the child port's inverse.
+                    io = IO.INPUT if p.is_output else IO.OUTPUT
+                    ports.append(
+                        SwitchMatrixPort(p.name, io, len(p.sm_pins), p, f"{tile.name}_")
+                    )
         for bel in self.bels:
-            valid_sinks.update(bel.inputs)
-            valid_sources.update(bel.outputs)
-
-        return valid_sources, valid_sinks
+            for name in bel.inputs:
+                ports.append(SwitchMatrixPort(name, IO.OUTPUT))
+            for name in bel.outputs:
+                ports.append(SwitchMatrixPort(name, IO.INPUT))
+        for const in SWITCH_MATRIX_CONSTANTS:
+            ports.append(SwitchMatrixPort(const, IO.INPUT))
+        return tuple(ports)
 
     @property
     def total_config_bits(self) -> int:

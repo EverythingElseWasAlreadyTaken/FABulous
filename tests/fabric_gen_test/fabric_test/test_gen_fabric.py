@@ -64,14 +64,17 @@ def _supertile(tmp_path: Path) -> SuperTile:
     top = mk("DSP_top", [sjump_port("top2bot", IO.OUTPUT)])
     bot = mk("DSP_bot", [sjump_port("A", IO.OUTPUT)])
     bel = make_muladd_bel([("SUPER_A0", IO.INPUT)])
-    return SuperTile(
+    supertile = SuperTile(
         name="DSP",
         tileDir=tmp_path,
         tiles=[top, bot],
         tileMap=[[top], [bot]],
         bels=[bel],
-        switch_matrix=SwitchMatrix.from_file(mat, "DSP"),
     )
+    supertile.switch_matrix = SwitchMatrix.from_file(
+        mat, "DSP", supertile.switch_matrix_ports(), canonical=False
+    )
+    return supertile
 
 
 def test_supertile_configmem_preloaded_from_master_bitstream(
@@ -134,14 +137,17 @@ def _vhdl_supertile(tmp_path: Path) -> SuperTile:
     _stub_entity(tmp_path / "DSP_top" / "DSP_top.vhdl", "DSP_top")
     _stub_entity(tmp_path / "DSP_bot" / "DSP_bot.vhdl", "DSP_bot")
 
-    return SuperTile(
+    supertile = SuperTile(
         name="DSP",
         tileDir=tmp_path,
         tiles=[top, bot],
         tileMap=[[top], [bot]],
         bels=[bel],
-        switch_matrix=SwitchMatrix.from_file(mat, "DSP"),
     )
+    supertile.switch_matrix = SwitchMatrix.from_file(
+        mat, "DSP", supertile.switch_matrix_ports(), canonical=False
+    )
+    return supertile
 
 
 def test_supertile_vhdl_declares_all_instantiated_components(

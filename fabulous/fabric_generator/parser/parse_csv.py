@@ -13,12 +13,10 @@ from fabulous.custom_exception import (
     InvalidFileType,
     InvalidPortType,
     InvalidSupertileDefinition,
-    InvalidSwitchMatrixDefinition,
     InvalidTileDefinition,
 )
 from fabulous.fabric_definition.define import (
     IO,
-    SWITCH_MATRIX_CONSTANTS,
     ConfigBitMode,
     Direction,
     MultiplexerStyle,
@@ -28,7 +26,10 @@ from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.gen_io import Gen_IO
 from fabulous.fabric_definition.port import NULL_PORT_NAME, TilePort
 from fabulous.fabric_definition.supertile import SuperTile
-from fabulous.fabric_definition.switch_matrix import SwitchMatrix
+from fabulous.fabric_definition.switch_matrix import (
+    SwitchMatrix,
+    switch_matrix_ports,
+)
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.gen_fabric.fabric_automation import (
     addBelsToPrim,
@@ -531,8 +532,7 @@ def parseTilesCSV(
                 switch_matrix=SwitchMatrix.from_file(
                     matrixDir,
                     tileName,
-                    ports=ports,
-                    bels=bels,
+                    switch_matrix_ports(ports, bels),
                     preserve_list_order=preserve_list_order,
                 ),
                 gen_ios=gen_ios,
@@ -541,51 +541,6 @@ def parseTilesCSV(
         )
 
     return (new_tiles, common_wire_pairs)
-
-
-def validate_super_tile_matrix(
-    super_tile: SuperTile,
-    connections: dict[str, list[str]],
-    matrix_path: Path,
-) -> None:
-    """Check that a supertile switch matrix only references known names.
-
-    Every mux output (sink) must be a BEL input or a child-tile INPUT SJUMP wire,
-    and every mux input (source) must be a BEL output, a child-tile OUTPUT SJUMP
-    wire, or a switch-matrix constant. An unknown name is almost always a typo and
-    would otherwise emit RTL referencing an undeclared signal.
-
-    Parameters
-    ----------
-    super_tile : SuperTile
-        The supertile whose ports and BELs define the legal names.
-    connections : dict[str, list[str]]
-        Parsed matrix, mapping each sink (destination) to its sources.
-    matrix_path : Path
-        Path to the matrix file, used in the error message.
-
-    Raises
-    ------
-    InvalidSwitchMatrixDefinition
-        If any sink or source is not a known port, BEL pin, or constant.
-    """
-    valid_sources, valid_sinks = super_tile.get_matrix_port_names()
-    valid_sources |= set(SWITCH_MATRIX_CONSTANTS)
-
-    unknown_sinks = sorted(s for s in connections if s not in valid_sinks)
-    unknown_sources = sorted(
-        {src for sources in connections.values() for src in sources} - valid_sources
-    )
-
-    if unknown_sinks or unknown_sources:
-        raise InvalidSwitchMatrixDefinition(
-            f"Supertile '{super_tile.name}' switch matrix {matrix_path} references "
-            f"undefined names: sinks={unknown_sinks}, sources={unknown_sources}.\n"
-            "Sinks must be BEL inputs or child-tile INPUT SJUMP wires; sources "
-            "must be BEL outputs, child-tile OUTPUT SJUMP wires, or a constant.\n"
-            f"Available sinks: {sorted(valid_sinks)}\n"
-            f"Available sources: {sorted(valid_sources)}"
-        )
 
 
 def parseSupertilesCSV(fileName: Path, tileDic: dict[str, Tile]) -> list[SuperTile]:
@@ -714,11 +669,9 @@ def parseSupertilesCSV(fileName: Path, tileDic: dict[str, Tile]) -> list[SuperTi
                 raise InvalidSupertileDefinition(
                     f"Supertile '{name}': MATRIX file {st_matrix_dir} does not exist."
                 )
-            switch_matrix = SwitchMatrix.from_file(st_matrix_dir, name)
-            validate_super_tile_matrix(
-                super_tile, switch_matrix.connections, st_matrix_dir
+            super_tile.switch_matrix = SwitchMatrix.from_file(
+                st_matrix_dir, name, super_tile.switch_matrix_ports(), canonical=False
             )
-            super_tile.switch_matrix = switch_matrix
 
         new_supertiles.append(super_tile)
 

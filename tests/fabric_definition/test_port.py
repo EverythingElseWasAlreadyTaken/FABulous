@@ -15,6 +15,7 @@ from fabulous.fabric_definition.port import (
     Pin,
     Port,
     SharedPort,
+    SwitchMatrixPort,
     TilePort,
 )
 from tests.conftest import sjump_port
@@ -370,3 +371,26 @@ class TestTilePortPins:
         assert port.sm_pins == port.pins
         assert port.top_pins == port.pins
         assert port.expand_port_info_by_name_top() == ["J0", "J1", "J2"]
+
+
+class TestSwitchMatrixPort:
+    """A matrix port names its pins after the tile pins it wires to."""
+
+    def test_tile_port_gives_width_origin_and_flat_names(self) -> None:
+        """Width is the tile port's `sm_pins` count; pins are the port's own."""
+        tile_port = make_wire_port(2, 0, 2, "NBEG", "NEND")
+        sm_port = SwitchMatrixPort.from_tile_port(tile_port, prefix="T_")
+        assert sm_port.origin is tile_port
+        assert sm_port.width == len(tile_port.sm_pins) == 2
+        assert sm_port[1] == Pin(sm_port, 1)
+        assert sm_port[1] != tile_port[1]
+        assert [pin.name() for pin in sm_port.pins] == ["T_NBEG0", "T_NBEG1"]
+        assert sm_port[1].name(indexed=True) == "T_NBEG[1]"
+
+    def test_bel_port_is_a_bare_scalar(self) -> None:
+        """A BEL / constant port has no origin and keeps its name as written."""
+        sm_port = SwitchMatrixPort("A_I0", IO.OUTPUT)
+        assert sm_port.origin is None
+        assert sm_port.width == 1
+        assert sm_port[0].name() == "A_I0"
+        assert sm_port[0] == Pin(sm_port, 0)

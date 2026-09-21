@@ -240,3 +240,88 @@ def parseList(
         return dict(grouped)
 
     return unique_pairs
+
+
+def write_matrix_csv(
+    connections: dict[str, list[str]], path: Path, tile_name: str
+) -> None:
+    """Write name-level switch matrix connections to a `.csv` file.
+
+    The file is written in the format consumed by `parseMatrix`:
+    the header row contains mux-input signal names (column headers),
+    each data row is `mux_output_port, v0, v1, ...`, and comment
+    annotations (`#,count`) are appended for human readability. Each
+    mux input is encoded with a 1-based descending index (not a bare
+    `1`) so `parseMatrix` recovers the exact per-mux order regardless of
+    the column arrangement, making a `.list` -> `.csv` -> `.list` round
+    trip order-faithful.
+
+    Parameters
+    ----------
+    connections : dict[str, list[str]]
+        Mux output name -> mux input names, in the order to encode.
+    path : Path
+        Destination `.csv` file. Created (or overwritten) by this call.
+    tile_name : str
+        Tile name written to the top-left cell of the CSV header.
+    """
+    # Column headers = unique mux-input signals, in first-seen order.
+    mux_inputs_ordered: list[str] = []
+    seen: set[str] = set()
+    for signals in connections.values():
+        for s in signals:
+            if s not in seen:
+                seen.add(s)
+                mux_inputs_ordered.append(s)
+
+    input_index = {s: j for j, s in enumerate(mux_inputs_ordered)}
+    mux_outputs = list(connections.keys())
+
+    # matrix[row][col]: row = mux output, col = mux input signal. The value
+    # is a 1-based descending index (first input = highest) so parseMatrix's
+    # (-value, column) sort recovers this exact order, not the column order.
+    matrix: list[list[int]] = [[0] * len(mux_inputs_ordered) for _ in mux_outputs]
+    for i, signals in enumerate(connections.values()):
+        n = len(signals)
+        for idx, src in enumerate(signals):
+            matrix[i][input_index[src]] = n - idx
+
+    col_counts = [
+        sum(1 for row in matrix if row[j] != 0) for j in range(len(mux_inputs_ordered))
+    ]
+
+    with path.open("w") as f:
+        f.write(f"{tile_name},{','.join(mux_inputs_ordered)}\n")
+        for i, dest in enumerate(mux_outputs):
+            row_nonzero = sum(1 for v in matrix[i] if v != 0)
+            f.write(f"{dest},{','.join(str(v) for v in matrix[i])},#,{row_nonzero}\n")
+        f.write(f"#,{','.join(str(c) for c in col_counts)}")
+
+
+def write_list(connections: dict[str, list[str]], path: Path) -> None:
+    """Write name-level switch matrix connections to a `.list` file.
+
+    One line per mux output in the compact form
+    `{N}mux_output,[input0|input1|...]` where `N` is the number of mux
+    inputs. The `{N}` multiplier repeats the output so `parseList`
+    pairs it with each bracketed input. Outputs with no inputs are omitted.
+
+    The inputs are always written reversed (MSB-first), independent of
+    `preserve_list_order` - the file always encodes the full order, and the
+    reader decides how to interpret it: a `preserve_list_order` read
+    recovers this exact order, while a plain read re-derives it from the
+    tile's ports.
+
+    Parameters
+    ----------
+    connections : dict[str, list[str]]
+        Mux output name -> mux input names (LSB-first; written reversed).
+    path : Path
+        Destination `.list` file. Created (or overwritten) by this call.
+    """
+    with path.open("w") as f:
+        for mux_output, mux_inputs in connections.items():
+            if not mux_inputs:
+                continue
+            inputs = mux_inputs[::-1]
+            f.write(f"{{{len(mux_inputs)}}}{mux_output},[{'|'.join(inputs)}]\n")

@@ -223,7 +223,10 @@ def make_empty_tile(
         bels=[],
         tileDir=tileDir,
         switch_matrix=SwitchMatrix(
-            matrix_file=matrixDir, connections={}, hdl_config_bits=config_bits or None
+            matrix_file=matrixDir,
+            ports=(),
+            connections={},
+            hdl_config_bits=config_bits or None,
         ),
         gen_ios=[],
         userCLK=False,

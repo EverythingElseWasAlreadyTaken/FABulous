@@ -7,6 +7,7 @@ in the FPGA fabric:
 - TilePort: Port on a tile with side and termination information
 - BelPort: Port on a BEL (Basic Element of Logic)
 - SharedPort: A port shared between multiple BELs
+- SwitchMatrixPort: A port of a tile's switch-matrix module
 - ConfigPort: A configuration port with features
 """
 
@@ -66,9 +67,7 @@ class Pin:
         str
             The wire name.
         """
-        if indexed:
-            return f"{prefix}{self.port.name}[{self.index}]"
-        return f"{prefix}{self.port.name}{self.index}"
+        return self.port.pin_name(self.index, indexed, prefix)
 
 
 class Port:
@@ -192,6 +191,29 @@ class Port:
     def net(self) -> str:
         """The net the port belongs to; "" is the global net."""
         return self._net
+
+    def pin_name(self, index: int, indexed: bool = False, prefix: str = "") -> str:
+        """Return the HDL wire name of bit `index` of this port.
+
+        Parameters
+        ----------
+        index : int
+            The bit index.
+        indexed : bool, optional
+            If True, use bracket notation (`port[3]`, a bit of a vector).
+            If False, use flat concatenation (`port3`, a scalar switch-matrix
+            port). Defaults to False.
+        prefix : str, optional
+            A prefix to prepend to the port name, by default "".
+
+        Returns
+        -------
+        str
+            The wire name.
+        """
+        if indexed:
+            return f"{prefix}{self.name}[{index}]"
+        return f"{prefix}{self.name}{index}"
 
     @cached_property
     def pins(self) -> tuple[Pin, ...]:
@@ -422,11 +444,14 @@ class TilePort(Port):
     def sm_pins(self) -> tuple[Pin, ...]:
         """The pins that face the switch matrix.
 
-        A NULL-terminated spanning wire has no partner tile to hand the wire on
+        The NULL placeholder port of a one-sided wire has none. A
+        NULL-terminated spanning wire has no partner tile to hand the wire on
         to, so every hop's slice is driven or read locally. A named wire only
         exposes its first `wire_count` bits; the remaining slices pass through
         the tile untouched.
         """
+        if self.name_is_null:
+            return ()
         if self._is_null_terminated and self.wire_direction != Direction.SJUMP:
             return self._spanned_pins
         return self.pins[: self.wire_count]
@@ -438,6 +463,8 @@ class TilePort(Port):
         The mirror image of `sm_pins`: a named spanning wire hands its last
         `wire_count` bits to the neighbour, everything else stays inside.
         """
+        if self.name_is_null:
+            return ()
         if self.wire_direction == Direction.SJUMP:
             return self.pins
         if self._is_null_terminated:
@@ -447,8 +474,6 @@ class TilePort(Port):
     def _pin_names(
         self, pins: tuple[Pin, ...], indexed: bool, prefix: str, escape: bool
     ) -> list[str]:
-        if self.name_is_null:
-            return []
         names = [pin.name(indexed, prefix) for pin in pins]
         if indexed and escape:
             return [n.replace("[", r"\[").replace("]", r"\]") for n in names]
@@ -828,4 +853,103 @@ class SharedPort(Port):
 
 
 # Type alias for any port type
-GenericPort = Port | TilePort | BelPort | ConfigPort | SharedPort
+class SwitchMatrixPort(Port):
+    """A port of a tile's switch-matrix module.
+
+    The switch matrix is a module of its own inside the tile, and this is its
+    interface: every tile port that reaches the matrix, every BEL port, and the
+    constant sources. Its pins are the nodes the matrix file (`.list` / `.csv`)
+    connects.
+
+    A port built from a `TilePort` keeps that port as its `origin` and names
+    its pins the flat way the matrix HDL does (`N1END0`). A BEL port or a
+    constant has no origin and is a scalar named as written in the BEL /
+    constant table.
+
+    Parameters
+    ----------
+    name : str
+        The name of the port.
+    io_direction : IO
+        The I/O direction as seen from the switch matrix: a mux output is
+        `IO.OUTPUT`, a mux input is `IO.INPUT`.
+    width : int
+        The bit width of the port. Defaults to 1.
+    origin : TilePort | None
+        The tile port this port wires to, or None for a BEL port / constant.
+        Defaults to None.
+    prefix : str
+        Prepended to the pin names of a wire port (a supertile matrix prefixes
+        each child tile's pins with the tile name). Defaults to "".
+    """
+
+    _origin: TilePort | None
+    _prefix: str
+
+    def __init__(
+        self,
+        name: str,
+        io_direction: IO,
+        width: int = 1,
+        origin: TilePort | None = None,
+        prefix: str = "",
+    ) -> None:
+        super().__init__(name, io_direction, width)
+        self._origin = origin
+        self._prefix = prefix
+
+    @classmethod
+    def from_tile_port(cls, port: TilePort, prefix: str = "") -> SwitchMatrixPort:
+        """Build the matrix port for the switch-matrix-facing pins of a tile port.
+
+        Parameters
+        ----------
+        port : TilePort
+            The tile port. Its `sm_pins` set the width; the direction is the
+            tile port's own (the matrix drives a tile output).
+        prefix : str, optional
+            Prefix for the pin names, by default "".
+
+        Returns
+        -------
+        SwitchMatrixPort
+            The matrix port.
+        """
+        return cls(port.name, port.io_direction, len(port.sm_pins), port, prefix)
+
+    @property
+    def origin(self) -> TilePort | None:
+        """The tile port this port wires to, or None for a BEL / constant."""
+        return self._origin
+
+    def pin_name(self, index: int, indexed: bool = False, prefix: str = "") -> str:
+        """Return the HDL wire name of bit `index`.
+
+        Parameters
+        ----------
+        index : int
+            The bit index.
+        indexed : bool, optional
+            Bracket notation when True, by default False.
+        prefix : str, optional
+            A prefix to prepend, by default "".
+
+        Returns
+        -------
+        str
+            The wire name; a BEL port or constant is scalar and keeps its bare
+            name.
+        """
+        if self._origin is None:
+            return f"{prefix}{self.name}"
+        return super().pin_name(index, indexed, f"{prefix}{self._prefix}")
+
+    def __repr__(self) -> str:
+        """Return a string representation of the SwitchMatrixPort."""
+        return (
+            f"SwitchMatrixPort({self.io_direction.value} "
+            f"{self.name}[{self.width - 1}:0])"
+        )
+
+
+GenericPort = Port | TilePort | BelPort | ConfigPort | SharedPort | SwitchMatrixPort

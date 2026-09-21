@@ -170,7 +170,7 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
                             ] = {encodeDict[curBitOffset + v]: keyDict[entry][v]}
                         curBitOffset += len(keyDict[entry])
 
-            result = tile.switch_matrix.connections
+            result = tile.switch_matrix.named_connections
             for source, sinkList in result.items():
                 controlWidth = 0
                 for i, sink in enumerate(reversed(sinkList)):
@@ -233,7 +233,7 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
 
         sm_connections: dict[str, list[str]] = {}
         if super_tile.switch_matrix is not None:
-            sm_connections = super_tile.switch_matrix.connections
+            sm_connections = super_tile.switch_matrix.named_connections
 
         tx_local, ty_local = super_tile.get_master_tile_coords()
 

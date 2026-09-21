@@ -54,7 +54,7 @@ def mk_tile(tmp_path: Path) -> Callable[[str], Tile]:
 
     def _create(name: str) -> Tile:
         switch_matrix = SwitchMatrix(
-            matrix_file=tmp_path / f"{name}.list", connections={}
+            matrix_file=tmp_path / f"{name}.list", ports=(), connections={}
         )
         return Tile(name, [], [], tmp_path, switch_matrix, [], False)
 

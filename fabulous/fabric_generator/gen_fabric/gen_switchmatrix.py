@@ -121,7 +121,7 @@ def genTileSwitchMatrix(
     # Unconnected outputs are checked here (not at parse) because tile ports are
     # only final after fabric assembly; the switch matrix connections are read
     # once but the port set backing the diagnostic changes.
-    connections = tile.switch_matrix.connections
+    connections = tile.switch_matrix.named_connections
     for port_name in connections:
         if not connections[port_name]:
             hint = _unconnected_port_diagnostic(tile.portsInfo, port_name)
@@ -457,7 +457,7 @@ def gen_super_tile_switch_matrix(
     module_name = f"{superTile.name}_switch_matrix"
 
     # Connectivity (destination -> [sources]) held on the supertile.
-    connections = superTile.switch_matrix.connections
+    connections = superTile.switch_matrix.named_connections
 
     writer.addComment(f"NumberOfConfigBits: {noConfigBits}")
     writer.addHeader(module_name)

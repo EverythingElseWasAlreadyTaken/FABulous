@@ -17,7 +17,10 @@ from fabulous.fabric_definition.define import IO, Direction, Side
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.port import TilePort
 from fabulous.fabric_definition.supertile import SuperTile
-from fabulous.fabric_definition.switch_matrix import SwitchMatrix
+from fabulous.fabric_definition.switch_matrix import (
+    SwitchMatrix,
+    switch_matrix_ports,
+)
 from fabulous.fabric_definition.tile import Tile
 from tests.conftest import make_empty_tile, make_muladd_bel, sjump_port
 
@@ -268,12 +271,16 @@ class TestGenNpnrModelSupertile:
             matrixDir=bot_mat,
             pinOrderConfig={},
         )
+        bel = make_muladd_bel([("SUPER_A0", IO.INPUT), ("SUPER_Q0", IO.OUTPUT)])
         supertile = SuperTile(
             name="DSP",
             tileDir=tmp_path,
             tiles=[top, bot],
             tileMap=[[top], [bot]],
-            switch_matrix=SwitchMatrix.from_file(st_mat, "DSP"),
+            bels=[bel],
+        )
+        supertile.switch_matrix = SwitchMatrix.from_file(
+            st_mat, "DSP", supertile.switch_matrix_ports(), canonical=False
         )
         for t in supertile.tiles:
             t.partOfSuperTile = True
@@ -374,8 +381,13 @@ class TestGenBitstreamSpecSupertileMux:
 
         top = _tile("DSP_top", [sjump_port("top2bot", IO.OUTPUT)])
         bot = _tile("DSP_bot", [sjump_port("A", IO.OUTPUT, wire_count=1)])
-        top.switch_matrix = SwitchMatrix.from_file(top_mat, "DSP_top")
-        bot.switch_matrix = SwitchMatrix.from_file(bot_mat, "DSP_bot")
+        for t, mat in ((top, top_mat), (bot, bot_mat)):
+            t.switch_matrix = SwitchMatrix.from_file(
+                mat, t.name, switch_matrix_ports(t.portsInfo, t.bels)
+            )
+        bel = make_muladd_bel(
+            [("SUPER_A0", IO.INPUT)] + [(f"s{i}", IO.OUTPUT) for i in range(4)]
+        )
         supertile = SuperTile(
             name="DSP",
             # tileDir is the supertile CSV file; consumers read sibling files via
@@ -383,7 +395,10 @@ class TestGenBitstreamSpecSupertileMux:
             tileDir=tmp_path / "DSP.csv",
             tiles=[top, bot],
             tileMap=[[top], [bot]],
-            switch_matrix=SwitchMatrix.from_file(st_mat, "DSP"),
+            bels=[bel],
+        )
+        supertile.switch_matrix = SwitchMatrix.from_file(
+            st_mat, "DSP", supertile.switch_matrix_ports(), canonical=False
         )
         for t in supertile.tiles:
             t.partOfSuperTile = True

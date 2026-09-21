@@ -13,7 +13,7 @@ from fabulous.custom_exception import (
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import IO, MultiplexerStyle
 from fabulous.fabric_definition.supertile import SuperTile
-from fabulous.fabric_definition.switch_matrix import SwitchMatrix
+from fabulous.fabric_definition.switch_matrix import SwitchMatrix, switch_matrix_ports
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.code_generator.code_generator import CodeGenerator
 from fabulous.fabric_generator.gen_fabric.gen_switchmatrix import (
@@ -22,7 +22,10 @@ from fabulous.fabric_generator.gen_fabric.gen_switchmatrix import (
     genTileSwitchMatrix,
 )
 from fabulous.fabric_generator.parser.parse_csv import parse_port_line, parseFabricCSV
-from fabulous.fabric_generator.parser.parse_switchmatrix import parseMatrix
+from fabulous.fabric_generator.parser.parse_switchmatrix import (
+    parseMatrix,
+    write_matrix_csv,
+)
 from fabulous.fabulous_settings import init_context
 from tests.conftest import make_empty_tile, make_muladd_bel, sjump_port
 from tests.fabric_gen_test.conftest import (
@@ -58,50 +61,55 @@ class TestCanonicalListOrder:
 
     def test_default_uses_canonical_dest_order(self, tmp_path: Path) -> None:
         bel, list_file = self._bel_and_list(tmp_path)
-        sm = SwitchMatrix.from_file(list_file, "T", ports=[], bels=[bel])
-        assert list(sm.connections.keys()) == ["A"]
-        assert sm.connections["A"] == ["X", "Y", "Z"]
+        sm = SwitchMatrix.from_file(list_file, "T", switch_matrix_ports([], [bel]))
+        assert sm.named_connections == {"A": ["X", "Y", "Z"]}
 
     def test_preserve_list_order_keeps_reversed_list_order(
         self, tmp_path: Path
     ) -> None:
         bel, list_file = self._bel_and_list(tmp_path)
         sm = SwitchMatrix.from_file(
-            list_file, "T", ports=[], bels=[bel], preserve_list_order=True
+            list_file, "T", switch_matrix_ports([], [bel]), preserve_list_order=True
         )
         # .list order is Z, X, Y; MSB-first keeps its reverse.
-        assert sm.connections["A"] == ["Y", "X", "Z"]
+        assert sm.named_connections["A"] == ["Y", "X", "Z"]
 
 
 class TestListExport:
     """to_list_file writes one compact `{N}output,[inputs]` line per mux."""
 
     def test_compact_per_mux_format_round_trips(self, tmp_path: Path) -> None:
-        sm = SwitchMatrix(
-            matrix_file=Path("x.csv"),
-            connections={"A_I": ["X", "Y"], "B_I": ["Z"], "C_I": []},
+        bel = make_muladd_bel(
+            [
+                ("A_I", IO.INPUT),
+                ("B_I", IO.INPUT),
+                ("C_I", IO.INPUT),
+                ("X", IO.OUTPUT),
+                ("Y", IO.OUTPUT),
+                ("Z", IO.OUTPUT),
+            ]
+        )
+        ports = switch_matrix_ports([], [bel])
+        sm = SwitchMatrix.from_names(
+            Path("x.csv"), ports, {"A_I": ["X", "Y"], "B_I": ["Z"], "C_I": []}
         )
         out = tmp_path / "m.list"
         sm.to_list_file(out)
         # One line per connected mux; inputs always written reversed (MSB-first);
         # the empty C_I is omitted.
         assert out.read_text() == "{2}A_I,[Y|X]\n{1}B_I,[Z]\n"
-        # A preserve read recovers the exact input order.
+        # A preserve read recovers the exact input order (C_I is back, empty).
         assert SwitchMatrix.from_file(
-            out, "T", preserve_list_order=True
-        ).connections == {
-            "A_I": ["X", "Y"],
-            "B_I": ["Z"],
-        }
+            out, "T", ports, preserve_list_order=True
+        ).named_connections == {"A_I": ["X", "Y"], "B_I": ["Z"], "C_I": []}
 
     def test_preserve_list_order_round_trips(self, tmp_path: Path) -> None:
         bel = make_muladd_bel(
             [("A", IO.INPUT), ("X", IO.OUTPUT), ("Y", IO.OUTPUT), ("Z", IO.OUTPUT)]
         )
-        sm = SwitchMatrix(
-            matrix_file=Path("x.csv"),
-            connections={"A": ["Z", "Y", "X"]},
-            preserve_list_order=True,
+        ports = switch_matrix_ports([], [bel])
+        sm = SwitchMatrix.from_names(
+            Path("x.csv"), ports, {"A": ["Z", "Y", "X"]}, preserve_list_order=True
         )
         out = tmp_path / "m.list"
         sm.to_list_file(out)
@@ -109,8 +117,8 @@ class TestListExport:
         # recovers the stored order.
         assert out.read_text() == "{3}A,[X|Y|Z]\n"
         back = SwitchMatrix.from_file(
-            out, "T", ports=[], bels=[bel], preserve_list_order=True
-        ).connections
+            out, "T", ports, preserve_list_order=True
+        ).named_connections
         assert back["A"] == ["Z", "Y", "X"]
 
 
@@ -128,9 +136,8 @@ class TestCsvExportReaderDecides:
     ) -> None:
         # B's order [X, Y] differs from the global column order [Y, Z, X].
         conns = {"A": ["Y", "Z"], "B": ["X", "Y"]}
-        sm = SwitchMatrix(matrix_file=Path("x.csv"), connections=conns)
         out = tmp_path / "m.csv"
-        sm.to_csv_file(out, "T")
+        write_matrix_csv(conns, out, "T")
         # preserve read honours the encoded position -> exact per-mux order
         assert parseMatrix(out, preserve_list_order=True) == conns
         # legacy read treats every entry as 1 -> column order (B reordered)
@@ -141,7 +148,7 @@ class TestCsvExportReaderDecides:
 
 
 class TestSwitchMatrixValidation:
-    """from_file validates connections against tile signals when ports are given."""
+    """from_file resolves every name against the matrix ports."""
 
     def _bel(self) -> Bel:
         # BEL input A is a valid mux output; BEL output X a valid mux input.
@@ -151,19 +158,13 @@ class TestSwitchMatrixValidation:
         csv = tmp_path / "m.csv"
         csv.write_text("T,X\nBOGUS,1\n")
         with pytest.raises(InvalidSwitchMatrixDefinition):
-            SwitchMatrix.from_file(csv, "T", ports=[], bels=[self._bel()])
+            SwitchMatrix.from_file(csv, "T", switch_matrix_ports([], [self._bel()]))
 
     def test_list_rejects_unknown_input(self, tmp_path: Path) -> None:
         lst = tmp_path / "m.list"
         lst.write_text("A,NOT_A_SIGNAL\n")
         with pytest.raises(InvalidSwitchMatrixDefinition):
-            SwitchMatrix.from_file(lst, "T", ports=[], bels=[self._bel()])
-
-    def test_without_ports_skips_validation(self, tmp_path: Path) -> None:
-        # No tile context (e.g. the list_to_csv/csv_to_list CLI) -> no validation.
-        csv = tmp_path / "m.csv"
-        csv.write_text("T,X\nBOGUS,1\n")
-        assert SwitchMatrix.from_file(csv, "T").connections == {"BOGUS": ["X"]}
+            SwitchMatrix.from_file(lst, "T", switch_matrix_ports([], [self._bel()]))
 
 
 class TestHdlSwitchMatrix:
@@ -172,14 +173,14 @@ class TestHdlSwitchMatrix:
     def test_from_file_extracts_config_bits_only(self, tmp_path: Path) -> None:
         v = tmp_path / "T_switch_matrix.v"
         v.write_text("// NumberOfConfigBits: 7\nmodule T(); endmodule\n")
-        sm = SwitchMatrix.from_file(v, "T")
+        sm = SwitchMatrix.from_file(v, "T", ())
         assert sm.connections == {}
         assert sm.no_config_bits == 7
 
     def test_missing_config_bits_defaults_to_zero(self, tmp_path: Path) -> None:
         v = tmp_path / "T_switch_matrix.vhdl"
         v.write_text("entity T is end T;\n")
-        assert SwitchMatrix.from_file(v, "T").no_config_bits == 0
+        assert SwitchMatrix.from_file(v, "T", ()).no_config_bits == 0
 
     def test_generation_skips_hdl_matrix(self, tmp_path: Path) -> None:
         v = tmp_path / "T_switch_matrix.v"
@@ -206,10 +207,11 @@ class TestPreserveListOrderEndToEnd:
         preserved = parseFabricCSV(str(project / "fabric.csv"))
 
         default_conns = {
-            t.name: t.switch_matrix.connections for t in default.tileDic.values()
+            t.name: t.switch_matrix.named_connections for t in default.tileDic.values()
         }
         preserved_conns = {
-            t.name: t.switch_matrix.connections for t in preserved.tileDic.values()
+            t.name: t.switch_matrix.named_connections
+            for t in preserved.tileDic.values()
         }
 
         # Same tiles, same mux outputs, same mux inputs - only input order may
@@ -304,7 +306,7 @@ class TestPreserveListOrderGeneration:
             (preserved_tile, preserved_inputs),
         ):
             for port, rhs in inputs.items():
-                assert rhs == tile.switch_matrix.connections[port][::-1]
+                assert rhs == tile.switch_matrix.named_connections[port][::-1]
 
         # Same muxes generated, and the flag must actually flip at least one.
         assert default_inputs.keys() == preserved_inputs.keys()
@@ -343,12 +345,10 @@ class TestSuperTileSwitchMatrixConstants:
         )
         bel = make_muladd_bel([("SUPER_A0", IO.INPUT), ("SUPER_B0", IO.INPUT)])
         supertile = SuperTile(
-            name="DSP",
-            tileDir=tmp_path,
-            tiles=[bot],
-            tileMap=[[bot]],
-            bels=[bel],
-            switch_matrix=SwitchMatrix.from_file(mat, "DSP"),
+            name="DSP", tileDir=tmp_path, tiles=[bot], tileMap=[[bot]], bels=[bel]
+        )
+        supertile.switch_matrix = SwitchMatrix.from_file(
+            mat, "DSP", supertile.switch_matrix_ports(), canonical=False
         )
         writer = code_generator_factory(".v", "DSP_switch_matrix")
         gen_super_tile_switch_matrix(writer, supertile)
@@ -360,7 +360,7 @@ class TestSuperTileSwitchMatrixConstants:
         code_generator_factory: Callable[[str, str], CodeGenerator],
     ) -> None:
         rtl = self._gen(
-            tmp_path, code_generator_factory, [("SUPER_A0", "[DSP_bot_A0]")]
+            tmp_path, code_generator_factory, [("SUPER_A0", "[DSP_bot_x0]")]
         )
         assert "parameter GND0 = 1'b0;" in rtl
         assert "parameter VCC0 = 1'b1;" in rtl

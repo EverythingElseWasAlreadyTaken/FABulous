@@ -11,9 +11,9 @@ from fabulous.custom_exception import (
 )
 from fabulous.fabric_definition.define import IO, Direction
 from fabulous.fabric_definition.supertile import SuperTile
+from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_generator.parser.parse_csv import (
     parse_port_line,
-    validate_super_tile_matrix,
 )
 from fabulous.fabric_generator.parser.parse_switchmatrix import (
     expandListPorts,
@@ -302,7 +302,7 @@ class TestParseSJumpPortLine:
 
 
 class TestSuperTileMatrixValidation:
-    """`validate_super_tile_matrix` rejects names that aren't real ports/pins.
+    """A supertile matrix only resolves against real ports/pins.
 
     The supertile switch matrix may only reference BEL pins, child-tile SJUMP
     wires, or constants; anything else (a typo like `asdfasd`) is rejected.
@@ -328,11 +328,11 @@ class TestSuperTileMatrixValidation:
         )
 
     def test_port_name_sets(self) -> None:
-        sources, sinks = self._supertile().get_matrix_port_names()
-        # sources: child OUTPUT SJUMP wire + BEL output
-        assert sources == {"DSP_bot_A0", "SUPER_Q0"}
-        # sinks: BEL input + child INPUT SJUMP wire
-        assert sinks == {"SUPER_A0", "DSP_bot_Q0"}
+        sm = SwitchMatrix(Path(), self._supertile().switch_matrix_ports(), {})
+        # mux inputs: child OUTPUT SJUMP wire + BEL output (+ constants)
+        assert {p.name() for p in sm.mux_inputs} >= {"DSP_bot_A0", "SUPER_Q0"}
+        # mux outputs: BEL input + child INPUT SJUMP wire
+        assert {p.name() for p in sm.mux_outputs} == {"SUPER_A0", "DSP_bot_Q0"}
 
     @pytest.mark.parametrize(
         ("connections", "error_match"),
@@ -357,10 +357,11 @@ class TestSuperTileMatrixValidation:
     def test_validate_super_tile_matrix(
         self, connections: dict[str, list[str]], error_match: str | None
     ) -> None:
-        st = self._supertile()
+        ports = self._supertile().switch_matrix_ports()
         path = Path("supertile_matrix.list")
         if error_match is None:
-            validate_super_tile_matrix(st, connections, path)
+            sm = SwitchMatrix.from_names(path, ports, connections)
+            assert sm.named_connections == connections
         else:
             with pytest.raises(InvalidSwitchMatrixDefinition, match=error_match):
-                validate_super_tile_matrix(st, connections, path)
+                SwitchMatrix.from_names(path, ports, connections)

@@ -30,7 +30,6 @@ from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import ConfigBitMode, Side
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.supertile import SuperTile
-from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.code_generator import CodeGenerator
 from fabulous.fabric_generator.code_generator.code_generator_VHDL import (
@@ -66,6 +65,12 @@ from fabulous.fabric_generator.gen_fabric.gen_tile import (
     generateTile,
 )
 from fabulous.fabric_generator.gen_fabric.gen_top_wrapper import generateTopWrapper
+from fabulous.fabric_generator.parser.parse_switchmatrix import (
+    parseList,
+    parseMatrix,
+    write_list,
+    write_matrix_csv,
+)
 from fabulous.fabulous_settings import get_context
 from fabulous.geometry_generator.geometry_gen import GeometryGenerator
 
@@ -158,9 +163,10 @@ class FABulous_API:
             order-faithful; otherwise the reader falls back to column order.
             Defaults to False.
         """
-        SwitchMatrix.from_file(
-            listFile, listFile.stem, preserve_list_order=preserve_list_order
-        ).to_csv_file(matrix, matrix.stem)
+        connections = parseList(listFile, "source")
+        if preserve_list_order:
+            connections = {k: v[::-1] for k, v in connections.items()}
+        write_matrix_csv(connections, matrix, matrix.stem)
 
     def add_matrix_to_list(
         self, matrix: Path, listFile: Path, preserve_list_order: bool = False
@@ -178,9 +184,7 @@ class FABulous_API:
             order-faithful; otherwise the reader falls back to column order.
             Defaults to False.
         """
-        SwitchMatrix.from_file(
-            matrix, matrix.stem, preserve_list_order=preserve_list_order
-        ).to_list_file(listFile)
+        write_list(parseMatrix(matrix, preserve_list_order), listFile)
 
     def genConfigMem(self, tileName: str, configMem: Path) -> None:
         """Generate configuration memory for specified tile.
