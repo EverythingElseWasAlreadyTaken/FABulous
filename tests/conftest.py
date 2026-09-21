@@ -191,7 +191,6 @@ def sjump_port(
     return TilePort(
         name=name,
         io_direction=in_out,
-        width=wire_count,
         side_of_tile=Side.ANY,
         wire_direction=Direction.SJUMP,
         source_name=name if in_out == IO.OUTPUT else "NULL",

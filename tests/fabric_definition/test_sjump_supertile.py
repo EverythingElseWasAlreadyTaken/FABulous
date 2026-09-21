@@ -73,7 +73,6 @@ class TestTileGetSJumpPorts:
         jump = TilePort(
             name="J",
             io_direction=IO.OUTPUT,
-            width=1,
             side_of_tile=Side.NORTH,
             wire_direction=Direction.JUMP,
             source_name="J",
@@ -85,7 +84,6 @@ class TestTileGetSJumpPorts:
         normal = TilePort(
             name="N1BEG",
             io_direction=IO.OUTPUT,
-            width=4,
             side_of_tile=Side.NORTH,
             wire_direction=Direction.NORTH,
             source_name="N1BEG",

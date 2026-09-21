@@ -4,6 +4,7 @@ import pytest
 
 from fabulous.fabric_definition.define import (
     IO,
+    Direction,
     FeatureType,
     FeatureValue,
     Side,
@@ -11,11 +12,13 @@ from fabulous.fabric_definition.define import (
 from fabulous.fabric_definition.port import (
     BelPort,
     ConfigPort,
+    Pin,
     Port,
     SharedPort,
     SlicedPort,
     TilePort,
 )
+from tests.conftest import sjump_port
 
 
 class TestPort:
@@ -71,6 +74,16 @@ class TestPort:
     def test_expand_single_bit(self) -> None:
         """A width-1 port expands to a single bare name."""
         assert Port(name="x", io_direction=IO.INPUT, width=1).expand() == ["x"]
+
+    def test_pins_are_hashable_bit_handles(self) -> None:
+        """Every bit is a value-equal Pin that names itself in both spellings."""
+        port = Port(name="A", io_direction=IO.INPUT, width=3)
+        assert port[1] == Pin(port, 1)
+        assert port[1] is port.pins[1]
+        assert len({port[1], Pin(port, 1), port[2]}) == 2
+        assert port[1].name() == "A1"
+        assert port[1].name(indexed=True, prefix="p_") == "p_A[1]"
+        assert port.expand() == [pin.name(indexed=True) for pin in port.pins]
 
     def test_expand_multi_bit(self) -> None:
         """A multi-bit port expands to indexed names."""
@@ -320,45 +333,95 @@ class TestTilePort:
 
     def test_construct_with_side(self) -> None:
         """A TilePort exposes its side of the tile."""
-        port = TilePort(
-            name="N1", io_direction=IO.OUTPUT, width=1, side_of_tile=Side.NORTH
-        )
+        port = TilePort(name="N1", io_direction=IO.OUTPUT, side_of_tile=Side.NORTH)
         assert port.side_of_tile == Side.NORTH
 
     def test_ordering_by_side(self) -> None:
         """Ports are ordered by tile side (north before east)."""
-        north = TilePort(
-            name="n", io_direction=IO.OUTPUT, width=1, side_of_tile=Side.NORTH
-        )
-        east = TilePort(
-            name="e", io_direction=IO.INPUT, width=1, side_of_tile=Side.EAST
-        )
+        north = TilePort(name="n", io_direction=IO.OUTPUT, side_of_tile=Side.NORTH)
+        east = TilePort(name="e", io_direction=IO.INPUT, side_of_tile=Side.EAST)
         assert north < east
         assert east > north
 
     def test_ordering_by_io_within_side(self) -> None:
         """Within a side, outputs are ordered before inputs."""
-        out = TilePort(
-            name="o", io_direction=IO.OUTPUT, width=1, side_of_tile=Side.NORTH
-        )
-        inp = TilePort(
-            name="i", io_direction=IO.INPUT, width=1, side_of_tile=Side.NORTH
-        )
+        out = TilePort(name="o", io_direction=IO.OUTPUT, side_of_tile=Side.NORTH)
+        inp = TilePort(name="i", io_direction=IO.INPUT, side_of_tile=Side.NORTH)
         assert out < inp
         assert out <= inp
         assert inp >= out
 
     def test_comparison_with_non_tileport_raises(self) -> None:
         """Ordering is only defined against another TilePort."""
-        port = TilePort(
-            name="n", io_direction=IO.OUTPUT, width=1, side_of_tile=Side.NORTH
-        )
+        port = TilePort(name="n", io_direction=IO.OUTPUT, side_of_tile=Side.NORTH)
         with pytest.raises(TypeError, match="Cannot compare"):
             port < 1  # noqa: B015
 
     def test_tile_back_reference_defaults_to_none(self) -> None:
         """An unattached port has no owning tile."""
-        port = TilePort(
-            name="n", io_direction=IO.OUTPUT, width=1, side_of_tile=Side.NORTH
-        )
+        port = TilePort(name="n", io_direction=IO.OUTPUT, side_of_tile=Side.NORTH)
         assert port.tile is None
+
+
+def make_wire_port(
+    x_offset: int, y_offset: int, wire_count: int, source: str, destination: str
+) -> TilePort:
+    """Build the OUTPUT side of a CSV wire line for the pin-slice tests."""
+    direction = Direction.NORTH if x_offset or y_offset else Direction.JUMP
+    return TilePort(
+        name=source if source != "NULL" else destination,
+        io_direction=IO.OUTPUT,
+        side_of_tile=Side.NORTH,
+        wire_direction=direction,
+        source_name=source,
+        x_offset=x_offset,
+        y_offset=y_offset,
+        destination_name=destination,
+        wire_count=wire_count,
+    )
+
+
+class TestTilePortPins:
+    """`width` is the HDL vector; `sm_pins`/`top_pins` are its two slices."""
+
+    @pytest.mark.parametrize(
+        ("x_offset", "y_offset", "wire_count", "width"),
+        [(0, 0, 1, 1), (0, 0, 4, 4), (0, 1, 4, 4), (0, 2, 4, 8), (3, 0, 2, 6)],
+    )
+    def test_width_is_wire_count_times_distance(
+        self, x_offset: int, y_offset: int, wire_count: int, width: int
+    ) -> None:
+        """A spanning wire occupies one `wire_count` slice per hop it crosses."""
+        port = make_wire_port(x_offset, y_offset, wire_count, "NBEG", "NEND")
+        assert port.width == width
+        assert len(port.pins) == width
+
+    @pytest.mark.parametrize(
+        ("source", "destination", "x_offset", "sm", "top"),
+        [
+            # named both ends: SM sees the first slice, the top level the last
+            ("NBEG", "NEND", 2, [0, 1], [2, 3]),
+            # NULL-terminated: every slice is local, so both see all of it
+            ("NBEG", "NULL", 2, [0, 1, 2, 3], [0, 1, 2, 3]),
+            # NULL-sourced JUMP: a dangling wire declares no port at all
+            ("NULL", "GND", 0, [], []),
+        ],
+    )
+    def test_pin_slices(
+        self, source: str, destination: str, x_offset: int, sm: list, top: list
+    ) -> None:
+        """`sm_pins`/`top_pins` select the same bits the string expansion did."""
+        port = make_wire_port(x_offset, 0, 2, source, destination)
+        assert [pin.index for pin in port.sm_pins] == sm
+        assert [pin.index for pin in port.top_pins] == top
+        assert port.expand_port_info_by_name() == [f"{port.name}{i}" for i in sm]
+        assert port.expand_port_info_by_name_top(indexed=True, escape=True) == [
+            rf"{port.name}\[{i}\]" for i in top
+        ]
+
+    def test_sjump_exposes_all_pins(self) -> None:
+        """An SJUMP port has zero offset and is fully visible on both sides."""
+        port = sjump_port("J", IO.OUTPUT, wire_count=3)
+        assert port.sm_pins == port.pins
+        assert port.top_pins == port.pins
+        assert port.expand_port_info_by_name_top() == ["J0", "J1", "J2"]

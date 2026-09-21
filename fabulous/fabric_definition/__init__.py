@@ -9,6 +9,7 @@ The fabric definition includes:
 - ConfigMem: Configuration memory structures
 - Fabric: Top-level fabric representation with tiles and routing
 - Gen_IO: Generated I/O port definitions
+- Pin: A single bit of a port; the node of the routing graph
 - Port: Routing port definitions between tiles
 - SuperTile: Multi-tile components for larger or more complex structures
 - Tile: Individual FPGA tiles containing BELs and switch matrices

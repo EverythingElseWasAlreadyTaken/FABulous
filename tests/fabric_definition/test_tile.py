@@ -36,7 +36,6 @@ def _directional_ports(
         TilePort(
             name=src,
             io_direction=IO.OUTPUT,
-            width=wires,
             side_of_tile=side,
             wire_direction=Direction[direction],
             source_name=src,
@@ -48,7 +47,6 @@ def _directional_ports(
         TilePort(
             name=dst,
             io_direction=IO.INPUT,
-            width=wires,
             side_of_tile=side.opposite,
             wire_direction=Direction[direction],
             source_name=src,
@@ -93,7 +91,6 @@ class TestGetPortCount:
         port = TilePort(
             name="VCC",
             io_direction=IO.INPUT,
-            width=1,
             side_of_tile=Side.ANY,
             wire_direction=Direction.JUMP,
             source_name="NULL",

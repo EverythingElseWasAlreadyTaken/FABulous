@@ -115,7 +115,6 @@ def parse_port_line(line: str) -> tuple[list[TilePort], tuple[str, str] | None]:
             TilePort(
                 name=source_name,
                 io_direction=IO.OUTPUT,
-                width=wire_count,
                 side_of_tile=Side[port_type],
                 wire_direction=wire_direction,
                 source_name=source_name,
@@ -131,7 +130,6 @@ def parse_port_line(line: str) -> tuple[list[TilePort], tuple[str, str] | None]:
             TilePort(
                 name=destination_name,
                 io_direction=IO.INPUT,
-                width=wire_count,
                 side_of_tile=Side[port_type].opposite,
                 wire_direction=wire_direction,
                 source_name=source_name,
@@ -149,7 +147,6 @@ def parse_port_line(line: str) -> tuple[list[TilePort], tuple[str, str] | None]:
             TilePort(
                 name=source_name,
                 io_direction=IO.OUTPUT,
-                width=wire_count,
                 side_of_tile=Side.ANY,
                 wire_direction=Direction.JUMP,
                 source_name=source_name,
@@ -164,7 +161,6 @@ def parse_port_line(line: str) -> tuple[list[TilePort], tuple[str, str] | None]:
             TilePort(
                 name=destination_name,
                 io_direction=IO.INPUT,
-                width=wire_count,
                 side_of_tile=Side.ANY,
                 wire_direction=Direction.JUMP,
                 source_name=source_name,
@@ -199,7 +195,6 @@ def parse_port_line(line: str) -> tuple[list[TilePort], tuple[str, str] | None]:
                 TilePort(
                     name=source_name,
                     io_direction=IO.OUTPUT,
-                    width=wire_count,
                     side_of_tile=Side.ANY,
                     wire_direction=Direction.SJUMP,
                     source_name=source_name,
@@ -214,7 +209,6 @@ def parse_port_line(line: str) -> tuple[list[TilePort], tuple[str, str] | None]:
                 TilePort(
                     name=destination_name,
                     io_direction=IO.INPUT,
-                    width=wire_count,
                     side_of_tile=Side.ANY,
                     wire_direction=Direction.SJUMP,
                     source_name=NULL_PORT_NAME,

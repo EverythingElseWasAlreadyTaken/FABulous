@@ -380,7 +380,6 @@ class TestInterTileRouting:
                 TilePort(
                     name="E_out",
                     io_direction=IO.OUTPUT,
-                    width=2,
                     side_of_tile=Side.EAST,
                     wire_direction=Direction.EAST,
                     source_name="E_out",
@@ -402,7 +401,6 @@ class TestInterTileRouting:
                 TilePort(
                     name="E_in",
                     io_direction=IO.INPUT,
-                    width=2,
                     side_of_tile=Side.WEST,
                     wire_direction=Direction.EAST,
                     source_name="E_in",
