@@ -164,7 +164,7 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
                             ] = {positions[bit_offset + v]: feature_bits[entry][v]}
                         bit_offset += len(feature_bits[entry])
 
-            result = tile.switch_matrix.connections
+            result = tile.switch_matrix.named_connections
             for source, sinks in result.items():
                 control_width = 0
                 for i, sink in enumerate(reversed(sinks)):
@@ -231,7 +231,7 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
 
         sm_connections: dict[str, list[str]] = {}
         if super_tile.switch_matrix is not None:
-            sm_connections = super_tile.switch_matrix.connections
+            sm_connections = super_tile.switch_matrix.named_connections
 
         tx_local, ty_local = super_tile.get_master_tile_coords()
 

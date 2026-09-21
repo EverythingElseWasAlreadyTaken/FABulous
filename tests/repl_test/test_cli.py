@@ -206,6 +206,7 @@ def test_an_unused_supertile_still_finds_its_master(cli: FABulousREPL) -> None:
         fabric.unusedTileDic[child.name] = fabric.tileDic.pop(child.name)
     super_tile.switch_matrix = SwitchMatrix(
         matrix_file=super_tile.directory / "DSP_switch_matrix.list",
+        ports=(),
         connections={},
         hdl_config_bits=4,
     )
@@ -223,6 +224,7 @@ def test_a_supertile_will_not_borrow_from_an_ungenerated_master(
     # The demo supertile has no bits of its own.
     super_tile.switch_matrix = SwitchMatrix(
         matrix_file=super_tile.directory / "DSP_switch_matrix.list",
+        ports=(),
         connections={},
         hdl_config_bits=4,
     )

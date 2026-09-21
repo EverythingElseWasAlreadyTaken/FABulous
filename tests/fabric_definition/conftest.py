@@ -42,7 +42,6 @@ def make_side_port(side: Side, name: str = "P") -> TilePort:
     return TilePort(
         name=name,
         io_direction=IO.INPUT,
-        width=1,
         side_of_tile=side,
         wire_direction=Direction.JUMP,
         source_name=name,

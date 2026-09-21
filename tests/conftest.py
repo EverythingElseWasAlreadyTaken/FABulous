@@ -199,7 +199,6 @@ def sjump_port(
     return TilePort(
         name=name,
         io_direction=in_out,
-        width=wire_count,
         side_of_tile=Side.ANY,
         wire_direction=Direction.SJUMP,
         source_name=name if in_out == IO.OUTPUT else "NULL",
@@ -234,7 +233,10 @@ def make_empty_tile(
         bels=[],
         tileDir=tileDir,
         switch_matrix=SwitchMatrix(
-            matrix_file=matrixDir, connections={}, hdl_config_bits=config_bits or None
+            matrix_file=matrixDir,
+            ports=(),
+            connections={},
+            hdl_config_bits=config_bits or None,
         ),
         gen_ios=[],
         userCLK=False,

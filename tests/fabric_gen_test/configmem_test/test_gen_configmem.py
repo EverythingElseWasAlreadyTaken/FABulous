@@ -587,6 +587,7 @@ class TestGenerateSuperTileConfigMem:
             tileMap=[[]],
             switch_matrix=SwitchMatrix(
                 matrix_file=tmp_path / "ST_switch_matrix.csv",
+                ports=(),
                 connections={},
                 hdl_config_bits=4,
             ),
@@ -618,6 +619,7 @@ class TestGenerateSuperTileConfigMem:
             tileMap=[[child]],
             switch_matrix=SwitchMatrix(
                 matrix_file=st_dir / "ST_switch_matrix.csv",
+                ports=(),
                 connections={},
                 hdl_config_bits=4,
             ),

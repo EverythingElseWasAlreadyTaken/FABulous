@@ -2,17 +2,19 @@
 
 This module contains the port class hierarchy for representing different types of ports
 in the FPGA fabric:
+- Pin: A single bit of a port; the node of the routing graph
 - Port: Base class for all port types
 - TilePort: Port on a tile with side and termination information
 - BelPort: Port on a BEL (Basic Element of Logic)
-- SlicedPort: A sliced portion of another port
 - SharedPort: A port shared between multiple BELs
+- SwitchMatrixPort: A port of a tile's switch-matrix module
 - ConfigPort: A configuration port with features
 """
 
 from __future__ import annotations
 
-from functools import total_ordering
+from dataclasses import dataclass
+from functools import cached_property, total_ordering
 from typing import TYPE_CHECKING
 
 from fabulous.fabric_definition.define import (
@@ -27,6 +29,45 @@ if TYPE_CHECKING:
     from fabulous.fabric_definition.tile import Tile
 
 NULL_PORT_NAME = "NULL"
+
+
+@dataclass(frozen=True)
+class Pin:
+    """A single bit of a `Port`.
+
+    Pins are the nodes in the FABulous routing graph: a wire or a pip always joins
+    exactly one pin to another. Two pins are equal when they index the same
+    bit of the same port object, so they can be used as dictionary keys.
+
+    Attributes
+    ----------
+    port : Port
+        The port this pin is a bit of.
+    index : int
+        The bit index within the port, 0 is the least significant bit.
+    """
+
+    port: Port
+    index: int
+
+    def name(self, indexed: bool = False, prefix: str = "") -> str:
+        """Return the HDL wire name of this pin.
+
+        Parameters
+        ----------
+        indexed : bool, optional
+            If True, use bracket notation (`port[3]`, a bit of a vector).
+            If False, use flat concatenation (`port3`, a scalar switch-matrix
+            port). Defaults to False.
+        prefix : str, optional
+            A prefix to prepend to the port name, by default "".
+
+        Returns
+        -------
+        str
+            The wire name.
+        """
+        return self.port.pin_name(self.index, indexed, prefix)
 
 
 class Port:
@@ -151,6 +192,38 @@ class Port:
         """The net the port belongs to; "" is the global net."""
         return self._net
 
+    def pin_name(self, index: int, indexed: bool = False, prefix: str = "") -> str:
+        """Return the HDL wire name of bit `index` of this port.
+
+        Parameters
+        ----------
+        index : int
+            The bit index.
+        indexed : bool, optional
+            If True, use bracket notation (`port[3]`, a bit of a vector).
+            If False, use flat concatenation (`port3`, a scalar switch-matrix
+            port). Defaults to False.
+        prefix : str, optional
+            A prefix to prepend to the port name, by default "".
+
+        Returns
+        -------
+        str
+            The wire name.
+        """
+        if indexed:
+            return f"{prefix}{self.name}[{index}]"
+        return f"{prefix}{self.name}{index}"
+
+    @cached_property
+    def pins(self) -> tuple[Pin, ...]:
+        """One `Pin` per bit, least significant first."""
+        return tuple(Pin(self, i) for i in range(self.width))
+
+    def __getitem__(self, index: int) -> Pin:
+        """Return the pin for bit `index`."""
+        return self.pins[index]
+
     def expand(self) -> list[str]:
         """Expand the port name into a list of strings based on the width.
 
@@ -161,7 +234,7 @@ class Port:
         """
         if self.width == 1:
             return [f"{self.name}"]
-        return [f"{self.name}[{i}]" for i in range(self.width)]
+        return [pin.name(indexed=True) for pin in self.pins]
 
     def __eq__(self, other: object, /) -> bool:
         """Check equality with another object."""
@@ -200,8 +273,6 @@ class TilePort(Port):
         The name of the port.
     io_direction : IO
         The I/O direction (INPUT, OUTPUT, INOUT).
-    width : int
-        The bit width of the port.
     side_of_tile : Side
         The side of the tile where the port is located.
     term : bool
@@ -221,7 +292,9 @@ class TilePort(Port):
     destination_name : str
         The destination name of the wire connection. Defaults to "".
     wire_count : int
-        The number of wires. Defaults to 1.
+        The number of wires per hop. Defaults to 1. The port's `width` is
+        `wire_count` times the Manhattan distance of the offset: a spanning wire
+        occupies one slice per hop it crosses.
     """
 
     _side_of_tile: Side
@@ -239,7 +312,6 @@ class TilePort(Port):
         self,
         name: str,
         io_direction: IO,
-        width: int,
         side_of_tile: Side,
         term: bool = False,
         tile: Tile | None = None,
@@ -251,7 +323,8 @@ class TilePort(Port):
         destination_name: str = "",
         wire_count: int = 1,
     ) -> None:
-        super().__init__(name, io_direction, width)
+        distance = abs(x_offset) + abs(y_offset)
+        super().__init__(name, io_direction, wire_count * max(1, distance))
         self._side_of_tile = side_of_tile
         self._term = term
         self._tile = tile
@@ -352,6 +425,60 @@ class TilePort(Port):
             "wire_count": self.wire_count,
         }
 
+    @property
+    def _is_null_terminated(self) -> bool:
+        return (
+            self.source_name == NULL_PORT_NAME
+            or self.destination_name == NULL_PORT_NAME
+        )
+
+    @property
+    def _spanned_pins(self) -> tuple[Pin, ...]:
+        # A NULL-terminated wire exposes one slice per hop. With no offset
+        # (a JUMP whose other end is NULL) that is no pins at all: the CSV line
+        # declares a dangling wire, not a port.
+        distance = abs(self.x_offset) + abs(self.y_offset)
+        return self.pins[: self.wire_count * distance]
+
+    @property
+    def sm_pins(self) -> tuple[Pin, ...]:
+        """The pins that face the switch matrix.
+
+        The NULL placeholder port of a one-sided wire has none. A
+        NULL-terminated spanning wire has no partner tile to hand the wire on
+        to, so every hop's slice is driven or read locally. A named wire only
+        exposes its first `wire_count` bits; the remaining slices pass through
+        the tile untouched.
+        """
+        if self.name_is_null:
+            return ()
+        if self._is_null_terminated and self.wire_direction != Direction.SJUMP:
+            return self._spanned_pins
+        return self.pins[: self.wire_count]
+
+    @property
+    def top_pins(self) -> tuple[Pin, ...]:
+        """The pins that face the neighbouring tile at the fabric top level.
+
+        The mirror image of `sm_pins`: a named spanning wire hands its last
+        `wire_count` bits to the neighbour, everything else stays inside.
+        """
+        if self.name_is_null:
+            return ()
+        if self.wire_direction == Direction.SJUMP:
+            return self.pins
+        if self._is_null_terminated:
+            return self._spanned_pins
+        return self.pins[self.width - self.wire_count :]
+
+    def _pin_names(
+        self, pins: tuple[Pin, ...], indexed: bool, prefix: str, escape: bool
+    ) -> list[str]:
+        names = [pin.name(indexed, prefix) for pin in pins]
+        if indexed and escape:
+            return [n.replace("[", r"\[").replace("]", r"\]") for n in names]
+        return names
+
     # Backward compatibility methods from old Port class
     def get_port_regex(self, indexed: bool = False, prefix: str = "") -> str:
         """Expand port information to individual wire names.
@@ -373,9 +500,7 @@ class TilePort(Port):
         str
             A regex expression matching the port's wire names.
         """
-        total_wires = (abs(self.x_offset) + abs(self.y_offset)) * self.wire_count
-
-        if total_wires == 1 and not self.name_is_null:
+        if self.width == 1 and not self.name_is_null:
             return f"{prefix}{self.name}"
         if indexed:
             return rf"{prefix}{self.name}\[\d+\]"
@@ -407,27 +532,7 @@ class TilePort(Port):
         list[str]
             List of individual wire names for this port.
         """
-        if (
-            self.source_name == "NULL" or self.destination_name == "NULL"
-        ) and self.wire_direction != Direction.SJUMP:
-            count = (abs(self.x_offset) + abs(self.y_offset)) * self.wire_count
-        else:
-            count = self.wire_count
-
-        if not indexed:
-            return [
-                f"{prefix}{self.name}{i}" for i in range(count) if not self.name_is_null
-            ]
-
-        if escape:
-            return [
-                rf"{prefix}{self.name}\[{i}\]"
-                for i in range(count)
-                if not self.name_is_null
-            ]
-        return [
-            f"{prefix}{self.name}[{i}]" for i in range(count) if not self.name_is_null
-        ]
+        return self._pin_names(self.sm_pins, indexed, prefix, escape)
 
     def expand_port_info_by_name_top(
         self, indexed: bool = False, prefix: str = "", escape: bool = False
@@ -455,36 +560,7 @@ class TilePort(Port):
         list[str]
             List of individual wire names for top-level connections.
         """
-        if self.wire_direction == Direction.SJUMP:
-            startIndex = 0
-            total_wires = self.wire_count
-        elif self.source_name == "NULL" or self.destination_name == "NULL":
-            startIndex = 0
-            total_wires = (abs(self.x_offset) + abs(self.y_offset)) * self.wire_count
-        else:
-            startIndex = (
-                (abs(self.x_offset) + abs(self.y_offset)) - 1
-            ) * self.wire_count
-            total_wires = (abs(self.x_offset) + abs(self.y_offset)) * self.wire_count
-
-        if not indexed:
-            return [
-                f"{prefix}{self.name}{i}"
-                for i in range(startIndex, total_wires)
-                if not self.name_is_null
-            ]
-
-        if escape:
-            return [
-                rf"{prefix}{self.name}\[{i}\]"
-                for i in range(startIndex, total_wires)
-                if not self.name_is_null
-            ]
-        return [
-            f"{prefix}{self.name}[{i}]"
-            for i in range(startIndex, total_wires)
-            if not self.name_is_null
-        ]
+        return self._pin_names(self.top_pins, indexed, prefix, escape)
 
     def expand_port_info(
         self, mode: str = "SwitchMatrix"
@@ -571,104 +647,6 @@ class TilePort(Port):
                     f"{self.destination_name}{openIndex}{str(i)}{closeIndex}"
                 )
         return inputs, outputs
-
-
-class SlicedPort(Port):
-    """A port that represents a slice of another port.
-
-    The range is written `high downto low`, following VHDL: both endpoints are
-    inclusive 0-based indices into the original port's own expansion, and `high`
-    selects the most significant bit. `expand()` still lists bits least
-    significant first, matching `Port.expand()`.
-
-    Parameters
-    ----------
-    original_port : Port
-        The original port being sliced.
-    high : int
-        The most significant bit index of the slice, inclusive.
-    low : int
-        The least significant bit index of the slice, inclusive.
-
-    Raises
-    ------
-    ValueError
-        If `low` is negative, if `high` is below `low`, or if `high` falls
-        outside the original port's width.
-    """
-
-    _high: int
-    _low: int
-    _original_port: Port
-
-    def __init__(
-        self,
-        original_port: Port,
-        high: int,
-        low: int,
-    ) -> None:
-        if low < 0:
-            raise ValueError(f"Slice low index must not be negative, got {low}")
-        if high < low:
-            raise ValueError(
-                f"Slice must be written high downto low, got high={high} low={low}"
-            )
-        if high >= original_port.width:
-            raise ValueError(
-                f"Slice high index {high} is outside the width of "
-                f"{original_port.name} ({original_port.width} bits)"
-            )
-        super().__init__(
-            original_port.name,
-            original_port.io_direction,
-            high - low + 1,
-        )
-        self._original_port = original_port
-        self._high = high
-        self._low = low
-
-    @property
-    def original_port(self) -> Port:
-        """The original port being sliced."""
-        return self._original_port
-
-    @property
-    def high(self) -> int:
-        """The most significant bit index of the slice, inclusive."""
-        return self._high
-
-    @property
-    def low(self) -> int:
-        """The least significant bit index of the slice, inclusive."""
-        return self._low
-
-    def expand(self) -> list[str]:
-        """Expand the slice into indexed wire names, least significant bit first."""
-        low, high = self.low, self.high
-        if isinstance(self.original_port, (BelPort, TilePort)):
-            return [f"{self.original_port.name}[{i}]" for i in range(low, high + 1)]
-        if isinstance(self.original_port, SlicedPort):
-            # Index the parent's expansion relatively: the parent already carries
-            # its own bit offset, so low..high select into that sub-list.
-            parent_bits = self.original_port.expand()
-            return [parent_bits[i] for i in range(low, high + 1)]
-        raise ValueError(f"type {type(self.original_port)} not supported for slicing")
-
-    def __repr__(self) -> str:
-        """Return a string representation of the SlicedPort."""
-        return (
-            f"SlicedPort({self.io_direction.value} "
-            f"{self.name}[{self.high}:{self.low}] "
-            f"from {self.original_port.name})"
-        )
-
-    def serialize(self) -> dict:
-        """Serialize the sliced port to a dictionary."""
-        return super().serialize() | {
-            "high": self.high,
-            "low": self.low,
-            "original_port": self.original_port.name,
-        }
 
 
 class BelPort(Port):
@@ -875,4 +853,103 @@ class SharedPort(Port):
 
 
 # Type alias for any port type
-GenericPort = Port | TilePort | SlicedPort | BelPort | ConfigPort | SharedPort
+class SwitchMatrixPort(Port):
+    """A port of a tile's switch-matrix module.
+
+    The switch matrix is a module of its own inside the tile, and this is its
+    interface: every tile port that reaches the matrix, every BEL port, and the
+    constant sources. Its pins are the nodes the matrix file (`.list` / `.csv`)
+    connects.
+
+    A port built from a `TilePort` keeps that port as its `origin` and names
+    its pins the flat way the matrix HDL does (`N1END0`). A BEL port or a
+    constant has no origin and is a scalar named as written in the BEL /
+    constant table.
+
+    Parameters
+    ----------
+    name : str
+        The name of the port.
+    io_direction : IO
+        The I/O direction as seen from the switch matrix: a mux output is
+        `IO.OUTPUT`, a mux input is `IO.INPUT`.
+    width : int
+        The bit width of the port. Defaults to 1.
+    origin : TilePort | None
+        The tile port this port wires to, or None for a BEL port / constant.
+        Defaults to None.
+    prefix : str
+        Prepended to the pin names of a wire port (a supertile matrix prefixes
+        each child tile's pins with the tile name). Defaults to "".
+    """
+
+    _origin: TilePort | None
+    _prefix: str
+
+    def __init__(
+        self,
+        name: str,
+        io_direction: IO,
+        width: int = 1,
+        origin: TilePort | None = None,
+        prefix: str = "",
+    ) -> None:
+        super().__init__(name, io_direction, width)
+        self._origin = origin
+        self._prefix = prefix
+
+    @classmethod
+    def from_tile_port(cls, port: TilePort, prefix: str = "") -> SwitchMatrixPort:
+        """Build the matrix port for the switch-matrix-facing pins of a tile port.
+
+        Parameters
+        ----------
+        port : TilePort
+            The tile port. Its `sm_pins` set the width; the direction is the
+            tile port's own (the matrix drives a tile output).
+        prefix : str, optional
+            Prefix for the pin names, by default "".
+
+        Returns
+        -------
+        SwitchMatrixPort
+            The matrix port.
+        """
+        return cls(port.name, port.io_direction, len(port.sm_pins), port, prefix)
+
+    @property
+    def origin(self) -> TilePort | None:
+        """The tile port this port wires to, or None for a BEL / constant."""
+        return self._origin
+
+    def pin_name(self, index: int, indexed: bool = False, prefix: str = "") -> str:
+        """Return the HDL wire name of bit `index`.
+
+        Parameters
+        ----------
+        index : int
+            The bit index.
+        indexed : bool, optional
+            Bracket notation when True, by default False.
+        prefix : str, optional
+            A prefix to prepend, by default "".
+
+        Returns
+        -------
+        str
+            The wire name; a BEL port or constant is scalar and keeps its bare
+            name.
+        """
+        if self._origin is None:
+            return f"{prefix}{self.name}"
+        return super().pin_name(index, indexed, f"{prefix}{self._prefix}")
+
+    def __repr__(self) -> str:
+        """Return a string representation of the SwitchMatrixPort."""
+        return (
+            f"SwitchMatrixPort({self.io_direction.value} "
+            f"{self.name}[{self.width - 1}:0])"
+        )
+
+
+GenericPort = Port | TilePort | BelPort | ConfigPort | SharedPort | SwitchMatrixPort

@@ -252,7 +252,7 @@ def genNextpnrModel(
             if tile is None:
                 continue
             pipStr.append(f"#Tile-internal pips on tile X{x}Y{y}:")
-            for source, sinkList in tile.switch_matrix.connections.items():
+            for source, sinkList in tile.switch_matrix.named_connections.items():
                 for sink in sinkList:
                     delay: float = DUMMY_PIP_DELAY
                     if delay_model is not None:
@@ -328,7 +328,7 @@ def genNextpnrModel(
             constrainStr.extend(constrain_lines)
 
         if super_tile.switch_matrix is not None:
-            for sink, sources in super_tile.switch_matrix.connections.items():
+            for sink, sources in super_tile.switch_matrix.named_connections.items():
                 for src in sources:
                     delay: float = DUMMY_PIP_DELAY
                     if delay_model is not None:

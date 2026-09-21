@@ -128,7 +128,6 @@ class SmGeometry:
                     augmentedPort = TilePort(
                         name=southPort.name,
                         io_direction=southPort.io_direction,
-                        width=southPort.wire_count * abs(southPort.y_offset),
                         side_of_tile=southPort.side_of_tile,
                         wire_direction=southPort.wire_direction,
                         source_name=southPort.source_name,
@@ -148,7 +147,6 @@ class SmGeometry:
                     augmentedPort = TilePort(
                         name=northPort.name,
                         io_direction=northPort.io_direction,
-                        width=northPort.wire_count * abs(northPort.y_offset),
                         side_of_tile=northPort.side_of_tile,
                         wire_direction=northPort.wire_direction,
                         source_name=northPort.source_name,
@@ -169,7 +167,6 @@ class SmGeometry:
                     augmentedPort = TilePort(
                         name=eastPort.name,
                         io_direction=eastPort.io_direction,
-                        width=eastPort.wire_count * abs(eastPort.x_offset),
                         side_of_tile=eastPort.side_of_tile,
                         wire_direction=eastPort.wire_direction,
                         source_name=eastPort.source_name,
@@ -189,7 +186,6 @@ class SmGeometry:
                     augmentedPort = TilePort(
                         name=westPort.name,
                         io_direction=westPort.io_direction,
-                        width=westPort.wire_count * abs(westPort.x_offset),
                         side_of_tile=westPort.side_of_tile,
                         wire_direction=westPort.wire_direction,
                         source_name=westPort.source_name,
@@ -223,7 +219,6 @@ class SmGeometry:
                 mergedPort = TilePort(
                     name=firstPortName,
                     io_direction=IO.INOUT,
-                    width=firstPort.wire_count,
                     side_of_tile=firstPort.side_of_tile,
                     wire_direction=Direction.JUMP,
                     source_name=firstPort.source_name,

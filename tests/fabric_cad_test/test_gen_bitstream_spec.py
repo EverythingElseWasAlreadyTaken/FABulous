@@ -28,9 +28,12 @@ from fabulous.fabric_definition.configmem import (
     ConfigMem,
     empty_config_mem,
 )
-from fabulous.fabric_definition.define import ConfigBitMode, Direction
+from fabulous.fabric_definition.define import IO, ConfigBitMode, Direction
 from fabulous.fabric_definition.fabric import Fabric
-from fabulous.fabric_definition.switch_matrix import SwitchMatrix
+from fabulous.fabric_definition.switch_matrix import (
+    SwitchMatrix,
+    switch_matrix_ports,
+)
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_definition.wire import Wire
 from fabulous.fabulous_repl.fabulous_repl import FABulousREPL
@@ -350,7 +353,8 @@ def _build_fabric(
         src=tile_dir / "LUTA.v",
         prefix="",
         module_name="LUTA",
-        internal=[],
+        # Matrix rows (mux outputs) are BEL inputs, columns are BEL outputs.
+        internal=[(s, IO.INPUT) for s in _SOURCES] + [(d, IO.OUTPUT) for d in _DESTS],
         external=[],
         configPort=[],
         sharedPort=[],
@@ -367,7 +371,9 @@ def _build_fabric(
         ports=[],
         bels=[bel],
         tileDir=tile_dir / f"{_TILE_NAME}.csv",
-        switch_matrix=SwitchMatrix.from_file(matrix_path, _TILE_NAME),
+        switch_matrix=SwitchMatrix.from_file(
+            matrix_path, _TILE_NAME, switch_matrix_ports([], [bel])
+        ),
         config_mem=empty_config_mem(Path("ConfigMem.csv")),
         gen_ios=[],
         userCLK=False,
