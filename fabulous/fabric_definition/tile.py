@@ -10,7 +10,7 @@ from fabulous.fabric_definition.define import IO, Direction, PinSortMode, Side
 from fabulous.fabric_definition.gen_io import Gen_IO
 from fabulous.fabric_definition.port import TilePort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
-from fabulous.fabric_definition.wire import Wire
+from fabulous.fabric_definition.wire import JumpWire, Wire
 
 if TYPE_CHECKING:
     from fabulous.fabric_generator.gds_generator.gen_io_pin_config_yaml import (
@@ -42,6 +42,9 @@ class Tile:
     pinOrderConfig : dict[Side, PinOrderConfig] | None, optional
         Configuration for pin ordering on each side of the tile. If None, defaults to
         BUS_MAJOR sorting on all sides.
+    jump_wires : list[JumpWire] | None, optional
+        The tile-internal wires looping a switch-matrix output back into a
+        switch-matrix input. Defaults to none.
 
     Attributes
     ----------
@@ -49,6 +52,8 @@ class Tile:
         The name of the tile
     portsInfo : list[TilePort]
         The list of ports of the tile
+    jump_wires : list[JumpWire]
+        The tile-internal jump wires
     bels: list[Bel]
         The list of BELs of the tile
     switch_matrix : SwitchMatrix
@@ -69,6 +74,7 @@ class Tile:
 
     name: str
     portsInfo: list[TilePort]
+    jump_wires: list[JumpWire]
     bels: list[Bel]
     switch_matrix: SwitchMatrix
     gen_ios: list[Gen_IO]
@@ -88,9 +94,11 @@ class Tile:
         gen_ios: list[Gen_IO],
         userCLK: bool,
         pinOrderConfig: dict[Side, "PinOrderConfig"] | None = None,
+        jump_wires: list[JumpWire] | None = None,
     ) -> None:
         self.name = name
         self.portsInfo = ports
+        self.jump_wires = jump_wires or []
         self.bels = bels
         self.gen_ios = gen_ios
         self.switch_matrix = switch_matrix

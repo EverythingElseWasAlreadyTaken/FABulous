@@ -388,8 +388,8 @@ class TestSwitchMatrixPort:
         assert sm_port[1].name(indexed=True) == "T_NBEG[1]"
 
     def test_bel_port_is_a_bare_scalar(self) -> None:
-        """A BEL / constant port has no origin and keeps its name as written."""
-        sm_port = SwitchMatrixPort("A_I0", IO.OUTPUT)
+        """A literal (BEL / constant) port keeps its name as written."""
+        sm_port = SwitchMatrixPort("A_I0", IO.OUTPUT, literal=True)
         assert sm_port.origin is None
         assert sm_port.width == 1
         assert sm_port[0].name() == "A_I0"

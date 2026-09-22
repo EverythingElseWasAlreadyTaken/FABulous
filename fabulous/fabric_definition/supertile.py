@@ -231,11 +231,11 @@ class SuperTile:
                     )
         for bel in self.bels:
             for name in bel.inputs:
-                ports.append(SwitchMatrixPort(name, IO.OUTPUT))
+                ports.append(SwitchMatrixPort(name, IO.OUTPUT, literal=True))
             for name in bel.outputs:
-                ports.append(SwitchMatrixPort(name, IO.INPUT))
+                ports.append(SwitchMatrixPort(name, IO.INPUT, literal=True))
         for const in SWITCH_MATRIX_CONSTANTS:
-            ports.append(SwitchMatrixPort(const, IO.INPUT))
+            ports.append(SwitchMatrixPort(const, IO.INPUT, literal=True))
         return tuple(ports)
 
     @property

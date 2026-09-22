@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from fabulous.custom_exception import InvalidFileType, InvalidSwitchMatrixDefinition
-from fabulous.fabric_definition.define import IO, SWITCH_MATRIX_CONSTANTS, Direction
+from fabulous.fabric_definition.define import IO, SWITCH_MATRIX_CONSTANTS
 from fabulous.fabric_definition.port import Pin, SwitchMatrixPort
 
 if TYPE_CHECKING:
@@ -26,18 +26,22 @@ if TYPE_CHECKING:
 
     from fabulous.fabric_definition.bel import Bel
     from fabulous.fabric_definition.port import TilePort
+    from fabulous.fabric_definition.wire import JumpWire
 
 
 def switch_matrix_ports(
-    ports: Iterable[TilePort], bels: Iterable[Bel], prefix: str = ""
+    ports: Iterable[TilePort],
+    bels: Iterable[Bel],
+    jump_wires: Iterable[JumpWire] = (),
+    prefix: str = "",
 ) -> tuple[SwitchMatrixPort, ...]:
     """Return the ports of a switch-matrix module in canonical order.
 
     The order is what the matrix uses for its mux outputs and mux inputs:
-    non-JUMP wire ports first (in tile port order), then BEL ports, then JUMP
-    wire ports, then the constant sources. It depends only on the tile's ports
-    and BELs, so a `.list` matrix can be read straight into this canonical
-    order without a CSV round trip.
+    tile wire ports first (in tile port order), then BEL ports, then the jump
+    wires' ports, then the constant sources. It depends only on the tile's
+    ports, BELs and jump wires, so a `.list` matrix can be read straight into
+    this canonical order without a CSV round trip.
 
     Parameters
     ----------
@@ -45,6 +49,8 @@ def switch_matrix_ports(
         The tile's ports (`tile.portsInfo`).
     bels : Iterable[Bel]
         The tile's BELs (`tile.bels`).
+    jump_wires : Iterable[JumpWire], optional
+        The tile's jump wires (`tile.jump_wires`). Defaults to none.
     prefix : str, optional
         Prefix for the wire-port pin names (a supertile matrix prefixes each
         child tile's pins with the tile name). Defaults to "".
@@ -54,30 +60,22 @@ def switch_matrix_ports(
     tuple[SwitchMatrixPort, ...]
         The matrix ports.
     """
-    ports = list(ports)
     result: list[SwitchMatrixPort] = []
     for port in ports:
-        if port.wire_direction != Direction.JUMP and port.sm_pins:
+        if port.sm_pins:
             result.append(SwitchMatrixPort.from_tile_port(port, prefix))
     for bel in bels:
         for name in bel.inputs:
-            result.append(SwitchMatrixPort(name, IO.OUTPUT))
+            result.append(SwitchMatrixPort(name, IO.OUTPUT, literal=True))
         for name in bel.outputs + bel.externalOutput:
-            result.append(SwitchMatrixPort(name, IO.INPUT))
-    for port in ports:
-        if port.wire_direction != Direction.JUMP or port.name_is_null:
-            continue
-        if port.sm_pins:
-            result.append(SwitchMatrixPort.from_tile_port(port, prefix))
-        else:
-            # `JUMP,NULL,0,0,GND,1` is how a tile CSV declares a constant
-            # source: a NULL-sourced jump reaches the matrix as one pin named
-            # after its destination, at this position in the mux-input order.
-            result.append(SwitchMatrixPort(port.name, port.io_direction, 1, port))
+            result.append(SwitchMatrixPort(name, IO.INPUT, literal=True))
+    for wire in jump_wires:
+        result.extend(end for end in (wire.source, wire.destination) if end)
+    # A constant may already be declared by a source-less jump wire.
     declared = {pin.name() for port in result for pin in port.pins}
     for const in SWITCH_MATRIX_CONSTANTS:
         if const not in declared:
-            result.append(SwitchMatrixPort(const, IO.INPUT))
+            result.append(SwitchMatrixPort(const, IO.INPUT, literal=True))
     return tuple(result)
 
 

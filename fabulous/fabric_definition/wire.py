@@ -1,9 +1,12 @@
 """Wire class for managing connections between tiles."""
 
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass
 
-from fabulous.fabric_definition.define import Direction
+from fabulous.fabric_definition.define import IO, Direction
+from fabulous.fabric_definition.port import NULL_PORT_NAME, SwitchMatrixPort
 
 
 @dataclass(frozen=True, eq=True)
@@ -105,3 +108,65 @@ class Wire:
                 "your destination is located out side of the fabric, please check "
                 "the source and destination port offset."
             )
+
+
+@dataclass(frozen=True)
+class JumpWire:
+    """A wire that leaves the switch matrix and comes straight back into it.
+
+    A `JUMP` line in the tile CSV never reaches the tile boundary: the matrix
+    drives `source` (`J_SR_BEG`), the tile loops it back, and the matrix reads
+    it on `destination` (`J_SR_END`). Both are ports of the switch matrix, not
+    of the tile. An end written as `NULL` is None; a jump with no source is how
+    the CSV declares a constant matrix input (`JUMP,NULL,0,0,GND,1`).
+
+    Attributes
+    ----------
+    source : SwitchMatrixPort | None
+        The matrix output the wire starts at.
+    destination : SwitchMatrixPort | None
+        The matrix input the wire ends at.
+    """
+
+    source: SwitchMatrixPort | None
+    destination: SwitchMatrixPort | None
+
+    def __post_init__(self) -> None:
+        """Reject a wire with neither end."""
+        if self.source is None and self.destination is None:
+            raise ValueError("A jump wire needs a source or a destination")
+
+    @classmethod
+    def create(
+        cls, source_name: str, destination_name: str, wire_count: int
+    ) -> JumpWire:
+        """Build a jump wire and its matrix ports from a CSV line.
+
+        Parameters
+        ----------
+        source_name : str
+            The source port name, or `NULL`.
+        destination_name : str
+            The destination port name, or `NULL`.
+        wire_count : int
+            The number of wires (the width of both ports).
+
+        Returns
+        -------
+        JumpWire
+            The wire.
+        """
+        source = None
+        if source_name != NULL_PORT_NAME:
+            source = SwitchMatrixPort(source_name, IO.OUTPUT, wire_count)
+        destination = None
+        if destination_name != NULL_PORT_NAME:
+            destination = SwitchMatrixPort(destination_name, IO.INPUT, wire_count)
+        return cls(source, destination)
+
+    @property
+    def wire_count(self) -> int:
+        """The number of wires."""
+        if self.source is not None:
+            return self.source.width
+        return self.destination.width  # type: ignore[union-attr]  # see __post_init__

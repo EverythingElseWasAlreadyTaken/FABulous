@@ -340,6 +340,23 @@ class Fabric:
                                     destinationTile=f"X{x + port.x_offset}Y{y + value}",
                                 )
                             )
+                for jump in tile.jump_wires:
+                    if jump.source is None or jump.destination is None:
+                        continue
+                    for src, dst in zip(
+                        jump.source.pins, jump.destination.pins, strict=True
+                    ):
+                        tile.wireList.append(
+                            Wire(
+                                direction=Direction.JUMP,
+                                source=src.name(),
+                                x_offset=0,
+                                y_offset=0,
+                                destination=dst.name(),
+                                sourceTile="",
+                                destinationTile="",
+                            )
+                        )
                 tile.wireList = list(dict.fromkeys(tile.wireList))
 
         # SJUMP wire pass: for every supertile placement, add SJUMP wires from the

@@ -861,10 +861,10 @@ class SwitchMatrixPort(Port):
     constant sources. Its pins are the nodes the matrix file (`.list` / `.csv`)
     connects.
 
-    A port built from a `TilePort` keeps that port as its `origin` and names
-    its pins the flat way the matrix HDL does (`N1END0`). A BEL port or a
-    constant has no origin and is a scalar named as written in the BEL /
-    constant table.
+    Pins are named the flat way the matrix HDL does (`N1END0`). A BEL signal
+    or a constant arrives already flattened, so it is a `literal` scalar whose
+    pin is named exactly as the port. A port built from a `TilePort` keeps
+    that port as its `origin`.
 
     Parameters
     ----------
@@ -881,10 +881,14 @@ class SwitchMatrixPort(Port):
     prefix : str
         Prepended to the pin names of a wire port (a supertile matrix prefixes
         each child tile's pins with the tile name). Defaults to "".
+    literal : bool
+        Whether the single pin is named exactly as the port (a BEL signal or a
+        constant), instead of `{name}{index}`. Defaults to False.
     """
 
     _origin: TilePort | None
     _prefix: str
+    _literal: bool
 
     def __init__(
         self,
@@ -893,10 +897,12 @@ class SwitchMatrixPort(Port):
         width: int = 1,
         origin: TilePort | None = None,
         prefix: str = "",
+        literal: bool = False,
     ) -> None:
         super().__init__(name, io_direction, width)
         self._origin = origin
         self._prefix = prefix
+        self._literal = literal
 
     @classmethod
     def from_tile_port(cls, port: TilePort, prefix: str = "") -> SwitchMatrixPort:
@@ -937,10 +943,9 @@ class SwitchMatrixPort(Port):
         Returns
         -------
         str
-            The wire name; a BEL port or constant is scalar and keeps its bare
-            name.
+            The wire name; a `literal` port keeps its bare name.
         """
-        if self._origin is None:
+        if self._literal:
             return f"{prefix}{self.name}"
         return super().pin_name(index, indexed, f"{prefix}{self._prefix}")
 

@@ -25,7 +25,7 @@ class TestDirectionalPorts:
     def test_two_ports_with_expected_io_and_sides(
         self, kind: str, startSide: Side, endSide: Side
     ) -> None:
-        ports, commonWirePair = parse_port_line(f"{kind},N1BEG,0,-1,N1END,4")
+        ports, _, commonWirePair = parse_port_line(f"{kind},N1BEG,0,-1,N1END,4")
 
         assert len(ports) == 2
         output, input_ = ports
@@ -42,7 +42,7 @@ class TestDirectionalPorts:
 
     @pytest.mark.parametrize("kind", [c[0] for c in DIRECTIONAL_CASES])
     def test_shared_attributes_carry_through(self, kind: str) -> None:
-        ports, _ = parse_port_line(f"{kind},N2BEG,0,-2,N2END,8")
+        ports, _, _ = parse_port_line(f"{kind},N2BEG,0,-2,N2END,8")
 
         for port in ports:
             assert port.wire_direction is Direction[kind]
@@ -53,33 +53,36 @@ class TestDirectionalPorts:
             assert port.wire_count == 8
 
     def test_null_destination_keeps_name_and_pairs(self) -> None:
-        ports, commonWirePair = parse_port_line("SOUTH,S4BEG,0,4,NULL,4")
+        ports, _, commonWirePair = parse_port_line("SOUTH,S4BEG,0,4,NULL,4")
 
         assert ports[1].name == "NULL"
         assert commonWirePair == ("S4BEG", "NULL")
 
 
 class TestJumpPorts:
-    """JUMP lines stay within a tile, so both ports sit on Side.ANY."""
+    """JUMP lines stay within a tile: no tile ports, one jump wire."""
 
-    def test_two_ports_on_any_side(self) -> None:
-        ports, _ = parse_port_line("JUMP,J_SR_BEG,0,0,J_SR_END,1")
+    def test_jump_wire_with_switch_matrix_ports(self) -> None:
+        ports, jump, commonWirePair = parse_port_line("JUMP,J_SR_BEG,0,0,J_SR_END,2")
 
-        assert len(ports) == 2
-        output, input_ = ports
-
-        assert output.io_direction is IO.OUTPUT
-        assert output.name == "J_SR_BEG"
-        assert input_.io_direction is IO.INPUT
-        assert input_.name == "J_SR_END"
-
-        assert all(p.wire_direction is Direction.JUMP for p in ports)
-        assert all(p.side_of_tile is Side.ANY for p in ports)
-
-    def test_no_common_wire_pair(self) -> None:
-        _, commonWirePair = parse_port_line("JUMP,J_SR_BEG,0,0,J_SR_END,1")
-
+        assert ports == []
         assert commonWirePair is None
+        assert jump is not None
+        assert jump.source is not None
+        assert jump.destination is not None
+        assert jump.source.io_direction is IO.OUTPUT
+        assert jump.destination.io_direction is IO.INPUT
+        assert [p.name() for p in jump.source.pins] == ["J_SR_BEG0", "J_SR_BEG1"]
+        assert [p.name() for p in jump.destination.pins] == ["J_SR_END0", "J_SR_END1"]
+
+    def test_null_source_declares_a_constant(self) -> None:
+        _, jump, _ = parse_port_line("JUMP,NULL,0,0,GND,1")
+
+        assert jump is not None
+        assert jump.source is None
+        assert jump.destination is not None
+        assert jump.destination[0].name() == "GND0"
+        assert jump.wire_count == 1
 
 
 class TestUnknownPortType:
@@ -127,8 +130,8 @@ class TestPortNameTrailingDigit:
         ],
     )
     def test_valid_names_do_not_raise(self, line: str) -> None:
-        ports, _ = parse_port_line(line)
-        assert ports
+        ports, jump, _ = parse_port_line(line)
+        assert ports or jump
 
 
 class TestUserCLKDirection:
