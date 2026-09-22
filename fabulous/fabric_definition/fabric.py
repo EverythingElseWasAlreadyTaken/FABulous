@@ -359,59 +359,6 @@ class Fabric:
                         )
                 tile.wireList = list(dict.fromkeys(tile.wireList))
 
-        # SJUMP wire pass: for every supertile placement, add SJUMP wires from the
-        # child tiles to the master tile (forward) and back (reverse).
-        touched: set[tuple[int, int]] = set()
-        for base_fx, base_fy, superTile in self.iter_super_tile_placements():
-            tx_local, ty_local = superTile.get_master_tile_coords()
-            ftx = base_fx + tx_local
-            fty = base_fy + ty_local
-            master_tile = self.tile[fty][ftx]
-            if master_tile is None:
-                continue
-
-            for wire in superTile.sjump_wires:
-                fx = base_fx + wire.x
-                fy = base_fy + wire.y
-                grid_tile = self.tile[fy][fx]
-                for child, matrix in zip(
-                    wire.child_port.pins, wire.matrix_port.pins, strict=True
-                ):
-                    if wire.is_forward:
-                        # Child drives the supertile matrix, which lives in the
-                        # wrapper at the master tile.
-                        grid_tile.wireList.append(
-                            Wire(
-                                direction=Direction.SJUMP,
-                                source=child.name(),
-                                x_offset=ftx - fx,
-                                y_offset=fty - fy,
-                                destination=matrix.name(),
-                                sourceTile=f"X{fx}Y{fy}",
-                                destinationTile=f"X{ftx}Y{fty}",
-                            )
-                        )
-                    else:
-                        # Reverse: the source lives in the wrapper at the master
-                        # tile, so the wire is owned by the master.
-                        master_tile.wireList.append(
-                            Wire(
-                                direction=Direction.SJUMP,
-                                source=matrix.name(),
-                                x_offset=fx - ftx,
-                                y_offset=fy - fty,
-                                destination=child.name(),
-                                sourceTile=f"X{ftx}Y{fty}",
-                                destinationTile=f"X{fx}Y{fy}",
-                            )
-                        )
-                touched.add((fx, fy))
-                touched.add((ftx, fty))
-
-        for fx, fy in touched:
-            tile = self.tile[fy][fx]
-            tile.wireList = list(dict.fromkeys(tile.wireList))
-
     def iter_super_tile_placements(
         self, superTile: SuperTile | None = None
     ) -> Generator[tuple[int, int, SuperTile], None, None]:

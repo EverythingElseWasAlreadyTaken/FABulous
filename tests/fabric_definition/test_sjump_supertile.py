@@ -34,12 +34,13 @@ def _tile(name: str, ports: list[TilePort]) -> Tile:
     return make_empty_tile(name, ports, pinOrderConfig={})
 
 
-def _sjump_wires(tile: Tile) -> set[tuple[str, str, int, int]]:
-    """Return (source, destination, x_offset, y_offset) for the tile's SJUMP wires."""
+def _pips(fabric: Fabric) -> set[str]:
+    """Return the fabric's nextpnr PIP lines, with the delay column dropped."""
+    pip_str, *_ = genNextpnrModel(fabric)
     return {
-        (w.source, w.destination, w.x_offset, w.y_offset)
-        for w in tile.wireList
-        if w.direction == Direction.SJUMP
+        ",".join(line.split(",")[:4])
+        for line in pip_str.splitlines()
+        if not line.startswith("#")
     }
 
 
@@ -164,13 +165,41 @@ class TestSuperTileHelpers:
             f"DSP_bot_Q{i}" for i in range(reverse.wire_count)
         ]
 
+    def test_offsets_come_from_the_tile_map(self) -> None:
+        """The wire spans from the child's cell to the master's, both ways."""
+        top = _tile(
+            "DSP_top",
+            [
+                sjump_port("A", IO.OUTPUT, wire_count=1),
+                sjump_port("Q", IO.INPUT, wire_count=1),
+            ],
+        )
+        bot = _tile("DSP_bot", [])
+        # No MASTER token, so the master defaults to the last non-None tile.
+        st = SuperTile(
+            name="DSP",
+            tileDir=Path(),
+            tiles=[top, bot],
+            tileMap=[[top], [bot]],
+        )
 
-class TestFabricSJumpWirePass:
-    """`Fabric.__post_init__` adds SJUMP wires in both directions.
+        (forward,) = st.forward_sjump_wires()
+        (reverse,) = st.reverse_sjump_wires()
+        # top sits at y=0, the master bot at y=1: the matrix is one row down,
+        # so the forward wire goes down and the reverse one back up.
+        assert (forward.x_offset, forward.y_offset) == (0, 1)
+        assert (reverse.x_offset, reverse.y_offset) == (0, -1)
+        assert forward.pin_names == [("A0", "DSP_top_A0")]
+        assert reverse.pin_names == [("DSP_top_Q0", "Q0")]
+
+
+class TestSJumpPips:
+    """SJUMP wires reach the nextpnr model as pips, in both directions.
 
     Layout: DSP_top (row 0) over DSP_bot (row 1), single column. DSP_bot is the
-    master tile. Forward wires carry child OUTPUT ports up to the supertile SM;
-    reverse wires carry the SM outputs back down to child INPUT ports.
+    master tile, so the supertile switch matrix lives at X0Y1. Forward pips
+    carry child OUTPUT ports to it; reverse pips carry its outputs back down to
+    child INPUT ports.
     """
 
     @pytest.fixture
@@ -196,29 +225,26 @@ class TestFabricSJumpWirePass:
             superTileDic={"DSP": supertile},
         )
 
-    def test_forward_wires_child_output_to_master(self, fabric: Fabric) -> None:
-        top = fabric.tile[0][0]
-        bot = fabric.tile[1][0]
-        # DSP_top OUTPUT port jumps down to the master one row below (offset y=1).
-        assert ("top2bot0", "DSP_top_top2bot0", 0, 1) in _sjump_wires(top)
-        assert ("top2bot1", "DSP_top_top2bot1", 0, 1) in _sjump_wires(top)
+    def test_forward_pips_child_output_to_master(self, fabric: Fabric) -> None:
+        pips = _pips(fabric)
+        # DSP_top OUTPUT port jumps down to the master one row below.
+        assert "X0Y0,top2bot0,X0Y1,DSP_top_top2bot0" in pips
+        assert "X0Y0,top2bot1,X0Y1,DSP_top_top2bot1" in pips
         # The master's own OUTPUT port is a zero-offset self-jump.
-        assert ("A0", "DSP_bot_A0", 0, 0) in _sjump_wires(bot)
+        assert "X0Y1,A0,X0Y1,DSP_bot_A0" in pips
 
-    def test_reverse_wires_master_to_child_input(self, fabric: Fabric) -> None:
-        bot = fabric.tile[1][0]
-        master_wires = _sjump_wires(bot)
-        # Master drives its own INPUT port back (zero offset)...
-        assert ("DSP_bot_Q0", "Q0", 0, 0) in master_wires
-        # ...and the child tile's INPUT port one row up (offset y=-1).
-        assert ("DSP_top_bot2top0", "bot2top0", 0, -1) in master_wires
-        assert ("DSP_top_bot2top1", "bot2top1", 0, -1) in master_wires
+    def test_reverse_pips_master_to_child_input(self, fabric: Fabric) -> None:
+        pips = _pips(fabric)
+        # The matrix drives the master's own INPUT port back (zero offset)...
+        assert "X0Y1,DSP_bot_Q0,X0Y1,Q0" in pips
+        # ...and the child tile's INPUT port one row up.
+        assert "X0Y1,DSP_top_bot2top0,X0Y0,bot2top0" in pips
+        assert "X0Y1,DSP_top_bot2top1,X0Y0,bot2top1" in pips
 
-    def test_no_duplicate_sjump_wires(self, fabric: Fabric) -> None:
-        for row in fabric.tile:
-            for tile in row:
-                sjump = [w for w in tile.wireList if w.direction == Direction.SJUMP]
-                assert len(sjump) == len(set(sjump))
+    def test_no_duplicate_pips(self, fabric: Fabric) -> None:
+        pip_str, *_ = genNextpnrModel(fabric)
+        lines = [ln for ln in pip_str.splitlines() if not ln.startswith("#")]
+        assert len(lines) == len(set(lines))
 
 
 class TestSJumpRequiresSupertile:
@@ -429,6 +455,16 @@ class TestGenBitstreamSpecSupertileMux:
         # (s3) is all-ones, the first (s0) all-zeros, on frame bits 30/31.
         assert master_specs["s3.SUPER_A0"] == {30: "1", 31: "1"}
         assert master_specs["s0.SUPER_A0"] == {30: "0", 31: "0"}
+
+    def test_sjump_wires_are_bitless_pips_in_their_source_tile(
+        self, spec: dict
+    ) -> None:
+        # An SJUMP wire is an immutable connection: nextpnr sees it as a pip, so
+        # it needs an empty bit mapping in the tile the wire starts in - the
+        # child tile forwards, the master tile in reverse.
+        assert spec["TileSpecs"]["X0Y0"]["top2bot0.DSP_top_top2bot0"] == {}
+        assert spec["TileSpecs"]["X0Y1"]["A0.DSP_bot_A0"] == {}
+        assert spec["TileSpecs_No_Mask"]["X0Y0"]["top2bot0.DSP_top_top2bot0"] == {}
 
     def test_supertile_mask_merged_into_master_framemap(self, spec: dict) -> None:
         # The master tile has no config bits of its own, yet the supertile's

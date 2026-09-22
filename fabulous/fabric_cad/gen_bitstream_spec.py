@@ -255,6 +255,16 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
                 f"X{ftx}Y{fty}", {}
             )
 
+            # SJUMP wires are immutable connections, like the tile wires above:
+            # nextpnr sees them as pips, so they need an empty bit mapping in
+            # the tile the wire starts in.
+            for wire in super_tile.sjump_wires:
+                sx, sy = wire.source_cell(base_fx, base_fy)
+                for key in ("TileSpecs", "TileSpecs_No_Mask"):
+                    tile_map = specData[key].setdefault(f"X{sx}Y{sy}", {})
+                    for source, destination in wire.pin_names:
+                        tile_map[f"{source}.{destination}"] = {}
+
             curBitOffset = 0
             for source, sinkList in sm_connections.items():
                 controlWidth = (len(sinkList) - 1).bit_length()

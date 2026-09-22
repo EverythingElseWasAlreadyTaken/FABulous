@@ -183,8 +183,13 @@ class SJumpWire:
     An SJUMP line declares one end: a port of the child tile. The other end is
     a port of the supertile's switch matrix, named `{tile}_{port}` so the
     matrix can tell apart the same port of two child tiles. This pairs the two
-    and owns that naming, plus the direction flip between them (what the child
-    drives, the matrix reads).
+    and owns that naming, the direction flip between them (what the child
+    drives, the matrix reads) and the offset from one end to the other.
+
+    The supertile's switch matrix lives in the wrapper at its master tile, so
+    the wire spans from the child tile's cell of the `tileMap` to the master's.
+    That is fixed by the supertile's own layout, independently of where the
+    supertile is placed in the fabric.
 
     Attributes
     ----------
@@ -194,6 +199,10 @@ class SJumpWire:
         The child tile's column in the supertile's `tileMap`.
     y : int
         The child tile's row in the supertile's `tileMap`.
+    master_x : int
+        The master tile's column in the supertile's `tileMap`.
+    master_y : int
+        The master tile's row in the supertile's `tileMap`.
     child_port : SJumpPort
         The child tile's port.
     matrix_port : SwitchMatrixPort
@@ -203,11 +212,15 @@ class SJumpWire:
     tile_name: str
     x: int
     y: int
+    master_x: int
+    master_y: int
     child_port: SJumpPort
     matrix_port: SwitchMatrixPort
 
     @classmethod
-    def create(cls, tile_name: str, x: int, y: int, port: SJumpPort) -> SJumpWire:
+    def create(
+        cls, tile_name: str, x: int, y: int, master: tuple[int, int], port: SJumpPort
+    ) -> SJumpWire:
         """Build the wire and the supertile matrix port for a child tile port.
 
         Parameters
@@ -218,6 +231,8 @@ class SJumpWire:
             The child tile's column in the supertile's `tileMap`.
         y : int
             The child tile's row in the supertile's `tileMap`.
+        master : tuple[int, int]
+            The master tile's `(column, row)` in the supertile's `tileMap`.
         port : SJumpPort
             The child tile's port.
 
@@ -228,7 +243,7 @@ class SJumpWire:
         """
         io = IO.INPUT if port.is_output else IO.OUTPUT
         matrix_port = SwitchMatrixPort(port.name, io, port.width, port, f"{tile_name}_")
-        return cls(tile_name, x, y, port, matrix_port)
+        return cls(tile_name, x, y, master[0], master[1], port, matrix_port)
 
     @property
     def signal_name(self) -> str:
@@ -244,3 +259,46 @@ class SJumpWire:
     def wire_count(self) -> int:
         """The number of wires."""
         return self.child_port.width
+
+    @property
+    def x_offset(self) -> int:
+        """Columns from this wire's source cell to its destination cell."""
+        delta = self.master_x - self.x
+        return delta if self.is_forward else -delta
+
+    @property
+    def y_offset(self) -> int:
+        """Rows from this wire's source cell to its destination cell."""
+        delta = self.master_y - self.y
+        return delta if self.is_forward else -delta
+
+    def source_cell(self, base_x: int, base_y: int) -> tuple[int, int]:
+        """Return the fabric cell this wire starts in.
+
+        That is the cell that owns the wire: the child tile's for a forward
+        wire, the master tile's (which hosts the matrix) for a reverse one. The
+        destination cell is this plus `(x_offset, y_offset)`.
+
+        Parameters
+        ----------
+        base_x : int
+            The fabric column of the supertile placement's top-left cell.
+        base_y : int
+            The fabric row of the supertile placement's top-left cell.
+
+        Returns
+        -------
+        tuple[int, int]
+            The `(column, row)` of the source cell.
+        """
+        if self.is_forward:
+            return base_x + self.x, base_y + self.y
+        return base_x + self.master_x, base_y + self.master_y
+
+    @property
+    def pin_names(self) -> list[tuple[str, str]]:
+        """The `(source, destination)` wire name of each bit, in bit order."""
+        pairs = zip(self.child_port.pins, self.matrix_port.pins, strict=True)
+        if self.is_forward:
+            return [(child.name(), matrix.name()) for child, matrix in pairs]
+        return [(matrix.name(), child.name()) for child, matrix in pairs]

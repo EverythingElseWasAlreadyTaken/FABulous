@@ -177,13 +177,17 @@ class SuperTile:
         list[SJumpWire]
             One wire per child-tile SJUMP port, in `tileMap` order.
         """
-        return [
-            SJumpWire.create(tile.name, x, y, p)
+        ports = [
+            (tile.name, x, y, p)
             for y, row in enumerate(self.tileMap)
             for x, tile in enumerate(row)
             if tile is not None
             for p in tile.get_sjump_ports()
         ]
+        if not ports:
+            return []
+        master = self.get_master_tile_coords()
+        return [SJumpWire.create(name, x, y, master, p) for name, x, y, p in ports]
 
     def forward_sjump_wires(self) -> list[SJumpWire]:
         """Return the SJUMP wires a child tile drives into this matrix.
