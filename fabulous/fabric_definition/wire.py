@@ -6,7 +6,11 @@ import re
 from dataclasses import dataclass
 
 from fabulous.fabric_definition.define import IO, Direction
-from fabulous.fabric_definition.port import NULL_PORT_NAME, SwitchMatrixPort
+from fabulous.fabric_definition.port import (
+    NULL_PORT_NAME,
+    SJumpPort,
+    SwitchMatrixPort,
+)
 
 
 @dataclass(frozen=True, eq=True)
@@ -170,3 +174,73 @@ class JumpWire:
         if self.source is not None:
             return self.source.width
         return self.destination.width  # type: ignore[union-attr]  # see __post_init__
+
+
+@dataclass(frozen=True)
+class SJumpWire:
+    """A wire between a child tile and its supertile's switch matrix.
+
+    An SJUMP line declares one end: a port of the child tile. The other end is
+    a port of the supertile's switch matrix, named `{tile}_{port}` so the
+    matrix can tell apart the same port of two child tiles. This pairs the two
+    and owns that naming, plus the direction flip between them (what the child
+    drives, the matrix reads).
+
+    Attributes
+    ----------
+    tile_name : str
+        The child tile's name, which prefixes the matrix-side pin names.
+    x : int
+        The child tile's column in the supertile's `tileMap`.
+    y : int
+        The child tile's row in the supertile's `tileMap`.
+    child_port : SJumpPort
+        The child tile's port.
+    matrix_port : SwitchMatrixPort
+        The supertile switch matrix's port.
+    """
+
+    tile_name: str
+    x: int
+    y: int
+    child_port: SJumpPort
+    matrix_port: SwitchMatrixPort
+
+    @classmethod
+    def create(cls, tile_name: str, x: int, y: int, port: SJumpPort) -> SJumpWire:
+        """Build the wire and the supertile matrix port for a child tile port.
+
+        Parameters
+        ----------
+        tile_name : str
+            The child tile's name.
+        x : int
+            The child tile's column in the supertile's `tileMap`.
+        y : int
+            The child tile's row in the supertile's `tileMap`.
+        port : SJumpPort
+            The child tile's port.
+
+        Returns
+        -------
+        SJumpWire
+            The wire.
+        """
+        io = IO.INPUT if port.is_output else IO.OUTPUT
+        matrix_port = SwitchMatrixPort(port.name, io, port.width, port, f"{tile_name}_")
+        return cls(tile_name, x, y, port, matrix_port)
+
+    @property
+    def signal_name(self) -> str:
+        """The name of the vector joining the two ends inside the wrapper."""
+        return f"{self.tile_name}_{self.child_port.name}"
+
+    @property
+    def is_forward(self) -> bool:
+        """Whether the child tile drives the supertile matrix."""
+        return self.child_port.is_output
+
+    @property
+    def wire_count(self) -> int:
+        """The number of wires."""
+        return self.child_port.width

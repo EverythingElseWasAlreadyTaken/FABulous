@@ -5,6 +5,7 @@ in the FPGA fabric:
 - Pin: A single bit of a port; the node of the routing graph
 - Port: Base class for all port types
 - TilePort: Port on a tile with side and termination information
+- SJumpPort: Tile port facing the switch matrix of the surrounding supertile
 - BelPort: Port on a BEL (Basic Element of Logic)
 - SharedPort: A port shared between multiple BELs
 - SwitchMatrixPort: A port of a tile's switch-matrix module
@@ -647,6 +648,62 @@ class TilePort(Port):
                     f"{self.destination_name}{openIndex}{str(i)}{closeIndex}"
                 )
         return inputs, outputs
+
+
+class SJumpPort(TilePort):
+    """A tile port that faces the switch matrix of the surrounding supertile.
+
+    An SJUMP wire is one-way and never leaves the supertile, so unlike a
+    spanning `TilePort` it has no offset, no partner port at the far side of
+    the tile and no NULL-terminated expansion: every bit faces both the tile's
+    own switch matrix and the supertile's. `SJumpWire` pairs it with the
+    supertile matrix port it reaches.
+
+    Parameters
+    ----------
+    name : str
+        The name of the port.
+    io_direction : IO
+        `IO.OUTPUT` for a signal leaving the tile towards the supertile matrix,
+        `IO.INPUT` for one arriving from it.
+    wire_count : int
+        The number of wires, which is also the port's width.
+    tile : Tile | None
+        The tile this port belongs to. Defaults to None, leaving it unattached.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        io_direction: IO,
+        wire_count: int,
+        tile: Tile | None = None,
+    ) -> None:
+        is_output = io_direction == IO.OUTPUT
+        super().__init__(
+            name=name,
+            io_direction=io_direction,
+            side_of_tile=Side.ANY,
+            tile=tile,
+            wire_direction=Direction.SJUMP,
+            source_name=name if is_output else NULL_PORT_NAME,
+            destination_name=NULL_PORT_NAME if is_output else name,
+            wire_count=wire_count,
+        )
+
+    @property
+    def sm_pins(self) -> tuple[Pin, ...]:
+        """Every pin faces the tile's own switch matrix."""
+        return self.pins
+
+    @property
+    def top_pins(self) -> tuple[Pin, ...]:
+        """Every pin faces the supertile, which is this port's top level."""
+        return self.pins
+
+    def __repr__(self) -> str:
+        """Return a string representation of the SJumpPort."""
+        return f"SJumpPort({self.io_direction.value} {self.name}[{self.width - 1}:0])"
 
 
 class BelPort(Port):

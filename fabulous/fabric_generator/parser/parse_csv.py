@@ -24,7 +24,11 @@ from fabulous.fabric_definition.define import (
 )
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.gen_io import Gen_IO
-from fabulous.fabric_definition.port import NULL_PORT_NAME, TilePort
+from fabulous.fabric_definition.port import (
+    NULL_PORT_NAME,
+    SJumpPort,
+    TilePort,
+)
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.switch_matrix import (
     SwitchMatrix,
@@ -173,33 +177,9 @@ def parse_port_line(
             )
 
         if source_name != NULL_PORT_NAME:
-            ports.append(
-                TilePort(
-                    name=source_name,
-                    io_direction=IO.OUTPUT,
-                    side_of_tile=Side.ANY,
-                    wire_direction=Direction.SJUMP,
-                    source_name=source_name,
-                    x_offset=0,
-                    y_offset=0,
-                    destination_name=NULL_PORT_NAME,
-                    wire_count=wire_count,
-                )
-            )
-        if destination_name != NULL_PORT_NAME:
-            ports.append(
-                TilePort(
-                    name=destination_name,
-                    io_direction=IO.INPUT,
-                    side_of_tile=Side.ANY,
-                    wire_direction=Direction.SJUMP,
-                    source_name=NULL_PORT_NAME,
-                    x_offset=0,
-                    y_offset=0,
-                    destination_name=destination_name,
-                    wire_count=wire_count,
-                )
-            )
+            ports.append(SJumpPort(source_name, IO.OUTPUT, wire_count))
+        else:
+            ports.append(SJumpPort(destination_name, IO.INPUT, wire_count))
         common_wire_pair = None
 
     else:

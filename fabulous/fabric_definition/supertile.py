@@ -16,6 +16,7 @@ from fabulous.fabric_definition.define import IO, SWITCH_MATRIX_CONSTANTS, Side
 from fabulous.fabric_definition.port import SwitchMatrixPort, TilePort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
+from fabulous.fabric_definition.wire import SJumpWire
 
 
 @dataclass
@@ -167,43 +168,42 @@ class SuperTile:
             )
         return mx, my
 
-    def get_all_sjump_ports(self) -> list[tuple[int, int, TilePort]]:
-        """Return all SJUMP OUTPUT ports across every child tile.
+    @property
+    def sjump_wires(self) -> list[SJumpWire]:
+        """The wires joining every child tile's SJUMP ports to this matrix.
 
         Returns
         -------
-        list[tuple[int, int, TilePort]]
-            Each entry is `(local_x, local_y, port)` for every OUTPUT port
-            with `wire_direction == Direction.SJUMP` in any child tile.
+        list[SJumpWire]
+            One wire per child-tile SJUMP port, in `tileMap` order.
         """
-        result = []
-        for y, row in enumerate(self.tileMap):
-            for x, tile in enumerate(row):
-                if tile is None:
-                    continue
-                for p in tile.get_sjump_ports():
-                    if p.is_output:
-                        result.append((x, y, p))
-        return result
+        return [
+            SJumpWire.create(tile.name, x, y, p)
+            for y, row in enumerate(self.tileMap)
+            for x, tile in enumerate(row)
+            if tile is not None
+            for p in tile.get_sjump_ports()
+        ]
 
-    def get_all_input_sjump_ports(self) -> list[tuple[int, int, TilePort]]:
-        """Return all SJUMP INPUT ports across every child tile.
+    def forward_sjump_wires(self) -> list[SJumpWire]:
+        """Return the SJUMP wires a child tile drives into this matrix.
 
         Returns
         -------
-        list[tuple[int, int, TilePort]]
-            Each entry is `(local_x, local_y, port)` for every INPUT port
-            with `wire_direction == Direction.SJUMP` in any child tile.
+        list[SJumpWire]
+            The wires whose child port is an OUTPUT.
         """
-        result = []
-        for y, row in enumerate(self.tileMap):
-            for x, tile in enumerate(row):
-                if tile is None:
-                    continue
-                for p in tile.get_sjump_ports():
-                    if p.is_input:
-                        result.append((x, y, p))
-        return result
+        return [w for w in self.sjump_wires if w.is_forward]
+
+    def reverse_sjump_wires(self) -> list[SJumpWire]:
+        """Return the SJUMP wires this matrix drives back into a child tile.
+
+        Returns
+        -------
+        list[SJumpWire]
+            The wires whose child port is an INPUT.
+        """
+        return [w for w in self.sjump_wires if not w.is_forward]
 
     def switch_matrix_ports(self) -> tuple[SwitchMatrixPort, ...]:
         """Return the ports of the supertile switch matrix in canonical order.
@@ -217,18 +217,7 @@ class SuperTile:
         tuple[SwitchMatrixPort, ...]
             The matrix ports.
         """
-        ports: list[SwitchMatrixPort] = []
-        for row in self.tileMap:
-            for tile in row:
-                if tile is None:
-                    continue
-                for p in tile.get_sjump_ports():
-                    # The child's output drives this matrix, so the direction
-                    # is the child port's inverse.
-                    io = IO.INPUT if p.is_output else IO.OUTPUT
-                    ports.append(
-                        SwitchMatrixPort(p.name, io, len(p.sm_pins), p, f"{tile.name}_")
-                    )
+        ports: list[SwitchMatrixPort] = [w.matrix_port for w in self.sjump_wires]
         for bel in self.bels:
             for name in bel.inputs:
                 ports.append(SwitchMatrixPort(name, IO.OUTPUT, literal=True))

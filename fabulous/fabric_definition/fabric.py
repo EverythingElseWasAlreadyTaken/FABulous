@@ -370,50 +370,43 @@ class Fabric:
             if master_tile is None:
                 continue
 
-            for ly, st_row in enumerate(superTile.tileMap):
-                for lx, st_tile in enumerate(st_row):
-                    if st_tile is None:
-                        continue
-                    fy = base_fy + ly
-                    fx = base_fx + lx
-                    grid_tile = self.tile[fy][fx]
-
-                    for p in grid_tile.get_sjump_ports():
-                        if not p.is_output:
-                            continue
-                        for i in range(p.wire_count):
-                            grid_tile.wireList.append(
-                                Wire(
-                                    direction=Direction.SJUMP,
-                                    source=f"{p.name}{i}",
-                                    x_offset=ftx - fx,
-                                    y_offset=fty - fy,
-                                    destination=f"{st_tile.name}_{p.name}{i}",
-                                    sourceTile=f"X{fx}Y{fy}",
-                                    destinationTile=f"X{ftx}Y{fty}",
-                                )
+            for wire in superTile.sjump_wires:
+                fx = base_fx + wire.x
+                fy = base_fy + wire.y
+                grid_tile = self.tile[fy][fx]
+                for child, matrix in zip(
+                    wire.child_port.pins, wire.matrix_port.pins, strict=True
+                ):
+                    if wire.is_forward:
+                        # Child drives the supertile matrix, which lives in the
+                        # wrapper at the master tile.
+                        grid_tile.wireList.append(
+                            Wire(
+                                direction=Direction.SJUMP,
+                                source=child.name(),
+                                x_offset=ftx - fx,
+                                y_offset=fty - fy,
+                                destination=matrix.name(),
+                                sourceTile=f"X{fx}Y{fy}",
+                                destinationTile=f"X{ftx}Y{fty}",
                             )
-
-                    # Reverse: supertile SM output ({child_name}_{port}) back down to
-                    # the child tile's INPUT port. The source lives in the wrapper at
-                    # the master tile, so the wire is owned by the master.
-                    for p in grid_tile.get_sjump_ports():
-                        if not p.is_input:
-                            continue
-                        for i in range(p.wire_count):
-                            master_tile.wireList.append(
-                                Wire(
-                                    direction=Direction.SJUMP,
-                                    source=f"{st_tile.name}_{p.name}{i}",
-                                    x_offset=fx - ftx,
-                                    y_offset=fy - fty,
-                                    destination=f"{p.name}{i}",
-                                    sourceTile=f"X{ftx}Y{fty}",
-                                    destinationTile=f"X{fx}Y{fy}",
-                                )
+                        )
+                    else:
+                        # Reverse: the source lives in the wrapper at the master
+                        # tile, so the wire is owned by the master.
+                        master_tile.wireList.append(
+                            Wire(
+                                direction=Direction.SJUMP,
+                                source=matrix.name(),
+                                x_offset=fx - ftx,
+                                y_offset=fy - fty,
+                                destination=child.name(),
+                                sourceTile=f"X{ftx}Y{fty}",
+                                destinationTile=f"X{fx}Y{fy}",
                             )
-                    touched.add((fx, fy))
-                    touched.add((ftx, fty))
+                        )
+                touched.add((fx, fy))
+                touched.add((ftx, fty))
 
         for fx, fy in touched:
             tile = self.tile[fy][fx]

@@ -134,7 +134,7 @@ class TestSuperTileHelpers:
         with pytest.raises(ValueError, match="has no tiles"):
             st.get_master_tile_coords()
 
-    def test_get_all_sjump_ports_only_outputs(self) -> None:
+    def test_sjump_wires_pair_child_ports_with_matrix_ports(self) -> None:
         top = _tile("DSP_top", [sjump_port("top2bot", IO.OUTPUT)])
         bot = _tile(
             "DSP_bot",
@@ -146,9 +146,23 @@ class TestSuperTileHelpers:
             tiles=[top, bot],
             tileMap=[[top], [bot]],
         )
-        coords = [(x, y, p.name) for x, y, p in st.get_all_sjump_ports()]
-        # Only OUTPUT SJUMP ports, with their (local_x, local_y).
-        assert coords == [(0, 0, "top2bot"), (0, 1, "A")]
+
+        # One wire per child SJUMP port, in tileMap order, each carrying the
+        # child's (local_x, local_y) and the {tile}_ prefixed matrix pin names.
+        assert [(w.x, w.y, w.signal_name) for w in st.sjump_wires] == [
+            (0, 0, "DSP_top_top2bot"),
+            (0, 1, "DSP_bot_A"),
+            (0, 1, "DSP_bot_Q"),
+        ]
+        # The matrix reads what the child drives, and vice versa.
+        forward = st.forward_sjump_wires()
+        assert [w.signal_name for w in forward] == ["DSP_top_top2bot", "DSP_bot_A"]
+        assert all(w.matrix_port.is_input for w in forward)
+        (reverse,) = st.reverse_sjump_wires()
+        assert reverse.matrix_port.is_output
+        assert [p.name() for p in reverse.matrix_port.pins] == [
+            f"DSP_bot_Q{i}" for i in range(reverse.wire_count)
+        ]
 
 
 class TestFabricSJumpWirePass:
