@@ -96,8 +96,6 @@ def generateTile(
         Only raised for VHDL output. If required component files
         (e.g., switch matrix or config memory) are missing.
     """
-    allJumpWireList = []
-
     writer.addHeader(f"{tile.name}")
     writer.addParameterStart(indentLevel=1)
     if isinstance(writer, VerilogCodeGenerator):  # emulation only in Verilog
@@ -246,13 +244,9 @@ def generateTile(
 
     # Jump wires
     writer.addComment("Jump wires", onNewLine=True)
-    for p in tile.portsInfo:
-        if p.wire_direction == Direction.JUMP:
-            if p.source_name != "NULL" and p.destination_name != "NULL" and p.is_output:
-                writer.addConnectionVector(p.name, f"{p.wire_count}-1")
-
-            for k in range(p.wire_count):
-                allJumpWireList.append(f"{p.name}( {k} )")
+    for wire in tile.jump_wires:
+        if wire.source is not None and wire.destination is not None:
+            writer.addConnectionVector(wire.source.name, f"{wire.wire_count}-1")
 
     # SJUMP ports are module ports (declared above) and are wired to the switch
     # matrix directly in the instantiation below, so they need no internal wire.
@@ -493,10 +487,10 @@ def generateTile(
         belCounter += 1
 
     ports_pairs = []
-    # normal input wire (excludes JUMP and SJUMP, which are handled separately;
+    # normal input wire (excludes SJUMP, which is handled separately;
     # otherwise SJUMP inputs would be bound twice in the switch-matrix instance)
     for i in tile.portsInfo:
-        if i.wire_direction not in (Direction.JUMP, Direction.SJUMP) and i.is_input:
+        if i.wire_direction != Direction.SJUMP and i.is_input:
             ports_pairs += list(
                 zip(
                     i.expand_port_info_by_name(),
@@ -509,19 +503,15 @@ def generateTile(
         for p in bel.outputs:
             ports_pairs.append((p, p))
 
-    # jump input wire
-    port, signal = [], []
-    for i in tile.portsInfo:
-        if i.wire_direction == Direction.JUMP and i.is_input:
-            port += i.expand_port_info_by_name()
-        if i.wire_direction == Direction.JUMP and i.is_output:
-            signal += i.expand_port_info_by_name(indexed=True)
+    # jump input wire: the matrix reads back what it drove on the source
+    for wire in tile.jump_wires:
+        if wire.source is not None and wire.destination is not None:
+            for dst, src in zip(wire.destination.pins, wire.source.pins, strict=True):
+                ports_pairs.append((dst.name(), src.name(indexed=True)))
 
-    ports_pairs += list(zip(port, signal, strict=False))
-
-    # normal output wire (excludes JUMP and SJUMP which are handled separately)
+    # normal output wire (SJUMP is handled separately)
     for i in tile.portsInfo:
-        if i.wire_direction not in (Direction.JUMP, Direction.SJUMP) and i.is_output:
+        if i.wire_direction != Direction.SJUMP and i.is_output:
             ports_pairs += list(
                 zip(
                     i.expand_port_info_by_name(),
@@ -536,14 +526,10 @@ def generateTile(
             ports_pairs.append((p, p))
 
     # jump output wire
-    port, signal = [], []
-    for i in tile.portsInfo:
-        if i.wire_direction == Direction.JUMP and i.is_output:
-            port += i.expand_port_info_by_name()
-        if i.wire_direction == Direction.JUMP and i.is_output:
-            signal += i.expand_port_info_by_name(indexed=True)
-
-    ports_pairs += list(zip(port, signal, strict=True))
+    for wire in tile.jump_wires:
+        if wire.source is not None and wire.destination is not None:
+            for pin in wire.source.pins:
+                ports_pairs.append((pin.name(), pin.name(indexed=True)))
 
     # sjump output wire - SM drives SJUMP OUTPUT signals exiting to supertile SM
     port, signal = [], []
@@ -813,25 +799,21 @@ def generateSuperTile(
     writer.addComment("signal declarations", onNewLine=True)
 
     # SJUMP signals: one vector per (child tile, SJUMP port) pair
-    sjump_ports = superTile.get_all_sjump_ports()
-    if sjump_ports:
+    forward = superTile.forward_sjump_wires()
+    if forward:
         writer.addComment("SJUMP signals (child tile -> supertile SM)", onNewLine=True)
-        for lx, ly, p in sjump_ports:
+        for wire in forward:
             writer.addConnectionVector(
-                f"{superTile.tileMap[ly][lx].name}_{p.name}",
-                f"{p.wire_count}-1",
-                indentLevel=1,
+                wire.signal_name, f"{wire.wire_count}-1", indentLevel=1
             )
 
     # Reverse SJUMP signals: supertile SM -> child tile inputs
-    all_input_sjump = superTile.get_all_input_sjump_ports()
-    if all_input_sjump:
+    reverse = superTile.reverse_sjump_wires()
+    if reverse:
         writer.addComment("SJUMP signals (supertile SM -> child tile)", onNewLine=True)
-        for lx, ly, p in all_input_sjump:
+        for wire in reverse:
             writer.addConnectionVector(
-                f"{superTile.tileMap[ly][lx].name}_{p.name}",
-                f"{p.wire_count}-1",
-                indentLevel=1,
+                wire.signal_name, f"{wire.wire_count}-1", indentLevel=1
             )
 
     # BEL pin signals bridging the supertile BELs and the switch matrix
@@ -977,8 +959,9 @@ def generateSuperTile(
                             ports_pairs.append(("UserCLK", p[0]))
 
             # connect SJUMP ports to supertile-level signals
-            for p in tile.get_sjump_ports():
-                ports_pairs.append((p.name, f"{tile.name}_{p.name}"))
+            for wire in superTile.sjump_wires:
+                if wire.tile_name == tile.name:
+                    ports_pairs.append((wire.child_port.name, wire.signal_name))
 
             # add clock to tile
             if not disable_user_clk:
@@ -1060,12 +1043,9 @@ def generateSuperTile(
     if superTile.supertile_matrix_dir is not None:
         sm_ports_pairs = []
         # Connect SJUMP vector signals to SM scalar input ports
-        for lx, ly, p in superTile.get_all_sjump_ports():
-            tileName = superTile.tileMap[ly][lx].name
-            for k in range(p.wire_count):
-                sm_ports_pairs.append(
-                    (f"{tileName}_{p.name}{k}", f"{tileName}_{p.name}[{k}]")
-                )
+        for wire in superTile.forward_sjump_wires():
+            for k, pin in enumerate(wire.matrix_port.pins):
+                sm_ports_pairs.append((pin.name(), f"{wire.signal_name}[{k}]"))
         # SM outputs drive BEL input signals (signals named after the BEL ports)
         for bel in superTile.bels:
             for ip in bel.inputs:
@@ -1075,17 +1055,9 @@ def generateSuperTile(
             for op in bel.outputs:
                 sm_ports_pairs.append((op, op))
         # SM outputs also drive reverse SJUMP signals into child tiles
-        for _ly, row in enumerate(superTile.tileMap):
-            for _lx, st_tile in enumerate(row):
-                if st_tile is None:
-                    continue
-                for p in st_tile.get_sjump_ports():
-                    if p.is_input:
-                        tileName = st_tile.name
-                        for k in range(p.wire_count):
-                            sm_ports_pairs.append(
-                                (f"{tileName}_{p.name}{k}", f"{tileName}_{p.name}[{k}]")
-                            )
+        for wire in superTile.reverse_sjump_wires():
+            for k, pin in enumerate(wire.matrix_port.pins):
+                sm_ports_pairs.append((pin.name(), f"{wire.signal_name}[{k}]"))
         if (
             superTile.supertile_matrix_config_bits > 0
             and config_bit_mode == ConfigBitMode.FRAME_BASED

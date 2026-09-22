@@ -15,6 +15,7 @@ from fabulous.fabric_definition.port import (
     Pin,
     Port,
     SharedPort,
+    SJumpPort,
     SwitchMatrixPort,
     TilePort,
 )
@@ -388,9 +389,32 @@ class TestSwitchMatrixPort:
         assert sm_port[1].name(indexed=True) == "T_NBEG[1]"
 
     def test_bel_port_is_a_bare_scalar(self) -> None:
-        """A BEL / constant port has no origin and keeps its name as written."""
-        sm_port = SwitchMatrixPort("A_I0", IO.OUTPUT)
+        """A literal (BEL / constant) port keeps its name as written."""
+        sm_port = SwitchMatrixPort("A_I0", IO.OUTPUT, literal=True)
         assert sm_port.origin is None
         assert sm_port.width == 1
         assert sm_port[0].name() == "A_I0"
         assert sm_port[0] == Pin(sm_port, 0)
+
+
+class TestSJumpPort:
+    """An SJUMP port has no offset and no spanning expansion."""
+
+    @pytest.mark.parametrize("io", [IO.OUTPUT, IO.INPUT])
+    def test_every_pin_faces_both_matrices(self, io: IO) -> None:
+        """Width is the wire count; the matrix and top level see all of it."""
+        port = SJumpPort("A", io, 4)
+        assert port.width == 4
+        assert port.sm_pins == port.pins
+        assert port.top_pins == port.pins
+        assert port.x_offset == 0
+        assert port.y_offset == 0
+        assert port.side_of_tile is Side.ANY
+        assert port.wire_direction is Direction.SJUMP
+
+    def test_one_way_naming(self) -> None:
+        """Only the driven end carries the name; the other is NULL."""
+        out = SJumpPort("A", IO.OUTPUT, 1)
+        assert (out.source_name, out.destination_name) == ("A", "NULL")
+        inp = SJumpPort("Q", IO.INPUT, 1)
+        assert (inp.source_name, inp.destination_name) == ("NULL", "Q")

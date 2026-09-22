@@ -35,13 +35,18 @@ from fabulous.fabric_definition.define import (
 )
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.gen_io import Gen_IO
-from fabulous.fabric_definition.port import NULL_PORT_NAME, TilePort
+from fabulous.fabric_definition.port import (
+    NULL_PORT_NAME,
+    SJumpPort,
+    TilePort,
+)
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.switch_matrix import (
     SwitchMatrix,
     switch_matrix_ports,
 )
 from fabulous.fabric_definition.tile import Tile, tile_directory
+from fabulous.fabric_definition.wire import JumpWire
 from fabulous.fabric_generator.gen_fabric.fabric_automation import (
     addBelsToPrim,
     generateCustomTileConfig,
@@ -62,8 +67,13 @@ USER_CLK_DIRECTIONS: dict[str, Side] = {
 }
 
 
-def parse_port_line(line: str) -> tuple[list[TilePort], tuple[str, str] | None]:
+def parse_port_line(
+    line: str,
+) -> tuple[list[TilePort], JumpWire | None, tuple[str, str] | None]:
     """Parse a single line of the port configuration from the CSV file.
+
+    A `JUMP` line stays inside the tile, so it yields no tile ports but a
+    `JumpWire` between two switch-matrix ports.
 
     Parameters
     ----------
@@ -77,8 +87,9 @@ def parse_port_line(line: str) -> tuple[list[TilePort], tuple[str, str] | None]:
 
     Returns
     -------
-    tuple[list[TilePort], tuple[str, str] | None]
-        A tuple containing a list of parsed ports and an optional common wire pair.
+    tuple[list[TilePort], JumpWire | None, tuple[str, str] | None]
+        The parsed tile ports, the jump wire of a `JUMP` line, and an optional
+        common wire pair.
     """
     fields: list[str] = line.split(",")
     port_type = fields[0]
@@ -114,6 +125,7 @@ def parse_port_line(line: str) -> tuple[list[TilePort], tuple[str, str] | None]:
             )
 
     ports: list[TilePort] = []
+    jump_wire: JumpWire | None = None
     common_wire_pair: tuple[str, str] | None
 
     if wire_direction in (
@@ -154,34 +166,7 @@ def parse_port_line(line: str) -> tuple[list[TilePort], tuple[str, str] | None]:
         common_wire_pair = (f"{source_name}", f"{destination_name}")
 
     elif wire_direction is Direction.JUMP:
-        # Output port
-        ports.append(
-            TilePort(
-                name=source_name,
-                io_direction=IO.OUTPUT,
-                side_of_tile=Side.ANY,
-                wire_direction=Direction.JUMP,
-                source_name=source_name,
-                x_offset=x_offset,
-                y_offset=y_offset,
-                destination_name=destination_name,
-                wire_count=wire_count,
-            )
-        )
-        # Input port
-        ports.append(
-            TilePort(
-                name=destination_name,
-                io_direction=IO.INPUT,
-                side_of_tile=Side.ANY,
-                wire_direction=Direction.JUMP,
-                source_name=source_name,
-                x_offset=x_offset,
-                y_offset=y_offset,
-                destination_name=destination_name,
-                wire_count=wire_count,
-            )
-        )
+        jump_wire = JumpWire.create(source_name, destination_name, wire_count)
         common_wire_pair = None
 
     elif wire_direction is Direction.SJUMP:
@@ -203,38 +188,14 @@ def parse_port_line(line: str) -> tuple[list[TilePort], tuple[str, str] | None]:
             )
 
         if source_name != NULL_PORT_NAME:
-            ports.append(
-                TilePort(
-                    name=source_name,
-                    io_direction=IO.OUTPUT,
-                    side_of_tile=Side.ANY,
-                    wire_direction=Direction.SJUMP,
-                    source_name=source_name,
-                    x_offset=0,
-                    y_offset=0,
-                    destination_name=NULL_PORT_NAME,
-                    wire_count=wire_count,
-                )
-            )
-        if destination_name != NULL_PORT_NAME:
-            ports.append(
-                TilePort(
-                    name=destination_name,
-                    io_direction=IO.INPUT,
-                    side_of_tile=Side.ANY,
-                    wire_direction=Direction.SJUMP,
-                    source_name=NULL_PORT_NAME,
-                    x_offset=0,
-                    y_offset=0,
-                    destination_name=destination_name,
-                    wire_count=wire_count,
-                )
-            )
+            ports.append(SJumpPort(source_name, IO.OUTPUT, wire_count))
+        else:
+            ports.append(SJumpPort(destination_name, IO.INPUT, wire_count))
         common_wire_pair = None
 
     else:
         raise InvalidPortType(f"Unknown port type: {port_type}")
-    return (ports, common_wire_pair)
+    return (ports, jump_wire, common_wire_pair)
 
 
 def _read_config_mem(
@@ -343,6 +304,7 @@ def parseTilesCSV(
                 f"'{filePathParent.name}' in {fileName}."
             )
         ports: list[TilePort] = []
+        jump_wires: list[JumpWire] = []
         bels: list[Bel] = []
         matrixDir: Path | None = None
         config_mem_csv: Path | None = None
@@ -358,7 +320,9 @@ def parseTilesCSV(
             if not temp or temp[0] == "":
                 continue
             if temp[0] in Direction:
-                port, common_wire_pair = parse_port_line(item)
+                port, jump_wire, common_wire_pair = parse_port_line(item)
+                if jump_wire is not None:
+                    jump_wires.append(jump_wire)
                 if "CARRY" in temp[6]:
                     # For prefix after carry
                     carryPrefix = re.search(r'CARRY="([^"]+)"', temp[6])
@@ -566,8 +530,10 @@ def parseTilesCSV(
                     if not lineItem[0]:
                         continue
 
-                    port, common_wire_pair = parse_port_line(line)
+                    port, jump_wire, common_wire_pair = parse_port_line(line)
                     ports.extend(port)
+                    if jump_wire is not None:
+                        jump_wires.append(jump_wire)
                     if common_wire_pair:
                         common_wire_pairs.append(common_wire_pair)
 
@@ -594,7 +560,7 @@ def parseTilesCSV(
         switch_matrix = SwitchMatrix.from_file(
             matrixDir,
             tileName,
-            switch_matrix_ports(ports, bels),
+            switch_matrix_ports(ports, bels, jump_wires),
             preserve_list_order=preserve_list_order,
         )
         if config_mem_csv is None:
@@ -613,6 +579,7 @@ def parseTilesCSV(
                 config_mem=empty_config_mem(config_mem_csv),
                 gen_ios=gen_ios,
                 userCLK=withUserCLK,
+                jump_wires=jump_wires,
             )
         )
 

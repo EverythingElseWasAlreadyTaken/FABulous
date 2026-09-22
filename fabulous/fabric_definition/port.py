@@ -5,6 +5,7 @@ in the FPGA fabric:
 - Pin: A single bit of a port; the node of the routing graph
 - Port: Base class for all port types
 - TilePort: Port on a tile with side and termination information
+- SJumpPort: Tile port facing the switch matrix of the surrounding supertile
 - BelPort: Port on a BEL (Basic Element of Logic)
 - SharedPort: A port shared between multiple BELs
 - SwitchMatrixPort: A port of a tile's switch-matrix module
@@ -649,6 +650,62 @@ class TilePort(Port):
         return inputs, outputs
 
 
+class SJumpPort(TilePort):
+    """A tile port that faces the switch matrix of the surrounding supertile.
+
+    An SJUMP wire is one-way and never leaves the supertile, so unlike a
+    spanning `TilePort` it has no offset, no partner port at the far side of
+    the tile and no NULL-terminated expansion: every bit faces both the tile's
+    own switch matrix and the supertile's. `SJumpWire` pairs it with the
+    supertile matrix port it reaches.
+
+    Parameters
+    ----------
+    name : str
+        The name of the port.
+    io_direction : IO
+        `IO.OUTPUT` for a signal leaving the tile towards the supertile matrix,
+        `IO.INPUT` for one arriving from it.
+    wire_count : int
+        The number of wires, which is also the port's width.
+    tile : Tile | None
+        The tile this port belongs to. Defaults to None, leaving it unattached.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        io_direction: IO,
+        wire_count: int,
+        tile: Tile | None = None,
+    ) -> None:
+        is_output = io_direction == IO.OUTPUT
+        super().__init__(
+            name=name,
+            io_direction=io_direction,
+            side_of_tile=Side.ANY,
+            tile=tile,
+            wire_direction=Direction.SJUMP,
+            source_name=name if is_output else NULL_PORT_NAME,
+            destination_name=NULL_PORT_NAME if is_output else name,
+            wire_count=wire_count,
+        )
+
+    @property
+    def sm_pins(self) -> tuple[Pin, ...]:
+        """Every pin faces the tile's own switch matrix."""
+        return self.pins
+
+    @property
+    def top_pins(self) -> tuple[Pin, ...]:
+        """Every pin faces the supertile, which is this port's top level."""
+        return self.pins
+
+    def __repr__(self) -> str:
+        """Return a string representation of the SJumpPort."""
+        return f"SJumpPort({self.io_direction.value} {self.name}[{self.width - 1}:0])"
+
+
 class BelPort(Port):
     """A port on a BEL (Basic Element of Logic).
 
@@ -861,10 +918,10 @@ class SwitchMatrixPort(Port):
     constant sources. Its pins are the nodes the matrix file (`.list` / `.csv`)
     connects.
 
-    A port built from a `TilePort` keeps that port as its `origin` and names
-    its pins the flat way the matrix HDL does (`N1END0`). A BEL port or a
-    constant has no origin and is a scalar named as written in the BEL /
-    constant table.
+    Pins are named the flat way the matrix HDL does (`N1END0`). A BEL signal
+    or a constant arrives already flattened, so it is a `literal` scalar whose
+    pin is named exactly as the port. A port built from a `TilePort` keeps
+    that port as its `origin`.
 
     Parameters
     ----------
@@ -881,10 +938,14 @@ class SwitchMatrixPort(Port):
     prefix : str
         Prepended to the pin names of a wire port (a supertile matrix prefixes
         each child tile's pins with the tile name). Defaults to "".
+    literal : bool
+        Whether the single pin is named exactly as the port (a BEL signal or a
+        constant), instead of `{name}{index}`. Defaults to False.
     """
 
     _origin: TilePort | None
     _prefix: str
+    _literal: bool
 
     def __init__(
         self,
@@ -893,10 +954,12 @@ class SwitchMatrixPort(Port):
         width: int = 1,
         origin: TilePort | None = None,
         prefix: str = "",
+        literal: bool = False,
     ) -> None:
         super().__init__(name, io_direction, width)
         self._origin = origin
         self._prefix = prefix
+        self._literal = literal
 
     @classmethod
     def from_tile_port(cls, port: TilePort, prefix: str = "") -> SwitchMatrixPort:
@@ -937,10 +1000,9 @@ class SwitchMatrixPort(Port):
         Returns
         -------
         str
-            The wire name; a BEL port or constant is scalar and keeps its bare
-            name.
+            The wire name; a `literal` port keeps its bare name.
         """
-        if self._origin is None:
+        if self._literal:
             return f"{prefix}{self.name}"
         return super().pin_name(index, indexed, f"{prefix}{self._prefix}")
 

@@ -302,10 +302,22 @@ def genNextpnrModel(
                 belv3Str.extend(v3_lines)
                 constrainStr.extend(constrain_lines)
 
-    # Supertile BEL and switch-matrix PIP emission.
-    # SJUMP PIPs live in tile.wireList (added by Fabric.__post_init__) and are
-    # already emitted by the per-tile loop above.
+    # Supertile SJUMP, BEL and switch-matrix PIP emission.
     for base_fx, base_fy, super_tile in fabric.iter_super_tile_placements():
+        for wire in super_tile.sjump_wires:
+            sx, sy = wire.source_cell(base_fx, base_fy)
+            source_tile = fabric.tile[sy][sx]
+            for source, destination in wire.pin_names:
+                delay: float = DUMMY_PIP_DELAY
+                if delay_model is not None:
+                    delay = delay_model.pip_delay(source_tile.name, source, destination)
+                pipStr.append(
+                    f"X{sx}Y{sy},{source},"
+                    f"X{sx + wire.x_offset}Y{sy + wire.y_offset},{destination},"
+                    f"{delay},"
+                    f"{source}.{destination}"
+                )
+
         if not super_tile.bels and super_tile.supertile_matrix_dir is None:
             continue
 
@@ -330,7 +342,7 @@ def genNextpnrModel(
         if super_tile.switch_matrix is not None:
             for sink, sources in super_tile.switch_matrix.named_connections.items():
                 for src in sources:
-                    delay: float = DUMMY_PIP_DELAY
+                    delay = DUMMY_PIP_DELAY
                     if delay_model is not None:
                         delay = delay_model.pip_delay(super_tile.name, sink, src)
                     pipStr.append(

@@ -141,9 +141,9 @@ def genTileSwitchMatrix(
         writer.addParameterEnd(indentLevel=1)
     writer.addPortStart(indentLevel=1)
 
-    # normal wire input (excludes JUMP and SJUMP which are handled separately)
+    # normal wire input (SJUMP is handled separately)
     for i in tile.portsInfo:
-        if i.wire_direction not in (Direction.JUMP, Direction.SJUMP) and i.is_input:
+        if i.wire_direction != Direction.SJUMP and i.is_input:
             for p in i.expand_port_info_by_name():
                 writer.addPortScalar(p, IO.INPUT, indentLevel=2)
 
@@ -152,15 +152,16 @@ def genTileSwitchMatrix(
         for p in b.outputs:
             writer.addPortScalar(p, IO.INPUT, indentLevel=2)
 
-    # jump wire input
-    for i in tile.portsInfo:
-        if i.wire_direction == Direction.JUMP and i.is_input:
-            for p in i.expand_port_info_by_name():
-                writer.addPortScalar(p, IO.INPUT, indentLevel=2)
+    # jump wire input; a source-less jump names a constant (declared as a
+    # parameter in the body), not a port
+    for wire in tile.jump_wires:
+        if wire.source is not None and wire.destination is not None:
+            for pin in wire.destination.pins:
+                writer.addPortScalar(pin.name(), IO.INPUT, indentLevel=2)
 
-    # normal wire output (excludes JUMP and SJUMP which are handled separately)
+    # normal wire output (SJUMP is handled separately)
     for i in tile.portsInfo:
-        if i.wire_direction not in (Direction.JUMP, Direction.SJUMP) and i.is_output:
+        if i.wire_direction != Direction.SJUMP and i.is_output:
             for p in i.expand_port_info_by_name():
                 writer.addPortScalar(p, IO.OUTPUT, indentLevel=2)
 
@@ -170,10 +171,10 @@ def genTileSwitchMatrix(
             writer.addPortScalar(p, IO.OUTPUT, indentLevel=2)
 
     # jump wire output
-    for i in tile.portsInfo:
-        if i.wire_direction == Direction.JUMP and i.is_output:
-            for p in i.expand_port_info_by_name():
-                writer.addPortScalar(p, IO.OUTPUT, indentLevel=2)
+    for wire in tile.jump_wires:
+        if wire.source is not None:
+            for pin in wire.source.pins:
+                writer.addPortScalar(pin.name(), IO.OUTPUT, indentLevel=2)
 
     # sjump wire output - SM drives OUTPUT signals exiting to supertile SM
     for i in tile.portsInfo:
@@ -468,13 +469,12 @@ def gen_super_tile_switch_matrix(
     writer.addPortStart(indentLevel=1)
 
     # Inputs: SJUMP OUTPUT signals from each child tile ({tileName}_{portName}{i})
-    all_sjump_ports = superTile.get_all_sjump_ports()
-    if all_sjump_ports:
+    forward = superTile.forward_sjump_wires()
+    if forward:
         writer.addComment("SJUMP inputs from child tiles", onNewLine=True)
-        for lx, ly, p in all_sjump_ports:
-            tileName = superTile.tileMap[ly][lx].name
-            for k in range(p.wire_count):
-                writer.addPortScalar(f"{tileName}_{p.name}{k}", IO.INPUT, indentLevel=2)
+        for wire in forward:
+            for pin in wire.matrix_port.pins:
+                writer.addPortScalar(pin.name(), IO.INPUT, indentLevel=2)
 
     # Outputs: input ports of supertile BELs (SM drives BEL inputs)
     if superTile.bels:
@@ -491,15 +491,12 @@ def gen_super_tile_switch_matrix(
             writer.addPortScalar(p, IO.INPUT, indentLevel=2)
 
     # Outputs: reverse SJUMP signals driven back into child tiles
-    all_input_sjump = superTile.get_all_input_sjump_ports()
-    if all_input_sjump:
+    reverse = superTile.reverse_sjump_wires()
+    if reverse:
         writer.addComment("Reverse SJUMP outputs (SM -> child tile)", onNewLine=True)
-        for lx, ly, p in all_input_sjump:
-            tileName = superTile.tileMap[ly][lx].name
-            for k in range(p.wire_count):
-                writer.addPortScalar(
-                    f"{tileName}_{p.name}{k}", IO.OUTPUT, indentLevel=2
-                )
+        for wire in reverse:
+            for pin in wire.matrix_port.pins:
+                writer.addPortScalar(pin.name(), IO.OUTPUT, indentLevel=2)
 
     writer.addComment("global", onNewLine=True)
     if noConfigBits > 0:

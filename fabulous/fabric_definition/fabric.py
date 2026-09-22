@@ -369,67 +369,24 @@ class Fabric:
                                     destinationTile=f"X{x + port.x_offset}Y{y + value}",
                                 )
                             )
-                tile.wireList = list(dict.fromkeys(tile.wireList))
-
-        # SJUMP wire pass: for every supertile placement, add SJUMP wires from the
-        # child tiles to the master tile (forward) and back (reverse).
-        touched: set[tuple[int, int]] = set()
-        for base_fx, base_fy, superTile in self.iter_super_tile_placements():
-            tx_local, ty_local = superTile.get_master_tile_coords()
-            ftx = base_fx + tx_local
-            fty = base_fy + ty_local
-            master_tile = self.tile[fty][ftx]
-            if master_tile is None:
-                continue
-
-            for ly, st_row in enumerate(superTile.tileMap):
-                for lx, st_tile in enumerate(st_row):
-                    if st_tile is None:
+                for jump in tile.jump_wires:
+                    if jump.source is None or jump.destination is None:
                         continue
-                    fy = base_fy + ly
-                    fx = base_fx + lx
-                    grid_tile = self.tile[fy][fx]
-
-                    for p in grid_tile.get_sjump_ports():
-                        if not p.is_output:
-                            continue
-                        for i in range(p.wire_count):
-                            grid_tile.wireList.append(
-                                Wire(
-                                    direction=Direction.SJUMP,
-                                    source=f"{p.name}{i}",
-                                    x_offset=ftx - fx,
-                                    y_offset=fty - fy,
-                                    destination=f"{st_tile.name}_{p.name}{i}",
-                                    sourceTile=f"X{fx}Y{fy}",
-                                    destinationTile=f"X{ftx}Y{fty}",
-                                )
+                    for src, dst in zip(
+                        jump.source.pins, jump.destination.pins, strict=True
+                    ):
+                        tile.wireList.append(
+                            Wire(
+                                direction=Direction.JUMP,
+                                source=src.name(),
+                                x_offset=0,
+                                y_offset=0,
+                                destination=dst.name(),
+                                sourceTile="",
+                                destinationTile="",
                             )
-
-                    # Reverse: supertile SM output ({child_name}_{port}) back down to
-                    # the child tile's INPUT port. The source lives in the wrapper at
-                    # the master tile, so the wire is owned by the master.
-                    for p in grid_tile.get_sjump_ports():
-                        if not p.is_input:
-                            continue
-                        for i in range(p.wire_count):
-                            master_tile.wireList.append(
-                                Wire(
-                                    direction=Direction.SJUMP,
-                                    source=f"{st_tile.name}_{p.name}{i}",
-                                    x_offset=fx - ftx,
-                                    y_offset=fy - fty,
-                                    destination=f"{p.name}{i}",
-                                    sourceTile=f"X{ftx}Y{fty}",
-                                    destinationTile=f"X{fx}Y{fy}",
-                                )
-                            )
-                    touched.add((fx, fy))
-                    touched.add((ftx, fty))
-
-        for fx, fy in touched:
-            tile = self.tile[fy][fx]
-            tile.wireList = list(dict.fromkeys(tile.wireList))
+                        )
+                tile.wireList = list(dict.fromkeys(tile.wireList))
 
     def iter_super_tile_placements(
         self, superTile: SuperTile | None = None
