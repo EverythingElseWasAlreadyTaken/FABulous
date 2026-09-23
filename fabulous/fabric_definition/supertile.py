@@ -12,7 +12,12 @@ from decimal import Decimal
 from pathlib import Path
 
 from fabulous.fabric_definition.bel import Bel
-from fabulous.fabric_definition.define import IO, SWITCH_MATRIX_CONSTANTS, Side
+from fabulous.fabric_definition.define import (
+    IO,
+    SWITCH_MATRIX_CONSTANTS,
+    BelPortKind,
+    Side,
+)
 from fabulous.fabric_definition.port import SwitchMatrixPort, TilePort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
@@ -223,10 +228,10 @@ class SuperTile:
         """
         ports: list[SwitchMatrixPort] = [w.matrix_port for w in self.sjump_wires]
         for bel in self.bels:
-            for name in bel.inputs:
-                ports.append(SwitchMatrixPort(name, IO.OUTPUT, literal=True))
-            for name in bel.outputs:
-                ports.append(SwitchMatrixPort(name, IO.INPUT, literal=True))
+            bel_ports = bel.get_ports(BelPortKind.INTERNAL, IO.INPUT) + bel.get_ports(
+                BelPortKind.INTERNAL, IO.OUTPUT
+            )
+            ports.extend(SwitchMatrixPort.from_bel_port(p) for p in bel_ports)
         for const in SWITCH_MATRIX_CONSTANTS:
             ports.append(SwitchMatrixPort(const, IO.INPUT, literal=True))
         return tuple(ports)

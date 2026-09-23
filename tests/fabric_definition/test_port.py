@@ -1,20 +1,15 @@
 """Unit tests for the Port class hierarchy introduced by the bel/port migration."""
 
+from pathlib import Path
+
 import pytest
 
-from fabulous.fabric_definition.define import (
-    IO,
-    Direction,
-    FeatureType,
-    FeatureValue,
-    Side,
-)
+from fabulous.fabric_definition.bel import Bel
+from fabulous.fabric_definition.define import IO, BelPortKind, Direction, Side
 from fabulous.fabric_definition.port import (
     BelPort,
-    ConfigPort,
     Pin,
     Port,
-    SharedPort,
     SJumpPort,
     SwitchMatrixPort,
     TilePort,
@@ -176,18 +171,30 @@ class TestBelPort:
         port = BelPort(name="sig", io_direction=IO.INPUT, width=1, prefix="lut_")
         assert port.name == "lut_sig"
 
-    def test_external_and_control_flags(self) -> None:
-        """External and control flags are exposed verbatim."""
-        port = BelPort(
-            name="io",
-            io_direction=IO.OUTPUT,
-            width=1,
-            prefix="",
-            external=True,
-            control=False,
-        )
-        assert port.external is True
-        assert port.control is False
+    def test_defaults_to_internal_without_roles(self) -> None:
+        """A BelPort is internal, carry-less and not locally shared by default."""
+        port = BelPort(name="io", io_direction=IO.OUTPUT, width=1)
+        assert port.kind == BelPortKind.INTERNAL
+        assert port.carry is None
+        assert port.local_shared is None
+        assert port.bel is None
+
+    @pytest.mark.parametrize(
+        ("width", "expected"),
+        [(1, ["lut_A"]), (3, ["lut_A0", "lut_A1", "lut_A2"])],
+    )
+    def test_pin_names_are_flat(self, width: int, expected: list[str]) -> None:
+        """A single bit keeps the bare name, a vector unrolls to `name{index}`."""
+        port = BelPort(name="A", io_direction=IO.INPUT, width=width, prefix="lut_")
+        assert [pin.name() for pin in port.pins] == expected
+
+    def test_bel_attaches_its_ports_once(self) -> None:
+        """A Bel attaches its ports; a port cannot move to a second BEL."""
+        port = BelPort(name="A", io_direction=IO.INPUT, width=1)
+        bel = Bel(Path("LUT.v"), "", "LUT", [port], 0, {})
+        assert port.bel is bel
+        with pytest.raises(ValueError, match="already belongs"):
+            Bel(Path("LUT.v"), "", "LUT", [port], 0, {})
 
     def test_expand_uses_prefixed_name(self) -> None:
         """Expansion uses the prefixed name."""
@@ -208,63 +215,14 @@ class TestBelPort:
         assert port.net == "UserCLK"
 
     def test_serialize_includes_belport_fields(self) -> None:
-        """Serialization adds prefix, external and control."""
+        """Serialization adds kind, prefix, carry and local_shared."""
         port = BelPort(name="sig", io_direction=IO.INPUT, width=1, prefix="lut_")
         data = port.serialize()
         assert data["name"] == "lut_sig"
         assert data["prefix"] == "lut_"
-        assert data["external"] is False
-        assert data["control"] is False
-
-
-class TestConfigPort:
-    """Tests for ConfigPort."""
-
-    def test_defaults(self) -> None:
-        """Features default to empty and feature_type to ENUMERATE."""
-        port = ConfigPort(name="cfg", io_direction=IO.INPUT, width=8)
-        assert port.features == []
-        assert port.feature_type == FeatureType.ENUMERATE
-
-    def test_custom_features(self) -> None:
-        """Custom features are stored as given."""
-        features = [FeatureValue("INIT", 0), FeatureValue("MODE", None)]
-        port = ConfigPort(
-            name="cfg",
-            io_direction=IO.INPUT,
-            width=2,
-            features=features,
-        )
-        assert port.features == features
-
-
-class TestSharedPort:
-    """Tests for SharedPort."""
-
-    def test_shared_with(self) -> None:
-        """The shared_with target is exposed."""
-        port = SharedPort(
-            name="clk", io_direction=IO.INPUT, width=1, shared_with="global_clk"
-        )
-        assert port.shared_with == "global_clk"
-
-    def test_share_expand_single_bit(self) -> None:
-        """A width-1 shared port expands to the bare shared_with name."""
-        port = SharedPort(
-            name="clk", io_direction=IO.INPUT, width=1, shared_with="global_clk"
-        )
-        assert port.share_expand() == ["global_clk"]
-
-    def test_share_expand_multi_bit(self) -> None:
-        """A multi-bit shared port expands to indexed shared_with names."""
-        port = SharedPort(
-            name="bus", io_direction=IO.INPUT, width=3, shared_with="shared_bus"
-        )
-        assert port.share_expand() == [
-            "shared_bus[0]",
-            "shared_bus[1]",
-            "shared_bus[2]",
-        ]
+        assert data["kind"] == "internal"
+        assert data["carry"] is None
+        assert data["local_shared"] is None
 
 
 class TestTilePort:
@@ -397,13 +355,26 @@ class TestSwitchMatrixPort:
         assert [pin.name() for pin in sm_port.pins] == ["T_NBEG0", "T_NBEG1"]
         assert sm_port[1].name(indexed=True) == "T_NBEG[1]"
 
-    def test_bel_port_is_a_bare_scalar(self) -> None:
-        """A literal (BEL / constant) port keeps its name as written."""
-        sm_port = SwitchMatrixPort("A_I0", IO.OUTPUT, literal=True)
+    def test_constant_is_a_bare_scalar(self) -> None:
+        """A literal (constant) port keeps its name as written."""
+        sm_port = SwitchMatrixPort("VCC0", IO.INPUT, literal=True)
         assert sm_port.origin is None
         assert sm_port.width == 1
-        assert sm_port[0].name() == "A_I0"
+        assert sm_port[0].name() == "VCC0"
         assert sm_port[0] == Pin(sm_port, 0)
+
+    @pytest.mark.parametrize(
+        ("io", "sm_io"), [(IO.INPUT, IO.OUTPUT), (IO.OUTPUT, IO.INPUT)]
+    )
+    def test_bel_port_flips_direction_and_keeps_flat_names(
+        self, io: IO, sm_io: IO
+    ) -> None:
+        """The matrix drives a BEL input; its pins carry the BEL's flat names."""
+        bel_port = BelPort("I", io, 2, prefix="A_")
+        sm_port = SwitchMatrixPort.from_bel_port(bel_port)
+        assert sm_port.origin is bel_port
+        assert sm_port.io_direction == sm_io
+        assert [pin.name() for pin in sm_port.pins] == ["A_I0", "A_I1"]
 
 
 class TestSJumpPort:

@@ -1,5 +1,7 @@
 """Tests for nextpnr model generation, focusing on bel.v3 timing output."""
 
+from pathlib import Path
+
 from pytest_mock import MockerFixture
 
 from fabulous.fabric_cad.gen_npnr_model import (
@@ -8,6 +10,8 @@ from fabulous.fabric_cad.gen_npnr_model import (
     genNextpnrModel,
 )
 from fabulous.fabric_definition.bel import Bel
+from fabulous.fabric_definition.define import IO
+from fabulous.fabric_definition.port import BelPort
 from fabulous.fabulous_repl.fabulous_repl import FABulousREPL
 
 
@@ -48,13 +52,22 @@ def test_gen_routing_model_returns_five_with_timing(cli: FABulousREPL) -> None:
 
 def test_belLines_unknown_type_emits_no_timing_arcs() -> None:
     """BEL types that nextpnr does not time produce no timing arcs in bel.v3."""
-    bel = Bel.__new__(Bel)
-    bel.name = "IO_1_bidirectional_frame_config_pass"
-    bel.prefix = "A_"
-    bel.inputs = ["A_I", "A_T"]
-    bel.outputs = ["A_O", "A_Q"]
-    bel.belFeatureMap = {}
-    bel.withUserCLK = False
+    bel = Bel(
+        src=Path("IO_1_bidirectional_frame_config_pass.v"),
+        prefix="A_",
+        module_name="IO_1_bidirectional_frame_config_pass",
+        ports=[
+            BelPort(name, io, 1, prefix="A_")
+            for name, io in [
+                ("I", IO.INPUT),
+                ("T", IO.INPUT),
+                ("O", IO.OUTPUT),
+                ("Q", IO.OUTPUT),
+            ]
+        ],
+        configBit=0,
+        belMap={},
+    )
 
     _, _, v3_lines, _ = belLines(bel, "A", 0, 0)
 

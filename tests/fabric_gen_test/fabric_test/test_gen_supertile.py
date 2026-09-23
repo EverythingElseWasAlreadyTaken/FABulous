@@ -34,11 +34,12 @@ from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import (
     IO,
     USER_CLK_PREDECESSOR,
+    BelPortKind,
     ConfigBitMode,
     Direction,
     Side,
 )
-from fabulous.fabric_definition.port import TilePort
+from fabulous.fabric_definition.port import BelPort, TilePort
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
@@ -340,16 +341,12 @@ class TestBelExternalPorts:
             src=Path("MyBel.v"),
             prefix="",
             module_name="MyBel",
-            internal=[],
-            external=[("io_in", IO.INPUT), ("io_out", IO.OUTPUT)],
-            configPort=[],
-            sharedPort=[],
+            ports=[
+                BelPort("io_in", IO.INPUT, 1, kind=BelPortKind.EXTERNAL),
+                BelPort("io_out", IO.OUTPUT, 1, kind=BelPortKind.EXTERNAL),
+            ],
             configBit=0,
             belMap={},
-            userCLK=False,
-            ports_vectors={},
-            carry={},
-            localShared={},
         )
         tile = Tile(
             name="BelTile",

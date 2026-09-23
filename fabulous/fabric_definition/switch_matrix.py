@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from fabulous.custom_exception import InvalidFileType, InvalidSwitchMatrixDefinition
-from fabulous.fabric_definition.define import IO, SWITCH_MATRIX_CONSTANTS
+from fabulous.fabric_definition.define import IO, SWITCH_MATRIX_CONSTANTS, BelPortKind
 from fabulous.fabric_definition.port import Pin, SwitchMatrixPort
 
 if TYPE_CHECKING:
@@ -65,10 +65,12 @@ def switch_matrix_ports(
         if port.sm_pins:
             result.append(SwitchMatrixPort.from_tile_port(port, prefix))
     for bel in bels:
-        for name in bel.inputs:
-            result.append(SwitchMatrixPort(name, IO.OUTPUT, literal=True))
-        for name in bel.outputs + bel.externalOutput:
-            result.append(SwitchMatrixPort(name, IO.INPUT, literal=True))
+        bel_ports = (
+            bel.get_ports(BelPortKind.INTERNAL, IO.INPUT)
+            + bel.get_ports(BelPortKind.INTERNAL, IO.OUTPUT)
+            + bel.get_ports(BelPortKind.EXTERNAL, IO.OUTPUT)
+        )
+        result.extend(SwitchMatrixPort.from_bel_port(p) for p in bel_ports)
     for wire in jump_wires:
         result.extend(end for end in (wire.source, wire.destination) if end)
     # A constant may already be declared by a source-less jump wire.

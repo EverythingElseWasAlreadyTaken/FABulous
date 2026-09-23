@@ -180,6 +180,21 @@ class FABulousAttribute(StrEnum):
     CONFIG_BIT = "CONFIG_BIT"
 
 
+class BelPortKind(StrEnum):
+    """Enumeration for the role of a BEL port within the fabric.
+
+    - INTERNAL: Routed through the tile's switch matrix
+    - EXTERNAL: Wired out of the tile to the fabric top level
+    - CONFIG: A configuration port
+    - SHARED: Shared between BELs, such as the user clock; not BEL-prefixed
+    """
+
+    INTERNAL = "internal"
+    EXTERNAL = "external"
+    CONFIG = "config"
+    SHARED = "shared"
+
+
 class PinSortMode(StrEnum):
     """Enumeration for pin sorting modes."""
 
