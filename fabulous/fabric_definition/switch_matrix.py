@@ -65,10 +65,8 @@ def switch_matrix_ports(
         if port.sm_pins:
             result.append(SwitchMatrixPort.from_tile_port(port, prefix))
     for bel in bels:
-        bel_ports = (
-            bel.get_ports(BelPortKind.INTERNAL, IO.INPUT)
-            + bel.get_ports(BelPortKind.INTERNAL, IO.OUTPUT)
-            + bel.get_ports(BelPortKind.EXTERNAL, IO.OUTPUT)
+        bel_ports = bel.get_ports(BelPortKind.INTERNAL, IO.INPUT) + bel.get_ports(
+            BelPortKind.INTERNAL, IO.OUTPUT
         )
         result.extend(SwitchMatrixPort.from_bel_port(p) for p in bel_ports)
     for wire in jump_wires:
