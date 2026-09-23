@@ -19,12 +19,10 @@ from fabulous.fabric_definition.define import (
     FRAME_BITS_PER_ROW,
     IO,
     MAX_FRAMES_PER_COL,
-    Direction,
     HDLType,
-    Side,
 )
 from fabulous.fabric_definition.fabric import Fabric
-from fabulous.fabric_definition.port import TilePort
+from fabulous.fabric_definition.port import BelConfigPort, BelPort, SJumpPort, TilePort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabulous_repl.fabulous_repl import FABulousREPL
@@ -183,30 +181,13 @@ def cocotb_runner(tmp_path: Path, request: pytest.FixtureRequest) -> CocotbRunne
     return _create_runner
 
 
-def sjump_port(
-    name: str,
-    in_out: IO,
-    wire_count: int = 2,
-    x_offset: int = 0,
-    y_offset: int = 0,
-) -> TilePort:
-    """Build an SJUMP port.
+def sjump_port(name: str, in_out: IO, wire_count: int = 2) -> SJumpPort:
+    """Build an SJUMP port, as the tile CSV parser does.
 
-    OUTPUT ports drive `source_name`; INPUT ports terminate at
-    `destination_name`. SJUMP ports carry zero offsets, which is exactly the
-    case the width fix in `expand_port_info*` has to handle.
+    OUTPUT ports leave the tile towards the supertile switch matrix; INPUT
+    ports arrive from it.
     """
-    return TilePort(
-        name=name,
-        io_direction=in_out,
-        side_of_tile=Side.ANY,
-        wire_direction=Direction.SJUMP,
-        source_name=name if in_out == IO.OUTPUT else "NULL",
-        x_offset=x_offset,
-        y_offset=y_offset,
-        destination_name=name if in_out == IO.INPUT else "NULL",
-        wire_count=wire_count,
-    )
+    return SJumpPort(name, in_out, wire_count)
 
 
 def make_empty_tile(
@@ -239,7 +220,6 @@ def make_empty_tile(
             hdl_config_bits=config_bits or None,
         ),
         gen_ios=[],
-        userCLK=False,
         pinOrderConfig=pinOrderConfig,
         config_mem=ConfigMem.default(
             config_bits,
@@ -250,22 +230,22 @@ def make_empty_tile(
     )
 
 
-def make_muladd_bel(internal: list[tuple[str, IO]], *, prefix: str = "SUPER_") -> Bel:
-    """Build a MULADD-style supertile BEL with only its internal pins populated."""
+def make_muladd_bel(
+    internal: list[tuple[str, IO]],
+    *,
+    prefix: str = "SUPER_",
+    config_port: BelConfigPort | None = None,
+) -> Bel:
+    """Build a MULADD-style supertile BEL with only single-bit internal ports.
+
+    Each `(name, io)` is used verbatim as the pin name, e.g. `("SUPER_A0", IO.INPUT)`.
+    """
     return Bel(
         src=Path("MULADD.v"),
         prefix=prefix,
         module_name="MULADD",
-        internal=internal,
-        external=[],
-        configPort=[],
-        sharedPort=[],
-        configBit=0,
-        belMap={},
-        userCLK=False,
-        ports_vectors={},
-        carry={},
-        localShared={},
+        ports=[BelPort(name, io, 1) for name, io in internal],
+        config_port=config_port,
     )
 
 

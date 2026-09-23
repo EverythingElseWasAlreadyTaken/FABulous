@@ -13,8 +13,10 @@ import pytest
 import yaml
 from pytest_mock import MockerFixture
 
-from fabulous.fabric_definition.define import PinSortMode, Side
+from fabulous.fabric_definition.bel import Bel
+from fabulous.fabric_definition.define import IO, BelPortKind, PinSortMode, Side
 from fabulous.fabric_definition.fabric import Fabric
+from fabulous.fabric_definition.port import BelPort
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.gds_generator.gen_io_pin_config_yaml import (
@@ -23,6 +25,13 @@ from fabulous.fabric_generator.gds_generator.gen_io_pin_config_yaml import (
     _serialize_tile_ports,
     generate_IO_pin_order_config,
 )
+
+
+def _external_bel(inputs: list[str], outputs: list[str]) -> Bel:
+    """Build a BEL with only single-bit external ports."""
+    ports = [BelPort(n, IO.INPUT, 1, kind=BelPortKind.EXTERNAL) for n in inputs]
+    ports += [BelPort(n, IO.OUTPUT, 1, kind=BelPortKind.EXTERNAL) for n in outputs]
+    return Bel(Path("EXT.v"), "", "EXT", ports)
 
 
 class TestPinOrderConfig:
@@ -252,9 +261,7 @@ class TestSerializeTilePorts:
         }
 
         # BEL with external ports
-        bel = mocker.MagicMock()
-        bel.externalInput = ["ext_in"]
-        bel.externalOutput = ["ext_out"]
+        bel = _external_bel(["ext_in"], ["ext_out"])
         tile.bels = [bel]
 
         result = _serialize_tile_ports(tile, external_port_side=Side.SOUTH)
@@ -578,12 +585,10 @@ class TestGenerateIOPinOrderConfig:
         assert outfile.exists()
 
     def test_generate_io_pin_order_config_defaults_external_side_to_south(
-        self, mock_tile: Tile, mocker: MockerFixture, tmp_path: Path
+        self, mock_tile: Tile, tmp_path: Path
     ) -> None:
         """Test generation uses SOUTH for external ports by default."""
-        bel = mocker.MagicMock()
-        bel.externalInput = ["ext_in"]
-        bel.externalOutput = []
+        bel = _external_bel(["ext_in"], [])
         mock_tile.bels = [bel]
 
         outfile = tmp_path / "test_config.yaml"
@@ -600,12 +605,10 @@ class TestGenerateIOPinOrderConfig:
         assert "ext_in" in all_pins
 
     def test_generate_io_pin_order_config_without_fabric_uses_external_side(
-        self, mock_tile: Tile, mocker: MockerFixture, tmp_path: Path
+        self, mock_tile: Tile, tmp_path: Path
     ) -> None:
         """Test generation without fabric placement context."""
-        bel = mocker.MagicMock()
-        bel.externalInput = ["ext_in"]
-        bel.externalOutput = []
+        bel = _external_bel(["ext_in"], [])
         mock_tile.bels = [bel]
 
         outfile = tmp_path / "test_config.yaml"
@@ -628,13 +631,10 @@ class TestGenerateIOPinOrderConfig:
     def test_generate_io_pin_order_config_external_side_handling(
         self,
         mock_tile: Tile,
-        mocker: MockerFixture,
         tmp_path: Path,
     ) -> None:
         """Test that explicit external side is used for external ports."""
-        bel = mocker.MagicMock()
-        bel.externalInput = ["ext_in"]
-        bel.externalOutput = []
+        bel = _external_bel(["ext_in"], [])
         mock_tile.bels = [bel]
 
         outfile = tmp_path / "test_config.yaml"
@@ -669,9 +669,7 @@ class TestGenerateIOPinOrderConfig:
             Side.SOUTH: PinOrderConfig(),
             Side.WEST: PinOrderConfig(),
         }
-        bel = mocker.MagicMock()
-        bel.externalInput = ["ext_in"]
-        bel.externalOutput = []
+        bel = _external_bel(["ext_in"], [])
         mock_tile.bels = [bel]
 
         mock_supertile.tileMap = [[mock_tile]]
@@ -712,9 +710,7 @@ class TestGenerateIOPinOrderConfig:
             Side.SOUTH: PinOrderConfig(),
             Side.WEST: PinOrderConfig(),
         }
-        bel = mocker.MagicMock()
-        bel.externalInput = ["ext_in"]
-        bel.externalOutput = []
+        bel = _external_bel(["ext_in"], [])
         mock_tile.bels = [bel]
 
         mock_supertile.tileMap = [[mock_tile]]

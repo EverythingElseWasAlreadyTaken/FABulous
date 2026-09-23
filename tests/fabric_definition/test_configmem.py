@@ -174,7 +174,6 @@ def _tile(tmp_path: Path, config_mem: ConfigMem) -> Tile:
         switch_matrix=SwitchMatrix(matrix_file=Path(), ports=(), connections={}),
         config_mem=config_mem,
         gen_ios=[],
-        userCLK=False,
     )
 
 

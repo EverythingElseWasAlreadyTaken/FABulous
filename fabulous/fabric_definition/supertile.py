@@ -13,7 +13,12 @@ from pathlib import Path
 
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.configmem import ConfigMem
-from fabulous.fabric_definition.define import IO, SWITCH_MATRIX_CONSTANTS, Side
+from fabulous.fabric_definition.define import (
+    IO,
+    SWITCH_MATRIX_CONSTANTS,
+    BelPortKind,
+    Side,
+)
 from fabulous.fabric_definition.port import SwitchMatrixPort, TilePort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
@@ -36,8 +41,6 @@ class SuperTile:
         The map of the tiles that make up the super tile
     bels : list[Bel]
         The list of bels of that the super tile contains
-    withUserCLK : bool
-        Whether the super tile has a userCLK port. Default is False.
     switch_matrix : SwitchMatrix | None
         The supertile switch matrix (source file, connectivity, config bits), or
         None if the supertile has no switch matrix.
@@ -56,10 +59,14 @@ class SuperTile:
     tiles: list[Tile]
     tileMap: list[list[Tile]]
     bels: list[Bel] = field(default_factory=list)
-    withUserCLK: bool = False
     switch_matrix: SwitchMatrix | None = None
     master_tile_coords: tuple[int, int] | None = None
     config_mem: ConfigMem | None = None
+
+    @property
+    def withUserCLK(self) -> bool:
+        """Whether any supertile-level BEL uses the user clock."""
+        return any(bel.withUserCLK for bel in self.bels)
 
     def get_ports_around_tile(self) -> dict[str, list[list[TilePort]]]:
         """Return all the ports that are around the supertile.
@@ -228,10 +235,10 @@ class SuperTile:
         """
         ports: list[SwitchMatrixPort] = [w.matrix_port for w in self.sjump_wires]
         for bel in self.bels:
-            for name in bel.inputs:
-                ports.append(SwitchMatrixPort(name, IO.OUTPUT, literal=True))
-            for name in bel.outputs:
-                ports.append(SwitchMatrixPort(name, IO.INPUT, literal=True))
+            bel_ports = bel.get_ports(BelPortKind.INTERNAL, IO.INPUT) + bel.get_ports(
+                BelPortKind.INTERNAL, IO.OUTPUT
+            )
+            ports.extend(SwitchMatrixPort.from_bel_port(p) for p in bel_ports)
         for const in SWITCH_MATRIX_CONSTANTS:
             ports.append(SwitchMatrixPort(const, IO.INPUT, literal=True))
         return tuple(ports)

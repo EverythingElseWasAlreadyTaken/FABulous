@@ -134,35 +134,45 @@ def parse_port_line(
         Direction.SOUTH,
         Direction.WEST,
     ):
-        # Output port (source side)
-        ports.append(
-            TilePort(
-                name=source_name,
-                io_direction=IO.OUTPUT,
-                side_of_tile=Side[port_type],
-                wire_direction=wire_direction,
-                source_name=source_name,
-                x_offset=x_offset,
-                y_offset=y_offset,
-                destination_name=destination_name,
-                wire_count=wire_count,
+        # A NULL end is the far side of the routing relation, not an interface
+        # of this tile, so the line declares one port per *named* end.
+        if source_name == NULL_PORT_NAME and destination_name == NULL_PORT_NAME:
+            raise InvalidPortType(
+                f"Invalid port line '{line.strip()}': source and destination are "
+                "both NULL, so the line declares neither a tile port nor a wire."
             )
-        )
+
+        # Output port (source side)
+        if source_name != NULL_PORT_NAME:
+            ports.append(
+                TilePort(
+                    name=source_name,
+                    io_direction=IO.OUTPUT,
+                    side_of_tile=Side[port_type],
+                    wire_direction=wire_direction,
+                    source_name=source_name,
+                    x_offset=x_offset,
+                    y_offset=y_offset,
+                    destination_name=destination_name,
+                    wire_count=wire_count,
+                )
+            )
 
         # Input port (destination side)
-        ports.append(
-            TilePort(
-                name=destination_name,
-                io_direction=IO.INPUT,
-                side_of_tile=Side[port_type].opposite,
-                wire_direction=wire_direction,
-                source_name=source_name,
-                x_offset=x_offset,
-                y_offset=y_offset,
-                destination_name=destination_name,
-                wire_count=wire_count,
+        if destination_name != NULL_PORT_NAME:
+            ports.append(
+                TilePort(
+                    name=destination_name,
+                    io_direction=IO.INPUT,
+                    side_of_tile=Side[port_type].opposite,
+                    wire_direction=wire_direction,
+                    source_name=source_name,
+                    x_offset=x_offset,
+                    y_offset=y_offset,
+                    destination_name=destination_name,
+                    wire_count=wire_count,
+                )
             )
-        )
         common_wire_pair = (f"{source_name}", f"{destination_name}")
 
     elif wire_direction is Direction.JUMP:
@@ -309,7 +319,6 @@ def parseTilesCSV(
         matrixDir: Path | None = None
         config_mem_csv: Path | None = None
         gen_ios: list[Gen_IO] = []
-        withUserCLK = False
         genMatrixList = False
         tileCarry: dict[str, dict[IO, str]] = {}
         localSharedPorts: dict[str, list[TilePort]] = {}
@@ -544,8 +553,6 @@ def parseTilesCSV(
                     "BEL, GEN_IO, MATRIX, CONFIGMEM, and INCLUDE."
                 )
 
-        withUserCLK = any(bel.withUserCLK for bel in bels)
-
         if matrixDir is None:
             raise InvalidTileDefinition(
                 f"Tile {tileName!r} has no MATRIX line; a switch matrix "
@@ -578,7 +585,6 @@ def parseTilesCSV(
                 switch_matrix=switch_matrix,
                 config_mem=empty_config_mem(config_mem_csv),
                 gen_ios=gen_ios,
-                userCLK=withUserCLK,
                 jump_wires=jump_wires,
             )
         )
@@ -637,7 +643,6 @@ def parseSupertilesCSV(fileName: Path, tileDic: dict[str, Tile]) -> list[SuperTi
         tileMap = []
         tiles = []
         bels = []
-        withUserCLK = False
         master_set = False
         master_coords: tuple[int, int] | None = None
         matrix_line_path: Path | None = None
@@ -711,11 +716,9 @@ def parseSupertilesCSV(fileName: Path, tileDic: dict[str, Tile]) -> list[SuperTi
                 master_set = True
             tileMap.append(row)
 
-        withUserCLK = any(bel.withUserCLK for bel in bels)
-        # tileDir is the supertile CSV file path, matching Tile.tileDir.
-        super_tile = SuperTile(
-            name, fileName.absolute(), tiles, tileMap, bels, withUserCLK
-        )
+        # tileDir is the supertile CSV file path (matching Tile.tileDir), so
+        # consumers use `tileDir.parent` for the supertile's directory.
+        super_tile = SuperTile(name, fileName.absolute(), tiles, tileMap, bels)
         super_tile.master_tile_coords = master_coords
         super_tile.config_mem = empty_config_mem(
             super_tile.directory / f"{name}_ConfigMem.csv"
@@ -1091,6 +1094,9 @@ def parseFabricCSV(fileName: str) -> Fabric:
             max_frames_per_col=maxFramesPerCol,
         )
 
+    # TODO: Fabric.__post_init__ recomputes commonWirePair from the tile ports
+    # (with an exact NULL check, not this substring one). Both go away once the
+    # inter-tile wire is a pin-level edge instead of name pairs.
     common_wire_pair = list(dict.fromkeys(common_wire_pair))
     common_wire_pair = [
         (i, j) for (i, j) in common_wire_pair if "NULL" not in i and "NULL" not in j

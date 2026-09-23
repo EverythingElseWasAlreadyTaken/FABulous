@@ -30,6 +30,7 @@ from fabulous.fabric_definition.configmem import (
 )
 from fabulous.fabric_definition.define import IO, ConfigBitMode, Direction
 from fabulous.fabric_definition.fabric import Fabric
+from fabulous.fabric_definition.port import BelConfigPort, BelPort
 from fabulous.fabric_definition.switch_matrix import (
     SwitchMatrix,
     switch_matrix_ports,
@@ -354,16 +355,9 @@ def _build_fabric(
         prefix="",
         module_name="LUTA",
         # Matrix rows (mux outputs) are BEL inputs, columns are BEL outputs.
-        internal=[(s, IO.INPUT) for s in _SOURCES] + [(d, IO.OUTPUT) for d in _DESTS],
-        external=[],
-        configPort=[],
-        sharedPort=[],
-        configBit=4,
-        belMap=feature_map,
-        userCLK=False,
-        ports_vectors={},
-        carry={},
-        localShared={},
+        ports=[BelPort(s, IO.INPUT, 1) for s in _SOURCES]
+        + [BelPort(d, IO.OUTPUT, 1) for d in _DESTS],
+        config_port=BelConfigPort("ConfigBits", IO.INPUT, 4, bel_map=feature_map),
     )
 
     tile = Tile(
@@ -376,7 +370,6 @@ def _build_fabric(
         ),
         config_mem=empty_config_mem(Path("ConfigMem.csv")),
         gen_ios=[],
-        userCLK=False,
     )
     tile.wireList = wires
 

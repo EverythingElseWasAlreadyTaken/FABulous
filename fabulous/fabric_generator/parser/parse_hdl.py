@@ -8,7 +8,8 @@ from fabulous.custom_exception import (
     InvalidBelDefinition,
 )
 from fabulous.fabric_definition.bel import Bel
-from fabulous.fabric_definition.define import IO, FABulousAttribute
+from fabulous.fabric_definition.define import IO, BelPortKind, FABulousAttribute
+from fabulous.fabric_definition.port import BelConfigPort, BelPort
 from fabulous.fabric_definition.yosys_obj import YosysJson, YosysModule
 
 
@@ -113,7 +114,7 @@ def parseBelFile(
     * **EXTERNAL**
     * **SHARED_PORT**
     * **GLOBAL**
-    * **CONFIG_PORT**
+    * **CONFIG**
     * **SHARED_ENABLE**
     * **SHARED_RESET**
 
@@ -148,7 +149,9 @@ def parseBelFile(
     **GLOBAL** attribute will notify FABulous to stop parsing any pin after this
     attribute.
 
-    **CONFIG_PORT** attribute will notify FABulous the port is for configuration.
+    **CONFIG** attribute marks the BEL's configuration port. A port named
+    ``ConfigBits`` is the configuration port without it. A BEL has at most one.
+    The legacy spelling **CONFIG_PORT** is accepted as well.
 
     Example
     -------
@@ -191,28 +194,14 @@ def parseBelFile(
         Fabric cannot be parsed
     InvalidBelDefinition
         The BEL file contains invalid BEL definitions. Such as wrong attribute type on
-        wrong port type. i.e SHARE_EN on output ports
+        wrong port type. i.e SHARE_EN on output ports, or more than one
+        configuration port.
     ValueError
         - If CARRY port prefix is not a string
         - Port naming is reused
     """
-    internal: list[tuple[str, IO]] = []
-    external: list[tuple[str, IO]] = []
-    config: list[tuple[str, IO]] = []
-    shared: list[tuple[str, IO]] = []
-    localSharedPorts: dict[str, tuple[str, IO]] = {}
-    belMapDic = {}
+    ports: list[BelPort] = []
     carry: dict[str, dict[IO, str]] = {}
-    carryPrefix: str = ""
-    userClk = False
-    noConfigBits = 0
-    belMapDic = {}
-    ports_vectors: dict[str, dict[str, tuple[IO, int]]] = {}
-    # define port types
-    ports_vectors["internal"] = {}
-    ports_vectors["external"] = {}
-    ports_vectors["config"] = {}
-    ports_vectors["shared"] = {}
 
     yosys_json = YosysJson(filename)
     filtered_ports: dict[str, tuple[IO, list]] = {}
@@ -220,96 +209,91 @@ def parseBelFile(
     if len(yosys_json.modules) == 0:
         raise FabricParsingError(f"File {filename} does not contain any modules.")
 
-    # Gathers port name and direction, filters out configbits as they show in ports.
+    # Gathers port name and direction, separating out the configuration port.
     # modules should only contain one module
     module_name, module_info = yosys_json.getTopModule()
+    configPort: tuple[str, IO, int] | None = None
     for port_name, details in module_info.ports.items():
-        if "ConfigBits" in port_name:
-            continue
-        if "UserCLK" in port_name:
-            userClk = True
         direction = IO[details.direction.upper()]
+        attributes = module_info.netnames[port_name].attributes
+        if (
+            port_name == "ConfigBits"
+            or FABulousAttribute.CONFIG in attributes
+            or FABulousAttribute.CONFIG_PORT in attributes
+        ):
+            if configPort is not None:
+                raise InvalidBelDefinition(
+                    f"BEL {filename} has more than one configuration port: "
+                    f"{configPort[0]} and {port_name}."
+                )
+            configPort = (port_name, direction, len(details.bits))
+            continue
         filtered_ports[port_name] = (direction, details.bits)
 
-    configBitsPort = module_info.ports.get("ConfigBits")
-    noConfigBits = 0
-    if configBitsPort:
-        noConfigBits = len(configBitsPort.bits)
+    noConfigBits = 0 if configPort is None else configPort[2]
     # Passed attributes dont show in port list, checks for attributes in netnames.
     # (If passed attributes missing, may need to expand to check other lists
     # e.g "memories".)
     for portName, (direction, bits) in filtered_ports.items():
         attributes = module_info.netnames[portName].attributes
-        # Unrolled Ports
-        for index in range(len(bits)):
-            new_port_name = (
-                f"{portName}{index}" if len(bits) > 1 else portName
-            )  # Multi-bit ports get index
-            if (
-                FABulousAttribute.EXTERNAL in attributes
-                and FABulousAttribute.SHARED_PORT not in attributes
-            ):
-                external.append((f"{belPrefix}{new_port_name}", direction))
-            elif FABulousAttribute.CONFIG_BIT in attributes:
-                config.append((f"{belPrefix}{new_port_name}", direction))
-            elif FABulousAttribute.SHARED_PORT in attributes:
-                shared.append((new_port_name, direction))
-            else:
-                internal.append((f"{belPrefix}{new_port_name}", direction))
-
-            if "SHARED_ENABLE" in attributes or "SHARED_RESET" in attributes:
-                if direction is not IO["INPUT"]:
-                    raise InvalidBelDefinition(
-                        "SHARED_ENABLE or SHARED_RESET can only be used with "
-                        "INPUT ports."
-                    )
-                if "SHARED_ENABLE" in attributes:
-                    localSharedPorts["ENABLE"] = (
-                        f"{belPrefix}{new_port_name}",
-                        direction,
-                    )
-                elif "SHARED_RESET" in attributes:
-                    localSharedPorts["RESET"] = (
-                        f"{belPrefix}{new_port_name}",
-                        direction,
-                    )
-
-            if "CARRY" in attributes:
-                # For prefix after carry
-                carryPrefix = attributes.get("CARRY")
-                if carryPrefix == 1:
-                    # Default carry prefix, yosys uses 1 if no value is specified
-                    carryPrefix = "FABulous_default"
-                if type(carryPrefix) is not str:
-                    raise ValueError(
-                        f"CARRY prefix attribute value must be a string for port "
-                        f"{new_port_name} in BEL {filename}!"
-                    )
-                if direction is IO["INOUT"]:
-                    raise ValueError(
-                        f"CARRY can't be used with INOUT ports for port "
-                        f"{new_port_name}!"
-                    )
-                if carryPrefix not in carry:
-                    carry[carryPrefix] = {}
-                if direction not in carry[carryPrefix]:
-                    carry[carryPrefix][direction] = f"{belPrefix}{new_port_name}"
-                else:
-                    raise ValueError(
-                        f"Port {portName} with prefix {carryPrefix} can't be a "
-                        f"carry {direction}, since port "
-                        f"{carry[carryPrefix][direction]} already is!"
-                    )
-
-        # Port vectors:
-        if "EXTERNAL" in attributes and "SHARED_PORT" not in attributes:
-            ports_vectors["external"][portName] = (direction, len(bits))
-        elif "CONFIG" in attributes:
-            ports_vectors["config"][portName] = (direction, len(bits))
-        elif "SHARED_PORT" in attributes:
-            ports_vectors["shared"][portName] = (direction, len(bits))
+        if (
+            FABulousAttribute.EXTERNAL in attributes
+            and FABulousAttribute.SHARED_PORT not in attributes
+        ):
+            kind = BelPortKind.EXTERNAL
+        elif FABulousAttribute.SHARED_PORT in attributes:
+            kind = BelPortKind.SHARED
         else:
-            ports_vectors["internal"][portName] = (direction, len(bits))
+            kind = BelPortKind.INTERNAL
+
+        localShared: str | None = None
+        if "SHARED_ENABLE" in attributes or "SHARED_RESET" in attributes:
+            if direction is not IO["INPUT"]:
+                raise InvalidBelDefinition(
+                    "SHARED_ENABLE or SHARED_RESET can only be used with INPUT ports."
+                )
+            localShared = "ENABLE" if "SHARED_ENABLE" in attributes else "RESET"
+
+        carryPrefix: str | None = None
+        if "CARRY" in attributes:
+            # For prefix after carry
+            carryPrefix = attributes.get("CARRY")
+            if carryPrefix == 1:
+                # Default carry prefix, yosys uses 1 if no value is specified
+                carryPrefix = "FABulous_default"
+            if type(carryPrefix) is not str:
+                raise ValueError(
+                    f"CARRY prefix attribute value must be a string for port "
+                    f"{portName} in BEL {filename}!"
+                )
+            if direction is IO["INOUT"]:
+                raise ValueError(
+                    f"CARRY can't be used with INOUT ports for port {portName}!"
+                )
+            if len(bits) > 1:
+                raise ValueError(
+                    f"CARRY port {portName} must be a single bit, got {len(bits)} bits!"
+                )
+            if direction in carry.setdefault(carryPrefix, {}):
+                raise ValueError(
+                    f"Port {portName} with prefix {carryPrefix} can't be a "
+                    f"carry {direction}, since port "
+                    f"{carry[carryPrefix][direction]} already is!"
+                )
+            carry[carryPrefix][direction] = portName
+
+        ports.append(
+            BelPort(
+                portName,
+                direction,
+                len(bits),
+                kind=kind,
+                prefix="" if kind == BelPortKind.SHARED else belPrefix,
+                carry=carryPrefix,
+                local_shared=localShared,
+                is_clock="UserCLK" in portName,
+            )
+        )
 
     belMapDic = belMapProcessing(module_info)
     if len(belMapDic) != noConfigBits:
@@ -323,14 +307,8 @@ def parseBelFile(
         src=filename,
         prefix=belPrefix,
         module_name=module_name,
-        internal=internal,
-        external=external,
-        configPort=config,
-        sharedPort=shared,
-        configBit=noConfigBits,
-        belMap=belMapDic,
-        userCLK=userClk,
-        ports_vectors=ports_vectors,
-        carry=carry,
-        localShared=localSharedPorts,
+        ports=ports,
+        config_port=None
+        if configPort is None
+        else BelConfigPort(*configPort, bel_map=belMapDic),
     )

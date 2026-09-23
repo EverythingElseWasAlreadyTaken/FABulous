@@ -9,7 +9,7 @@ interfaces.
 import re
 from pathlib import Path
 
-from fabulous.fabric_definition.define import IO
+from fabulous.fabric_definition.define import IO, BelPortKind
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_generator.code_generator.code_generator import CodeGenerator
 from fabulous.fabric_generator.code_generator.code_generator_Verilog import (
@@ -101,17 +101,17 @@ def generateTopWrapper(writer: CodeGenerator, fabric: Fabric) -> None:
         for x, tile in enumerate(row):
             if tile is not None:
                 for bel in tile.bels:
-                    for i in bel.externalInput:
+                    for i in bel.pin_names(BelPortKind.EXTERNAL, IO.INPUT):
                         externalPorts.append((IO.INPUT, f"Tile_X{x}Y{y}_{i}"))
-                    for i in bel.externalOutput:
+                    for i in bel.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT):
                         externalPorts.append((IO.OUTPUT, f"Tile_X{x}Y{y}_{i}"))
     # supertile-level BEL external ports, named at the wrapper anchor so they
     # match the eFPGA module's top-level ports.
     for ax, ay, superTile in iter_super_tile_anchors(fabric):
         for bel in superTile.bels:
-            for i in bel.externalInput:
+            for i in bel.pin_names(BelPortKind.EXTERNAL, IO.INPUT):
                 externalPorts.append((IO.INPUT, f"Tile_X{ax}Y{ay}_{i}"))
-            for i in bel.externalOutput:
+            for i in bel.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT):
                 externalPorts.append((IO.OUTPUT, f"Tile_X{ax}Y{ay}_{i}"))
     for iodir, name in externalPorts:
         _yx, _indices, port = split_port(name)

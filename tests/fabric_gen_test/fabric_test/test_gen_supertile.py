@@ -35,11 +35,12 @@ from fabulous.fabric_definition.configmem import empty_config_mem
 from fabulous.fabric_definition.define import (
     IO,
     USER_CLK_PREDECESSOR,
+    BelPortKind,
     ConfigBitMode,
     Direction,
     Side,
 )
-from fabulous.fabric_definition.port import TilePort
+from fabulous.fabric_definition.port import BelPort, TilePort
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
@@ -107,8 +108,12 @@ def _tile_stub(tile: Tile) -> str:
         direction = "input" if p.io_direction == IO.INPUT else "output"
         decls.append(f"    {direction} [{width}:0] {p.name}")
     for bel in tile.bels:
-        decls += [f"    input {p}" for p in bel.externalInput]
-        decls += [f"    output {p}" for p in bel.externalOutput]
+        decls += [
+            f"    input {p}" for p in bel.pin_names(BelPortKind.EXTERNAL, IO.INPUT)
+        ]
+        decls += [
+            f"    output {p}" for p in bel.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT)
+        ]
     decls += [
         "    input  UserCLK",
         "    output UserCLKo",
@@ -341,16 +346,10 @@ class TestBelExternalPorts:
             src=Path("MyBel.v"),
             prefix="",
             module_name="MyBel",
-            internal=[],
-            external=[("io_in", IO.INPUT), ("io_out", IO.OUTPUT)],
-            configPort=[],
-            sharedPort=[],
-            configBit=0,
-            belMap={},
-            userCLK=False,
-            ports_vectors={},
-            carry={},
-            localShared={},
+            ports=[
+                BelPort("io_in", IO.INPUT, 1, kind=BelPortKind.EXTERNAL),
+                BelPort("io_out", IO.OUTPUT, 1, kind=BelPortKind.EXTERNAL),
+            ],
         )
         tile = Tile(
             name="BelTile",
@@ -360,7 +359,6 @@ class TestBelExternalPorts:
             switch_matrix=SwitchMatrix(matrix_file=Path(), ports=(), connections={}),
             config_mem=empty_config_mem(Path("ConfigMem.csv")),
             gen_ios=[],
-            userCLK=False,
         )
         net = supertile_netlist([[tile]])
 
@@ -396,7 +394,6 @@ class TestInterTileRouting:
             switch_matrix=SwitchMatrix(matrix_file=Path(), ports=(), connections={}),
             config_mem=empty_config_mem(Path("ConfigMem.csv")),
             gen_ios=[],
-            userCLK=False,
         )
         right = Tile(
             name="Right",
@@ -418,7 +415,6 @@ class TestInterTileRouting:
             switch_matrix=SwitchMatrix(matrix_file=Path(), ports=(), connections={}),
             config_mem=empty_config_mem(Path("ConfigMem.csv")),
             gen_ios=[],
-            userCLK=False,
         )
         net = supertile_netlist([[left, right]])
 

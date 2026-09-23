@@ -6,7 +6,7 @@ from typing import Self
 
 import yaml
 
-from fabulous.fabric_definition.define import PinSortMode, Side
+from fabulous.fabric_definition.define import IO, BelPortKind, PinSortMode, Side
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
@@ -105,7 +105,9 @@ def _serialize_tile_ports(
     # Place BEL external ports on the specified side
     for bel in tile.bels:
         pin_regexes = [
-            f"{prefix}{name}" for name in bel.externalInput + bel.externalOutput
+            f"{prefix}{name}"
+            for name in bel.pin_names(BelPortKind.EXTERNAL, IO.INPUT)
+            + bel.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT)
         ]
         if pin_regexes:
             port_dict[external_port_side.name].append(
@@ -203,7 +205,9 @@ def _serialize_supertile_ports(
         if tile.bels:
             for bel in tile.bels:
                 pin_regexes = [
-                    f"{prefix}{name}" for name in bel.externalInput + bel.externalOutput
+                    f"{prefix}{name}"
+                    for name in bel.pin_names(BelPortKind.EXTERNAL, IO.INPUT)
+                    + bel.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT)
                 ]
                 if pin_regexes:
                     if external_port_sides and (int(x), int(y)) in external_port_sides:
@@ -225,7 +229,8 @@ def _serialize_supertile_ports(
         st_pin_regexes = [
             name
             for bel in super_tile.bels
-            for name in bel.externalInput + bel.externalOutput
+            for name in bel.pin_names(BelPortKind.EXTERNAL, IO.INPUT)
+            + bel.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT)
         ]
         mx, my = super_tile.get_master_tile_coords()
         master_key = f"X{mx}Y{my}"

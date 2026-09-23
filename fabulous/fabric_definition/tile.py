@@ -55,7 +55,7 @@ class Tile:
     name : str
         The name of the tile
     ports : list[TilePort]
-        List of ports for the tile
+        List of ports for the tile. Each port is attached to this tile.
     bels : list[Bel]
         List of Basic Elements of Logic (BELs) in the tile
     tileDir : Path
@@ -68,8 +68,6 @@ class Tile:
         read or generated, and never does on a FLIPFLOP_CHAIN fabric.
     gen_ios : list[Gen_IO]
         List of general I/O components
-    userCLK : bool
-        True if the tile uses a clk signal
     pinOrderConfig : dict[Side, PinOrderConfig] | None, optional
         Configuration for pin ordering on each side of the tile. If None, defaults to
         BUS_MAJOR sorting on all sides.
@@ -93,8 +91,6 @@ class Tile:
         The tile's configuration memory
     gen_ios : list[Gen_IO]
         The list of GEN_IOs of the tile
-    withUserCLK : bool
-        Whether the tile has a userCLK port. Default is False.
     wireList : list[Wire]
         The list of wires of the tile
     tileDir : Path
@@ -112,7 +108,6 @@ class Tile:
     switch_matrix: SwitchMatrix
     config_mem: ConfigMem
     gen_ios: list[Gen_IO]
-    withUserCLK: bool = False
     wireList: list[Wire] = field(default_factory=list)
     tileDir: Path = Path()
     partOfSuperTile: bool = False
@@ -127,17 +122,17 @@ class Tile:
         switch_matrix: SwitchMatrix,
         config_mem: ConfigMem,
         gen_ios: list[Gen_IO],
-        userCLK: bool,
         pinOrderConfig: dict[Side, "PinOrderConfig"] | None = None,
         jump_wires: list[JumpWire] | None = None,
     ) -> None:
         self.name = name
         self.portsInfo = ports
+        for port in ports:
+            port.tile = self
         self.jump_wires = jump_wires or []
         self.bels = bels
         self.gen_ios = gen_ios
         self.switch_matrix = switch_matrix
-        self.withUserCLK = userCLK
         self.wireList = []
         self.tileDir = tileDir
         self.config_mem = config_mem
@@ -173,19 +168,20 @@ class Tile:
             return False
         return self.name == __o.name
 
+    @property
+    def withUserCLK(self) -> bool:
+        """Whether any BEL of the tile uses the user clock."""
+        return any(bel.withUserCLK for bel in self.bels)
+
     def getWestSidePorts(self) -> list[TilePort]:
         """Get all ports physically located on the west side of the tile.
 
         Returns
         -------
         list[TilePort]
-            List of ports on the west side, excluding NULL ports.
+            List of ports on the west side.
         """
-        return [
-            p
-            for p in self.portsInfo
-            if p.side_of_tile == Side.WEST and not p.name_is_null
-        ]
+        return [p for p in self.portsInfo if p.side_of_tile == Side.WEST]
 
     def getEastSidePorts(self) -> list[TilePort]:
         """Get all ports physically located on the east side of the tile.
@@ -193,13 +189,9 @@ class Tile:
         Returns
         -------
         list[TilePort]
-            List of ports on the east side, excluding NULL ports.
+            List of ports on the east side.
         """
-        return [
-            p
-            for p in self.portsInfo
-            if p.side_of_tile == Side.EAST and not p.name_is_null
-        ]
+        return [p for p in self.portsInfo if p.side_of_tile == Side.EAST]
 
     def getNorthSidePorts(self) -> list[TilePort]:
         """Get all ports physically located on the north side of the tile.
@@ -207,13 +199,9 @@ class Tile:
         Returns
         -------
         list[TilePort]
-            List of ports on the north side, excluding NULL ports.
+            List of ports on the north side.
         """
-        return [
-            p
-            for p in self.portsInfo
-            if p.side_of_tile == Side.NORTH and not p.name_is_null
-        ]
+        return [p for p in self.portsInfo if p.side_of_tile == Side.NORTH]
 
     def getSouthSidePorts(self) -> list[TilePort]:
         """Get all ports physically located on the south side of the tile.
@@ -221,13 +209,9 @@ class Tile:
         Returns
         -------
         list[TilePort]
-            List of ports on the south side, excluding NULL ports.
+            List of ports on the south side.
         """
-        return [
-            p
-            for p in self.portsInfo
-            if p.side_of_tile == Side.SOUTH and not p.name_is_null
-        ]
+        return [p for p in self.portsInfo if p.side_of_tile == Side.SOUTH]
 
     def getNorthPorts(self, io: IO) -> list[TilePort]:
         """Get all ports with north wire direction filtered by I/O type.
@@ -240,14 +224,12 @@ class Tile:
         Returns
         -------
         list[TilePort]
-            List of north-direction ports with specified I/O type, excluding NULL ports.
+            List of north-direction ports with specified I/O type.
         """
         return [
             p
             for p in self.portsInfo
-            if p.wire_direction == Direction.NORTH
-            and not p.name_is_null
-            and p.io_direction == io
+            if p.wire_direction == Direction.NORTH and p.io_direction == io
         ]
 
     def getSouthPorts(self, io: IO) -> list[TilePort]:
@@ -261,14 +243,12 @@ class Tile:
         Returns
         -------
         list[TilePort]
-            List of south-direction ports with specified I/O type, excluding NULL ports.
+            List of south-direction ports with specified I/O type.
         """
         return [
             p
             for p in self.portsInfo
-            if p.wire_direction == Direction.SOUTH
-            and not p.name_is_null
-            and p.io_direction == io
+            if p.wire_direction == Direction.SOUTH and p.io_direction == io
         ]
 
     def getEastPorts(self, io: IO) -> list[TilePort]:
@@ -282,14 +262,12 @@ class Tile:
         Returns
         -------
         list[TilePort]
-            List of east-direction ports with specified I/O type, excluding NULL ports.
+            List of east-direction ports with specified I/O type.
         """
         return [
             p
             for p in self.portsInfo
-            if p.wire_direction == Direction.EAST
-            and not p.name_is_null
-            and p.io_direction == io
+            if p.wire_direction == Direction.EAST and p.io_direction == io
         ]
 
     def getWestPorts(self, io: IO) -> list[TilePort]:
@@ -303,14 +281,12 @@ class Tile:
         Returns
         -------
         list[TilePort]
-            List of west-direction ports with specified I/O type, excluding NULL ports.
+            List of west-direction ports with specified I/O type.
         """
         return [
             p
             for p in self.portsInfo
-            if p.wire_direction == Direction.WEST
-            and not p.name_is_null
-            and p.io_direction == io
+            if p.wire_direction == Direction.WEST and p.io_direction == io
         ]
 
     def get_sjump_ports(self) -> list[TilePort]:
@@ -324,13 +300,9 @@ class Tile:
         Returns
         -------
         list[TilePort]
-            List of SJUMP-direction ports, excluding NULL ports.
+            List of SJUMP-direction ports.
         """
-        return [
-            p
-            for p in self.portsInfo
-            if p.wire_direction == Direction.SJUMP and not p.name_is_null
-        ]
+        return [p for p in self.portsInfo if p.wire_direction == Direction.SJUMP]
 
     def getTileInputNames(self) -> list[str]:
         """Get all input port destination names for the tile.
@@ -338,13 +310,13 @@ class Tile:
         Returns
         -------
         list[str]
-            List of destination names for input ports, excluding NULL, JUMP,
+            List of destination names for input ports, excluding JUMP,
             and SJUMP direction ports.
         """
         return [
             p.destination_name
             for p in self.portsInfo
-            if p.destination_name != "NULL"
+            if p.has_destination
             and p.wire_direction not in (Direction.JUMP, Direction.SJUMP)
             and p.is_input
         ]
@@ -355,13 +327,13 @@ class Tile:
         Returns
         -------
         list[str]
-            List of source names for output ports, excluding NULL, JUMP, and
+            List of source names for output ports, excluding JUMP, and
             SJUMP direction ports.
         """
         return [
             p.source_name
             for p in self.portsInfo
-            if p.source_name != "NULL"
+            if p.has_source
             and p.wire_direction not in (Direction.JUMP, Direction.SJUMP)
             and p.is_output
         ]
@@ -409,17 +381,7 @@ class Tile:
         int
             Total number of expanded ports on the given side.
         """
-        total = 0
-        for p in self.portsInfo:
-            if p.side_of_tile != side or p.name_is_null:
-                continue
-            inputs, outputs = p.expand_port_info("all")
-            if p.name == p.source_name:
-                total += len(inputs)
-            elif p.name == p.destination_name:
-                total += len(outputs)
-
-        return total
+        return sum(p.width for p in self.portsInfo if p.side_of_tile == side)
 
     def get_min_die_area(
         self,

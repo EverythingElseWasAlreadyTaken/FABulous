@@ -362,7 +362,6 @@ def _make_tile(name: str) -> Tile:
         switch_matrix=SwitchMatrix(matrix_file=Path(), ports=(), connections={}),
         config_mem=empty_config_mem(Path("ConfigMem.csv")),
         gen_ios=[],
-        userCLK=False,
     )
 
 
