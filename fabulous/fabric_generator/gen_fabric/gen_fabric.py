@@ -215,7 +215,7 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
                     wireLength = (abs(p.x_offset) + abs(p.y_offset)) * p.wire_count - 1
                     # SJUMP ports route to the supertile wrapper, so they need no
                     # tile-to-tile fabric wire.
-                    if p.source_name == "NULL" or p.wire_direction == Direction.SJUMP:
+                    if not p.has_source or p.wire_direction == Direction.SJUMP:
                         continue
                     if p.source_name in seenPorts:
                         continue
@@ -339,7 +339,7 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
                 for (i, j), around in cord:
                     for ports in around:
                         for port in ports:
-                            if port.is_output and port.name != "NULL":
+                            if port.is_output:
                                 portsPairs.append(
                                     (
                                         f"Tile_X{int(i)}Y{int(j)}_{port.name}",

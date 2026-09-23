@@ -64,14 +64,6 @@ class TestPort:
         assert port.is_output is is_output
         assert port.is_inout is is_inout
 
-    @pytest.mark.parametrize(
-        ("name", "expected"), [("NULL", True), ("N1BEG", False), ("null", False)]
-    )
-    def test_name_is_null(self, name: str, expected: bool) -> None:
-        """Only the exact NULL placeholder name marks an unconnected wire end."""
-        port = Port(name=name, io_direction=IO.INPUT, width=1)
-        assert port.name_is_null is expected
-
     def test_expand_single_bit(self) -> None:
         """A width-1 port expands to a single bare name."""
         assert Port(name="x", io_direction=IO.INPUT, width=1).expand() == ["x"]
@@ -365,6 +357,23 @@ class TestTilePortPins:
         assert port.expand_port_info_by_name_top(indexed=True, escape=True) == [
             rf"{port.name}\[{i}\]" for i in top
         ]
+
+    @pytest.mark.parametrize(
+        ("source", "destination", "has_source", "has_destination"),
+        [
+            ("NBEG", "NEND", True, True),
+            ("NBEG", "NULL", True, False),
+            ("NULL", "NEND", False, True),
+        ],
+    )
+    def test_termination_predicates(
+        self, source: str, destination: str, has_source: bool, has_destination: bool
+    ) -> None:
+        """Each wire end is named or NULL independently of the other."""
+        port = make_wire_port(2, 0, 2, source, destination)
+        assert port.has_source is has_source
+        assert port.has_destination is has_destination
+        assert port.is_null_terminated is not (has_source and has_destination)
 
     def test_sjump_exposes_all_pins(self) -> None:
         """An SJUMP port has zero offset and is fully visible on both sides."""

@@ -96,9 +96,7 @@ class TestTileGetSJumpPorts:
             destination_name="N1END",
             wire_count=4,
         )
-        null_sjump = sjump_port("NULL", IO.OUTPUT)
-
-        tile = _tile("DSP_bot", [sjump_out, jump, normal, sjump_in, null_sjump])
+        tile = _tile("DSP_bot", [sjump_out, jump, normal, sjump_in])
 
         assert tile.get_sjump_ports() == [sjump_out, sjump_in]
 

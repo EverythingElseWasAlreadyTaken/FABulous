@@ -52,11 +52,26 @@ class TestDirectionalPorts:
             assert port.y_offset == -2
             assert port.wire_count == 8
 
-    def test_null_destination_keeps_name_and_pairs(self) -> None:
-        ports, _, commonWirePair = parse_port_line("SOUTH,S4BEG,0,4,NULL,4")
+    @pytest.mark.parametrize(
+        ("line", "name", "io", "pair"),
+        [
+            ("SOUTH,S4BEG,0,4,NULL,4", "S4BEG", IO.OUTPUT, ("S4BEG", "NULL")),
+            ("NORTH,NULL,0,-4,N4END,4", "N4END", IO.INPUT, ("NULL", "N4END")),
+        ],
+    )
+    def test_null_end_declares_no_port(
+        self, line: str, name: str, io: IO, pair: tuple[str, str]
+    ) -> None:
+        """A NULL end is the far side of the wire, not an interface of the tile."""
+        ports, _, commonWirePair = parse_port_line(line)
 
-        assert ports[1].name == "NULL"
-        assert commonWirePair == ("S4BEG", "NULL")
+        assert [(p.name, p.io_direction) for p in ports] == [(name, io)]
+        assert commonWirePair == pair
+
+    def test_both_ends_null_is_an_error(self) -> None:
+        """A line with no named end declares neither a port nor a wire."""
+        with pytest.raises(InvalidPortType, match="both NULL"):
+            parse_port_line("SOUTH,NULL,0,4,NULL,4")
 
 
 class TestJumpPorts:

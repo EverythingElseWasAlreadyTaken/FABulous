@@ -123,35 +123,45 @@ def parse_port_line(
         Direction.SOUTH,
         Direction.WEST,
     ):
-        # Output port (source side)
-        ports.append(
-            TilePort(
-                name=source_name,
-                io_direction=IO.OUTPUT,
-                side_of_tile=Side[port_type],
-                wire_direction=wire_direction,
-                source_name=source_name,
-                x_offset=x_offset,
-                y_offset=y_offset,
-                destination_name=destination_name,
-                wire_count=wire_count,
+        # A NULL end is the far side of the routing relation, not an interface
+        # of this tile, so the line declares one port per *named* end.
+        if source_name == NULL_PORT_NAME and destination_name == NULL_PORT_NAME:
+            raise InvalidPortType(
+                f"Invalid port line '{line.strip()}': source and destination are "
+                "both NULL, so the line declares neither a tile port nor a wire."
             )
-        )
+
+        # Output port (source side)
+        if source_name != NULL_PORT_NAME:
+            ports.append(
+                TilePort(
+                    name=source_name,
+                    io_direction=IO.OUTPUT,
+                    side_of_tile=Side[port_type],
+                    wire_direction=wire_direction,
+                    source_name=source_name,
+                    x_offset=x_offset,
+                    y_offset=y_offset,
+                    destination_name=destination_name,
+                    wire_count=wire_count,
+                )
+            )
 
         # Input port (destination side)
-        ports.append(
-            TilePort(
-                name=destination_name,
-                io_direction=IO.INPUT,
-                side_of_tile=Side[port_type].opposite,
-                wire_direction=wire_direction,
-                source_name=source_name,
-                x_offset=x_offset,
-                y_offset=y_offset,
-                destination_name=destination_name,
-                wire_count=wire_count,
+        if destination_name != NULL_PORT_NAME:
+            ports.append(
+                TilePort(
+                    name=destination_name,
+                    io_direction=IO.INPUT,
+                    side_of_tile=Side[port_type].opposite,
+                    wire_direction=wire_direction,
+                    source_name=source_name,
+                    x_offset=x_offset,
+                    y_offset=y_offset,
+                    destination_name=destination_name,
+                    wire_count=wire_count,
+                )
             )
-        )
         common_wire_pair = (f"{source_name}", f"{destination_name}")
 
     elif wire_direction is Direction.JUMP:

@@ -170,15 +170,6 @@ class Port:
         return self._io_direction == IO.INOUT
 
     @property
-    def name_is_null(self) -> bool:
-        """Whether the port name is the NULL placeholder.
-
-        Only the port's own name is considered. A wire's `source_name` and
-        `destination_name` are NULL independently of it and of each other.
-        """
-        return self._name == NULL_PORT_NAME
-
-    @property
     def is_clock(self) -> bool:
         """Whether the port carries a clock."""
         return self._is_clock
@@ -427,11 +418,26 @@ class TilePort(Port):
         }
 
     @property
-    def _is_null_terminated(self) -> bool:
-        return (
-            self.source_name == NULL_PORT_NAME
-            or self.destination_name == NULL_PORT_NAME
-        )
+    def has_source(self) -> bool:
+        """Whether the wire this port belongs to starts at a named port.
+
+        A CSV line may write either end as NULL to declare a wire that is
+        driven or read nowhere; this asks about the driving end.
+        """
+        return self.source_name != NULL_PORT_NAME
+
+    @property
+    def has_destination(self) -> bool:
+        """Whether the wire this port belongs to ends at a named port.
+
+        The mirror image of `has_source`, asking about the receiving end.
+        """
+        return self.destination_name != NULL_PORT_NAME
+
+    @property
+    def is_null_terminated(self) -> bool:
+        """Whether either end of this port's wire is the NULL placeholder."""
+        return not (self.has_source and self.has_destination)
 
     @property
     def _spanned_pins(self) -> tuple[Pin, ...]:
@@ -445,15 +451,12 @@ class TilePort(Port):
     def sm_pins(self) -> tuple[Pin, ...]:
         """The pins that face the switch matrix.
 
-        The NULL placeholder port of a one-sided wire has none. A
-        NULL-terminated spanning wire has no partner tile to hand the wire on
-        to, so every hop's slice is driven or read locally. A named wire only
-        exposes its first `wire_count` bits; the remaining slices pass through
-        the tile untouched.
+        A NULL-terminated spanning wire has no partner tile to hand the wire
+        on to, so every hop's slice is driven or read locally. A named wire
+        only exposes its first `wire_count` bits; the remaining slices pass
+        through the tile untouched.
         """
-        if self.name_is_null:
-            return ()
-        if self._is_null_terminated and self.wire_direction != Direction.SJUMP:
+        if self.is_null_terminated and self.wire_direction != Direction.SJUMP:
             return self._spanned_pins
         return self.pins[: self.wire_count]
 
@@ -464,11 +467,9 @@ class TilePort(Port):
         The mirror image of `sm_pins`: a named spanning wire hands its last
         `wire_count` bits to the neighbour, everything else stays inside.
         """
-        if self.name_is_null:
-            return ()
         if self.wire_direction == Direction.SJUMP:
             return self.pins
-        if self._is_null_terminated:
+        if self.is_null_terminated:
             return self._spanned_pins
         return self.pins[self.width - self.wire_count :]
 
@@ -501,7 +502,7 @@ class TilePort(Port):
         str
             A regex expression matching the port's wire names.
         """
-        if self.width == 1 and not self.name_is_null:
+        if self.width == 1:
             return f"{prefix}{self.name}"
         if indexed:
             return rf"{prefix}{self.name}\[\d+\]"
@@ -599,7 +600,7 @@ class TilePort(Port):
         elif mode == "AutoSwitchMatrix" or mode == "AutoSwitchMatrixIndexed":
             if self.wire_direction == Direction.SJUMP:
                 thisRange = self.wire_count
-            elif self.source_name == "NULL" or self.destination_name == "NULL":
+            elif self.is_null_terminated:
                 # the following line connects all wires to the switch matrix in the case
                 # one port is NULL (typically termination)
                 thisRange = (abs(self.x_offset) + abs(self.y_offset)) * self.wire_count
@@ -627,7 +628,7 @@ class TilePort(Port):
             ) * self.wire_count
 
         elif mode in ["AutoTop", "AutoTopIndexed"]:
-            if self.source_name == "NULL" or self.destination_name == "NULL":
+            if self.is_null_terminated:
                 # in case one port is NULL, then the all the other port wires get
                 # connected to the switch matrix.
                 startIndex = 0
@@ -640,10 +641,10 @@ class TilePort(Port):
             thisRange = 1
 
         for i in range(startIndex, thisRange):
-            if self.source_name != "NULL":
+            if self.has_source:
                 inputs.append(f"{self.source_name}{openIndex}{str(i)}{closeIndex}")
 
-            if self.destination_name != "NULL":
+            if self.has_destination:
                 outputs.append(
                     f"{self.destination_name}{openIndex}{str(i)}{closeIndex}"
                 )

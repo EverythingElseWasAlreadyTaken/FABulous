@@ -223,8 +223,7 @@ class Fabric:
                     if (
                         abs(port.x_offset) <= 1
                         and abs(port.y_offset) <= 1
-                        and port.source_name != "NULL"
-                        and port.destination_name != "NULL"
+                        and not port.is_null_terminated
                     ):
                         for i in range(port.wire_count):
                             tile.wireList.append(
@@ -238,7 +237,7 @@ class Fabric:
                                     destinationTile="",
                                 )
                             )
-                    elif port.source_name != "NULL" and port.destination_name != "NULL":
+                    elif not port.is_null_terminated:
                         # clamp the x_offset to 1 or -1
                         value = min(max(port.x_offset, -1), 1)
                         cascadedI = 0
@@ -304,7 +303,7 @@ class Fabric:
                                     destinationTile=f"X{x + port.x_offset}Y{y + value}",
                                 )
                             )
-                    elif port.source_name != "NULL" and port.destination_name == "NULL":
+                    elif port.has_source and not port.has_destination:
                         source_name = port.source_name
                         destName = port.source_name
                         # if sourcename is not in a common pair wire we assume

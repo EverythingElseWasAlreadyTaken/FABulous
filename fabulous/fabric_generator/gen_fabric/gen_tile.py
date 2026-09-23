@@ -288,7 +288,7 @@ def generateTile(
         span = abs(port.x_offset) + abs(port.y_offset)
         if (port.source_name, port.destination_name) in added:
             continue
-        if span >= 2 and port.source_name != "NULL" and port.destination_name != "NULL":
+        if span >= 2 and not port.is_null_terminated:
             high_bound_index = span * port.wire_count - 1
             writer.addConnectionVector(f"{port.destination_name}_i", high_bound_index)
             writer.addConnectionVector(
@@ -343,7 +343,7 @@ def generateTile(
         span = abs(port.x_offset) + abs(port.y_offset)
         if (port.source_name, port.destination_name) in added:
             continue
-        if span >= 2 and port.source_name != "NULL" and port.destination_name != "NULL":
+        if span >= 2 and not port.is_null_terminated:
             high_bound_index = span * port.wire_count - 1
             # using scalar assignment to connect the two vectors
             # could replace with assign as vector,

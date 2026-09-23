@@ -59,8 +59,7 @@ def _unconnected_port_diagnostic(ports: list[Port], port_name: str) -> str:
         if port_name not in expanded:
             continue
         distance = abs(port.x_offset) + abs(port.y_offset)
-        isNullTerminated = port.source_name == "NULL" or port.destination_name == "NULL"
-        if not (isNullTerminated and distance > 1):
+        if not (port.is_null_terminated and distance > 1):
             return ""
         return (
             f"\n  '{port_name}' is one of {len(expanded)} nested wires expanded "
