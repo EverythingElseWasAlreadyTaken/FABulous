@@ -488,9 +488,9 @@ def addBelsToPrim(
                 if module_ports["UserCLK"]:
                     module_ports["CLK"] = module_ports["UserCLK"]
                     del module_ports["UserCLK"]
-                # ConfigBits are not needed in the prims file
-                if "ConfigBits" in module_ports:
-                    del module_ports["ConfigBits"]
+                # The config port is not needed in the prims file
+                if bel.config_port is not None:
+                    del module_ports[bel.config_port.name]
 
                 ports_dict = {}
                 for port_name, details in module_ports.items():

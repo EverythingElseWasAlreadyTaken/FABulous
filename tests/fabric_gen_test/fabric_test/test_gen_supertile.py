@@ -345,8 +345,6 @@ class TestBelExternalPorts:
                 BelPort("io_in", IO.INPUT, 1, kind=BelPortKind.EXTERNAL),
                 BelPort("io_out", IO.OUTPUT, 1, kind=BelPortKind.EXTERNAL),
             ],
-            configBit=0,
-            belMap={},
         )
         tile = Tile(
             name="BelTile",

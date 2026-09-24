@@ -26,7 +26,7 @@ from fabulous.fabric_cad.gen_bitstream_spec import (
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import IO, Direction
 from fabulous.fabric_definition.fabric import Fabric
-from fabulous.fabric_definition.port import BelPort
+from fabulous.fabric_definition.port import BelConfigPort, BelPort
 from fabulous.fabric_definition.switch_matrix import (
     SwitchMatrix,
     switch_matrix_ports,
@@ -299,8 +299,7 @@ def _build_fabric(
         # Matrix rows (mux outputs) are BEL inputs, columns are BEL outputs.
         ports=[BelPort(s, IO.INPUT, 1) for s in _SOURCES]
         + [BelPort(d, IO.OUTPUT, 1) for d in _DESTS],
-        configBit=4,
-        belMap=feature_map,
+        config_port=BelConfigPort("ConfigBits", IO.INPUT, 4, bel_map=feature_map),
     )
 
     tile = Tile(

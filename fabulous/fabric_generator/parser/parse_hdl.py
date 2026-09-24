@@ -9,7 +9,7 @@ from fabulous.custom_exception import (
 )
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import IO, BelPortKind, FABulousAttribute
-from fabulous.fabric_definition.port import BelPort
+from fabulous.fabric_definition.port import BelConfigPort, BelPort
 from fabulous.fabric_definition.yosys_obj import YosysJson, YosysModule
 
 
@@ -114,7 +114,7 @@ def parseBelFile(
     * **EXTERNAL**
     * **SHARED_PORT**
     * **GLOBAL**
-    * **CONFIG_PORT**
+    * **CONFIG**
     * **SHARED_ENABLE**
     * **SHARED_RESET**
 
@@ -149,7 +149,9 @@ def parseBelFile(
     **GLOBAL** attribute will notify FABulous to stop parsing any pin after this
     attribute.
 
-    **CONFIG_PORT** attribute will notify FABulous the port is for configuration.
+    **CONFIG** attribute marks the BEL's configuration port. A port named
+    ``ConfigBits`` is the configuration port without it. A BEL has at most one.
+    The legacy spelling **CONFIG_PORT** is accepted as well.
 
     Example
     -------
@@ -192,7 +194,8 @@ def parseBelFile(
         Fabric cannot be parsed
     InvalidBelDefinition
         The BEL file contains invalid BEL definitions. Such as wrong attribute type on
-        wrong port type. i.e SHARE_EN on output ports
+        wrong port type. i.e SHARE_EN on output ports, or more than one
+        configuration port.
     ValueError
         - If CARRY port prefix is not a string
         - Port naming is reused
@@ -206,19 +209,28 @@ def parseBelFile(
     if len(yosys_json.modules) == 0:
         raise FabricParsingError(f"File {filename} does not contain any modules.")
 
-    # Gathers port name and direction, filters out configbits as they show in ports.
+    # Gathers port name and direction, separating out the configuration port.
     # modules should only contain one module
     module_name, module_info = yosys_json.getTopModule()
+    configPort: tuple[str, IO, int] | None = None
     for port_name, details in module_info.ports.items():
-        if "ConfigBits" in port_name:
-            continue
         direction = IO[details.direction.upper()]
+        attributes = module_info.netnames[port_name].attributes
+        if (
+            port_name == "ConfigBits"
+            or FABulousAttribute.CONFIG in attributes
+            or FABulousAttribute.CONFIG_PORT in attributes
+        ):
+            if configPort is not None:
+                raise InvalidBelDefinition(
+                    f"BEL {filename} has more than one configuration port: "
+                    f"{configPort[0]} and {port_name}."
+                )
+            configPort = (port_name, direction, len(details.bits))
+            continue
         filtered_ports[port_name] = (direction, details.bits)
 
-    configBitsPort = module_info.ports.get("ConfigBits")
-    noConfigBits = 0
-    if configBitsPort:
-        noConfigBits = len(configBitsPort.bits)
+    noConfigBits = 0 if configPort is None else configPort[2]
     # Passed attributes dont show in port list, checks for attributes in netnames.
     # (If passed attributes missing, may need to expand to check other lists
     # e.g "memories".)
@@ -229,8 +241,6 @@ def parseBelFile(
             and FABulousAttribute.SHARED_PORT not in attributes
         ):
             kind = BelPortKind.EXTERNAL
-        elif FABulousAttribute.CONFIG_BIT in attributes:
-            kind = BelPortKind.CONFIG
         elif FABulousAttribute.SHARED_PORT in attributes:
             kind = BelPortKind.SHARED
         else:
@@ -298,6 +308,7 @@ def parseBelFile(
         prefix=belPrefix,
         module_name=module_name,
         ports=ports,
-        configBit=noConfigBits,
-        belMap=belMapDic,
+        config_port=None
+        if configPort is None
+        else BelConfigPort(*configPort, bel_map=belMapDic),
     )

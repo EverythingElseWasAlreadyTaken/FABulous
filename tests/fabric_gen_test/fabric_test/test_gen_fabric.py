@@ -14,7 +14,7 @@ from fabulous.fabric_definition.define import (
     Side,
 )
 from fabulous.fabric_definition.fabric import Fabric
-from fabulous.fabric_definition.port import Port
+from fabulous.fabric_definition.port import BelConfigPort, Port
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
@@ -46,7 +46,7 @@ def test_generate_fabric_uses_fabric_name(mocker: MockerFixture) -> None:
     writer.addHeader.assert_called_once_with("test_fabric")
 
 
-def _supertile(tmp_path: Path) -> SuperTile:
+def _supertile(tmp_path: Path, config_port: BelConfigPort | None = None) -> SuperTile:
     """A minimal DSP-like supertile: DSP_top over master DSP_bot, one mux bit."""
     mat = tmp_path / "supertile_matrix.list"
     create_switchmatrix_list(mat, [("{2}SUPER_A0", "[DSP_bot_A0|DSP_bot_A1]")])
@@ -63,7 +63,7 @@ def _supertile(tmp_path: Path) -> SuperTile:
 
     top = mk("DSP_top", [sjump_port("top2bot", IO.OUTPUT)])
     bot = mk("DSP_bot", [sjump_port("A", IO.OUTPUT)])
-    bel = make_muladd_bel([("SUPER_A0", IO.INPUT)])
+    bel = make_muladd_bel([("SUPER_A0", IO.INPUT)], config_port=config_port)
     supertile = SuperTile(
         name="DSP",
         tileDir=tmp_path,
@@ -98,6 +98,22 @@ def test_supertile_configmem_preloaded_from_master_bitstream(
     # Master tile is DSP_bot at local (0, 1) -> Tile_X0Y1.
     assert "`ifdef EMULATION" in block
     assert ".Emulate_Bitstream(Tile_X0Y1_Emulate_Bitstream)" in block
+
+
+def test_supertile_bel_config_port_connected_by_name(
+    tmp_path: Path,
+    code_generator_factory: Callable[[str, str], CodeGenerator],
+) -> None:
+    """A BEL config port is wired under its own name, not a fixed `ConfigBits`."""
+    cfg = BelConfigPort("Cfg", IO.INPUT, 2, bel_map={"INIT": {}, "MODE": {}})
+    writer = code_generator_factory(".v", "DSP")
+    generateSuperTile(writer, _supertile(tmp_path, cfg))
+    rtl = writer.outFileName.read_text()
+
+    inst = re.search(r"MULADD.*?Inst_ST_SUPER_MULADD.*?\);", rtl, re.DOTALL)
+    assert inst is not None, "supertile BEL not instantiated"
+    assert re.search(r"\.Cfg\(ST_ConfigBits\[", inst.group(0))
+    assert ".ConfigBits(" not in inst.group(0)
 
 
 def _stub_entity(path: Path, name: str) -> None:

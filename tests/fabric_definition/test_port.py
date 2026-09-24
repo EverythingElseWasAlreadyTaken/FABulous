@@ -191,10 +191,10 @@ class TestBelPort:
     def test_bel_attaches_its_ports_once(self) -> None:
         """A Bel attaches its ports; a port cannot move to a second BEL."""
         port = BelPort(name="A", io_direction=IO.INPUT, width=1)
-        bel = Bel(Path("LUT.v"), "", "LUT", [port], 0, {})
+        bel = Bel(Path("LUT.v"), "", "LUT", [port])
         assert port.bel is bel
         with pytest.raises(ValueError, match="already belongs"):
-            Bel(Path("LUT.v"), "", "LUT", [port], 0, {})
+            Bel(Path("LUT.v"), "", "LUT", [port])
 
     def test_expand_uses_prefixed_name(self) -> None:
         """Expansion uses the prefixed name."""

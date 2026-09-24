@@ -170,14 +170,16 @@ class FABulousAttribute(StrEnum):
     - SHARED_PORT: Shared port attribute
     - GLOBAL: Global attribute
     - USER_CLK: User clock attribute
-    - CONFIG_BIT: Configuration bit attribute
+    - CONFIG: Marks the BEL's configuration port, when not named `ConfigBits`
+    - CONFIG_PORT: Legacy spelling of CONFIG, still accepted
     """
 
     EXTERNAL = "EXTERNAL"
     SHARED_PORT = "SHARED_PORT"
     GLOBAL = "GLOBAL"
     USER_CLK = "USER_CLK"
-    CONFIG_BIT = "CONFIG_BIT"
+    CONFIG = "CONFIG"
+    CONFIG_PORT = "CONFIG_PORT"
 
 
 class BelPortKind(StrEnum):
@@ -185,13 +187,11 @@ class BelPortKind(StrEnum):
 
     - INTERNAL: Routed through the tile's switch matrix
     - EXTERNAL: Wired out of the tile to the fabric top level
-    - CONFIG: A configuration port
     - SHARED: Shared between BELs, such as the user clock; not BEL-prefixed
     """
 
     INTERNAL = "internal"
     EXTERNAL = "external"
-    CONFIG = "config"
     SHARED = "shared"
 
 

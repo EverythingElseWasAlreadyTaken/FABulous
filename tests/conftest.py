@@ -16,7 +16,7 @@ import fabulous.fabulous_settings
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import IO, Direction, HDLType, Side
 from fabulous.fabric_definition.fabric import Fabric
-from fabulous.fabric_definition.port import BelPort, TilePort
+from fabulous.fabric_definition.port import BelConfigPort, BelPort, TilePort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabulous_repl.fabulous_repl import FABulousREPL
@@ -234,7 +234,12 @@ def make_empty_tile(
     )
 
 
-def make_muladd_bel(internal: list[tuple[str, IO]], *, prefix: str = "SUPER_") -> Bel:
+def make_muladd_bel(
+    internal: list[tuple[str, IO]],
+    *,
+    prefix: str = "SUPER_",
+    config_port: BelConfigPort | None = None,
+) -> Bel:
     """Build a MULADD-style supertile BEL with only single-bit internal ports.
 
     Each `(name, io)` is used verbatim as the pin name, e.g. `("SUPER_A0", IO.INPUT)`.
@@ -244,8 +249,7 @@ def make_muladd_bel(internal: list[tuple[str, IO]], *, prefix: str = "SUPER_") -
         prefix=prefix,
         module_name="MULADD",
         ports=[BelPort(name, io, 1) for name, io in internal],
-        configBit=0,
-        belMap={},
+        config_port=config_port,
     )
 
 

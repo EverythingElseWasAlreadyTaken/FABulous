@@ -65,8 +65,6 @@ def test_belLines_unknown_type_emits_no_timing_arcs() -> None:
                 ("Q", IO.OUTPUT),
             ]
         ],
-        configBit=0,
-        belMap={},
     )
 
     _, _, v3_lines, _ = belLines(bel, "A", 0, 0)

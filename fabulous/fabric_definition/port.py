@@ -7,6 +7,8 @@ in the FPGA fabric:
 - TilePort: Port on a tile with side and termination information
 - SJumpPort: Tile port facing the switch matrix of the surrounding supertile
 - BelPort: Port on a BEL (Basic Element of Logic)
+- ConfigPort: A port carrying configuration bits into a module
+- BelConfigPort: The configuration port of a BEL, with its feature map
 - SwitchMatrixPort: A port of a tile's switch-matrix module
 """
 
@@ -844,6 +846,73 @@ class BelPort(Port):
         }
 
 
+class ConfigPort(Port):
+    """A port that carries configuration bits into a generated module.
+
+    Every configurable module (a BEL, a switch matrix, a tile) receives its
+    configuration through such a port.
+    """
+
+    def __repr__(self) -> str:
+        """Return a string representation of the ConfigPort."""
+        return f"ConfigPort({self.io_direction.value} {self.name}[{self.width - 1}:0])"
+
+
+class BelConfigPort(ConfigPort):
+    """The configuration port of a BEL, with the BEL's feature map.
+
+    The port is `ConfigBits` in the BEL's HDL module, or the port marked with
+    the `CONFIG` attribute. A BEL has at most one.
+
+    Parameters
+    ----------
+    name : str
+        The name of the port in the BEL's HDL module.
+    io_direction : IO
+        The I/O direction.
+    width : int
+        The number of configuration bits.
+    bel_map : dict[str, dict]
+        The BEL's feature map (`BelMap` attribute), in bit order.
+    """
+
+    _bel_map: dict[str, dict]
+    _bel: Bel | None
+
+    def __init__(
+        self, name: str, io_direction: IO, width: int, bel_map: dict[str, dict]
+    ) -> None:
+        super().__init__(name, io_direction, width)
+        self._bel_map = bel_map
+        self._bel = None
+
+    @property
+    def bel_map(self) -> dict[str, dict]:
+        """The BEL's feature map, in bit order."""
+        return self._bel_map
+
+    @property
+    def bel(self) -> Bel | None:
+        """The BEL this port belongs to, or None while the port is unattached."""
+        return self._bel
+
+    @bel.setter
+    def bel(self, bel: Bel) -> None:
+        if self._bel is not None:
+            raise ValueError(f"{self} already belongs to BEL {self._bel.name}")
+        self._bel = bel
+
+    def __repr__(self) -> str:
+        """Return a string representation of the BelConfigPort."""
+        return (
+            f"BelConfigPort({self.io_direction.value} {self.name}[{self.width - 1}:0])"
+        )
+
+    def serialize(self) -> dict:
+        """Serialize the BEL config port to a dictionary."""
+        return super().serialize() | {"bel_map": self.bel_map}
+
+
 class SwitchMatrixPort(Port):
     """A port of a tile's switch-matrix module.
 
@@ -969,4 +1038,4 @@ class SwitchMatrixPort(Port):
         )
 
 
-GenericPort = Port | TilePort | BelPort | SwitchMatrixPort
+GenericPort = Port | TilePort | BelPort | ConfigPort | BelConfigPort | SwitchMatrixPort

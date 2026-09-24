@@ -6,11 +6,11 @@ BELs are the fundamental building blocks that can be placed and configured withi
 such as LUTs, flip-flops, and other logic elements.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from fabulous.fabric_definition.define import IO, BelPortKind, HDLType
-from fabulous.fabric_definition.port import BelPort
+from fabulous.fabric_definition.port import BelConfigPort, BelPort
 
 
 @dataclass
@@ -37,12 +37,11 @@ class Bel:
     module_name : str
         The name of the module in the BEL.
     ports : list[BelPort]
-        The ports of the BEL's HDL module, in module order. Each port is
-        attached to this BEL.
-    configBit : int
-        The number of configuration bits of the BEL.
-    belMap : dict[str, dict]
-        The feature map of the BEL.
+        The ports of the BEL's HDL module, in module order, except the
+        configuration port. Each port is attached to this BEL.
+    config_port : BelConfigPort | None
+        The configuration port with the BEL's feature map, or None for a BEL
+        without configuration bits. It is attached to this BEL.
 
     Attributes
     ----------
@@ -59,13 +58,12 @@ class Bel:
     filetype : HDLType
         The file type of the BEL.
     ports : list[BelPort]
-        The ports of the BEL's HDL module, in module order.
-    configBit : int
-        The number of config bits of the BEL.
+        The ports of the BEL's HDL module, in module order, except the
+        configuration port.
+    config_port : BelConfigPort | None
+        The configuration port, or None.
     language : str
         Language of the BEL. Currently only VHDL and Verilog are supported.
-    belFeatureMap : dict[str, dict]
-        The feature map of the BEL.
 
     Raises
     ------
@@ -79,9 +77,8 @@ class Bel:
     module_name: str
     filetype: HDLType
     ports: list[BelPort]
-    configBit: int
+    config_port: BelConfigPort | None
     language: str
-    belFeatureMap: dict[str, dict] = field(default_factory=dict)
 
     def __init__(
         self,
@@ -89,8 +86,7 @@ class Bel:
         prefix: str,
         module_name: str,
         ports: list[BelPort],
-        configBit: int,
-        belMap: dict[str, dict],
+        config_port: BelConfigPort | None = None,
     ) -> None:
         self.src = src
         self.prefix = prefix
@@ -99,8 +95,9 @@ class Bel:
         self.ports = ports
         for port in ports:
             port.bel = self
-        self.configBit = configBit
-        self.belFeatureMap = belMap
+        self.config_port = config_port
+        if config_port is not None:
+            config_port.bel = self
         if self.src.suffix in [".sv", ".v"]:
             self.language = "verilog"
             self.filetype = HDLType.VERILOG
@@ -109,6 +106,16 @@ class Bel:
             self.filetype = HDLType.VHDL
         else:
             raise ValueError(f"Unknown file type {self.src.suffix} for BEL {self.src}")
+
+    @property
+    def configBit(self) -> int:
+        """The number of configuration bits of the BEL."""
+        return 0 if self.config_port is None else self.config_port.width
+
+    @property
+    def belFeatureMap(self) -> dict[str, dict]:
+        """The feature map of the BEL, in bit order."""
+        return {} if self.config_port is None else self.config_port.bel_map
 
     def get_ports(self, kind: BelPortKind, io: IO) -> list[BelPort]:
         """Return the ports of one kind and direction, in module order.
@@ -159,11 +166,6 @@ class Bel:
         return self._pin_names(BelPortKind.EXTERNAL, IO.OUTPUT)
 
     @property
-    def configPort(self) -> list[tuple[str, IO]]:
-        """All the config pins of the BEL with their direction."""
-        return self._named_pins(BelPortKind.CONFIG)
-
-    @property
     def sharedPort(self) -> list[tuple[str, IO]]:
         """All the shared pins of the BEL with their direction."""
         return self._named_pins(BelPortKind.SHARED)
@@ -183,13 +185,7 @@ class Bel:
             k.value: {} for k in BelPortKind
         }
         for port in self.ports:
-            # The parser used to test for a "CONFIG" attribute that never
-            # exists, so config ports have always been listed as internal.
-            # Kept for output parity; fix separately.
-            kind = (
-                BelPortKind.INTERNAL if port.kind == BelPortKind.CONFIG else port.kind
-            )
-            vectors[kind.value][port.base_name] = (port.io_direction, port.width)
+            vectors[port.kind.value][port.base_name] = (port.io_direction, port.width)
         return vectors
 
     @property

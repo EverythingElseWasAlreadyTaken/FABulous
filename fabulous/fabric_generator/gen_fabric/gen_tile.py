@@ -458,10 +458,10 @@ def generateTile(
             ports_pairs.append(userclk_pair)
 
         if config_bit_mode == ConfigBitMode.FRAME_BASED:
-            if bel.configBit > 0:
+            if bel.config_port is not None:
                 ports_pairs.append(
                     (
-                        "ConfigBits",
+                        bel.config_port.name,
                         f"ConfigBits[{belConfigBitsCounter + bel.configBit}-1:"
                         f"{belConfigBitsCounter}]",
                     )
@@ -1118,10 +1118,10 @@ def generateSuperTile(
             else:
                 bel_user_clk = f"Tile_X{mx}Y{my}_UserCLK"
             bel_ports_pairs.append(("UserCLK", bel_user_clk))
-        if bel.configBit > 0 and config_bit_mode == ConfigBitMode.FRAME_BASED:
+        if bel.config_port is not None and config_bit_mode == ConfigBitMode.FRAME_BASED:
             bel_ports_pairs.append(
                 (
-                    "ConfigBits",
+                    bel.config_port.name,
                     f"ST_ConfigBits[{st_bel_config_offset + bel.configBit}"
                     f"-1:{st_bel_config_offset}]",
                 )
