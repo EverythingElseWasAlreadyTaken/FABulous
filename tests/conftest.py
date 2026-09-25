@@ -14,9 +14,9 @@ from loguru import logger
 import fabulous.fabulous
 import fabulous.fabulous_settings
 from fabulous.fabric_definition.bel import Bel
-from fabulous.fabric_definition.define import IO, Direction, HDLType, Side
+from fabulous.fabric_definition.define import IO, HDLType
 from fabulous.fabric_definition.fabric import Fabric
-from fabulous.fabric_definition.port import BelConfigPort, BelPort, TilePort
+from fabulous.fabric_definition.port import BelConfigPort, BelPort, SJumpPort, TilePort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabulous_repl.fabulous_repl import FABulousREPL
@@ -175,30 +175,13 @@ def cocotb_runner(tmp_path: Path, request: pytest.FixtureRequest) -> CocotbRunne
     return _create_runner
 
 
-def sjump_port(
-    name: str,
-    in_out: IO,
-    wire_count: int = 2,
-    x_offset: int = 0,
-    y_offset: int = 0,
-) -> TilePort:
-    """Build an SJUMP port.
+def sjump_port(name: str, in_out: IO, wire_count: int = 2) -> SJumpPort:
+    """Build an SJUMP port, as the tile CSV parser does.
 
-    OUTPUT ports drive `source_name`; INPUT ports terminate at
-    `destination_name`. SJUMP ports carry zero offsets, which is exactly the
-    case the width fix in `expand_port_info*` has to handle.
+    OUTPUT ports leave the tile towards the supertile switch matrix; INPUT
+    ports arrive from it.
     """
-    return TilePort(
-        name=name,
-        io_direction=in_out,
-        side_of_tile=Side.ANY,
-        wire_direction=Direction.SJUMP,
-        source_name=name if in_out == IO.OUTPUT else "NULL",
-        x_offset=x_offset,
-        y_offset=y_offset,
-        destination_name=name if in_out == IO.INPUT else "NULL",
-        wire_count=wire_count,
-    )
+    return SJumpPort(name, in_out, wire_count)
 
 
 def make_empty_tile(
