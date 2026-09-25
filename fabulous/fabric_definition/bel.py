@@ -18,15 +18,14 @@ class Bel:
     """Information about a single BEL.
 
     The information is parsed from the directory of the BEL in the CSV definition file.
-    The BEL owns one `BelPort` per port of its HDL module (`ports`); every
-    other port view (`inputs`, `sharedPort`, `ports_vectors`, ...) is derived
-    from them. There are some things to be noted:
+    The BEL owns one `BelPort` per port of its HDL module (`ports`); select
+    them with `get_ports` or their flat pin names with `pin_names`. There are
+    some things to be noted:
 
     - The parsed name will contain the prefix of the bel.
     - A shared port is not BEL-prefixed.
-    - If a port is marked as both shared and external, the port is considered as shared,
-      as a result, signals like UserCLK will be in the shared port list,
-      but not in the external port list.
+    - If a port is marked as both shared and external, its kind is SHARED, not
+      EXTERNAL; signals like UserCLK are shared ports.
 
     Parameters
     ----------
@@ -134,78 +133,31 @@ class Bel:
         """
         return [p for p in self.ports if p.kind == kind and p.io_direction == io]
 
-    def _pin_names(self, kind: BelPortKind, io: IO) -> list[str]:
-        return [pin.name() for port in self.get_ports(kind, io) for pin in port.pins]
+    def pin_names(self, kind: BelPortKind, io: IO, prefixed: bool = True) -> list[str]:
+        """Return the flat pin names of the ports of one kind and direction.
 
-    def _named_pins(self, kind: BelPortKind) -> list[tuple[str, IO]]:
+        Parameters
+        ----------
+        kind : BelPortKind
+            The port kind.
+        io : IO
+            The port direction.
+        prefixed : bool, optional
+            Whether the names carry the port's prefix (`LA_I0`) or not
+            (`I0`), by default True.
+
+        Returns
+        -------
+        list[str]
+            The pin names, in module order, least significant bit first.
+        """
         return [
-            (pin.name(), port.io_direction)
-            for port in self.ports
-            if port.kind == kind
+            pin.name() if prefixed else pin.name().removeprefix(port.prefix)
+            for port in self.get_ports(kind, io)
             for pin in port.pins
         ]
-
-    @property
-    def inputs(self) -> list[str]:
-        """All the normal input pins of the BEL."""
-        return self._pin_names(BelPortKind.INTERNAL, IO.INPUT)
-
-    @property
-    def outputs(self) -> list[str]:
-        """All the normal output pins of the BEL."""
-        return self._pin_names(BelPortKind.INTERNAL, IO.OUTPUT)
-
-    @property
-    def externalInput(self) -> list[str]:
-        """All the external input pins of the BEL."""
-        return self._pin_names(BelPortKind.EXTERNAL, IO.INPUT)
-
-    @property
-    def externalOutput(self) -> list[str]:
-        """All the external output pins of the BEL."""
-        return self._pin_names(BelPortKind.EXTERNAL, IO.OUTPUT)
-
-    @property
-    def sharedPort(self) -> list[tuple[str, IO]]:
-        """All the shared pins of the BEL with their direction."""
-        return self._named_pins(BelPortKind.SHARED)
 
     @property
     def withUserCLK(self) -> bool:
         """Whether the BEL has a user clock port."""
         return any(port.is_clock for port in self.ports)
-
-    @property
-    def ports_vectors(self) -> dict[str, dict[str, tuple[IO, int]]]:
-        """The ports by kind, then unprefixed name: `(IO, width)`.
-
-        `{<porttype>: {<portname>: (IO, <portwidth>)}}`
-        """
-        vectors: dict[str, dict[str, tuple[IO, int]]] = {
-            k.value: {} for k in BelPortKind
-        }
-        for port in self.ports:
-            vectors[port.kind.value][port.base_name] = (port.io_direction, port.width)
-        return vectors
-
-    @property
-    def carry(self) -> dict[str, dict[IO, str]]:
-        """Carry chains by name: `{carry_name: {direction: port_name}}`."""
-        chains: dict[str, dict[IO, str]] = {}
-        for port in self.ports:
-            if port.carry is not None:
-                chains.setdefault(port.carry, {})[port.io_direction] = port.name
-        return chains
-
-    @property
-    def localShared(self) -> dict[str, tuple[str, IO]]:
-        """Local shared ports: `{RESET/ENABLE: (pin_name, IO)}`.
-
-        They are only shared in the tile, not in the fabric. A multi-bit port
-        is represented by its last bit.
-        """
-        return {
-            port.local_shared: (port.pins[-1].name(), port.io_direction)
-            for port in self.ports
-            if port.local_shared is not None
-        }

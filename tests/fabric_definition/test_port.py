@@ -196,6 +196,21 @@ class TestBelPort:
         with pytest.raises(ValueError, match="already belongs"):
             Bel(Path("LUT.v"), "", "LUT", [port])
 
+    def test_bel_pin_names_select_kind_and_direction(self) -> None:
+        """`Bel.pin_names` lists one kind and direction, with or without prefix."""
+        ports = [
+            BelPort("I", IO.INPUT, 2, prefix="L_"),
+            BelPort("O", IO.OUTPUT, 1, prefix="L_"),
+            BelPort("P", IO.INPUT, 1, kind=BelPortKind.EXTERNAL, prefix="L_"),
+        ]
+        bel = Bel(Path("LUT.v"), "L_", "LUT", ports)
+        assert bel.pin_names(BelPortKind.INTERNAL, IO.INPUT) == ["L_I0", "L_I1"]
+        assert bel.pin_names(BelPortKind.INTERNAL, IO.INPUT, prefixed=False) == [
+            "I0",
+            "I1",
+        ]
+        assert bel.pin_names(BelPortKind.EXTERNAL, IO.INPUT) == ["L_P"]
+
     def test_expand_uses_prefixed_name(self) -> None:
         """Expansion uses the prefixed name."""
         port = BelPort(name="sig", io_direction=IO.INPUT, width=1, prefix="lut_")

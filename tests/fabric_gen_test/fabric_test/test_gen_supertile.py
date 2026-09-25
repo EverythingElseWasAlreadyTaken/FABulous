@@ -107,8 +107,12 @@ def _tile_stub(tile: Tile) -> str:
         direction = "input" if p.io_direction == IO.INPUT else "output"
         decls.append(f"    {direction} [{width}:0] {p.name}")
     for bel in tile.bels:
-        decls += [f"    input {p}" for p in bel.externalInput]
-        decls += [f"    output {p}" for p in bel.externalOutput]
+        decls += [
+            f"    input {p}" for p in bel.pin_names(BelPortKind.EXTERNAL, IO.INPUT)
+        ]
+        decls += [
+            f"    output {p}" for p in bel.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT)
+        ]
     decls += [
         "    input  UserCLK",
         "    output UserCLKo",

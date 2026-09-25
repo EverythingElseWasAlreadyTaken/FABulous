@@ -13,12 +13,13 @@ Key features:
 - External I/O port handling and clock distribution
 """
 
-from collections import defaultdict
 from pathlib import Path
 
+from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import (
     IO,
     USER_CLK_PREDECESSOR,
+    BelPortKind,
     ConfigBitMode,
     Direction,
     Side,
@@ -33,6 +34,36 @@ from fabulous.fabric_generator.code_generator.code_generator_Verilog import (
 from fabulous.fabric_generator.code_generator.code_generator_VHDL import (
     VHDLCodeGenerator,
 )
+
+
+def _bel_bus_pairs(bel: Bel) -> list[tuple[str, str]]:
+    """Connect each internal and external BEL port to its flat pin signals.
+
+    A vector port is bussed MSB first (`.A({A3, A2, A1, A0})`), a single-bit
+    port takes its pin signal directly.
+
+    Parameters
+    ----------
+    bel : Bel
+        The BEL being instantiated.
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        `(port, signal)` pairs: internal ports, then external ports, each in
+        module order.
+    """
+    pairs = []
+    for kind in (BelPortKind.INTERNAL, BelPortKind.EXTERNAL):
+        for port in bel.ports:
+            if port.kind != kind:
+                continue
+            names = [pin.name() for pin in port.pins]
+            if port.width == 1:
+                pairs.append((port.base_name, names[0]))
+            else:
+                pairs.append((port.base_name, f"{{{', '.join(reversed(names))}}}"))
+    return pairs
 
 
 def generateTile(
@@ -150,19 +181,11 @@ def generateTile(
 
     # now we have to scan all BELs if they use external pins,
     # because they have to be exported to the tile entity
-    externalPorts = []
-    for i in tile.bels:
-        for p in i.externalInput:
+    for bel in tile.bels:
+        for p in bel.pin_names(BelPortKind.EXTERNAL, IO.INPUT):
             writer.addPortScalar(p, IO.INPUT, indentLevel=2)
-        for p in i.externalOutput:
+        for p in bel.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT):
             writer.addPortScalar(p, IO.OUTPUT, indentLevel=2)
-        externalPorts += i.externalInput
-        externalPorts += i.externalOutput
-
-    # if we found BELs with top-level IO ports, we just pass them through
-    sharedExternalPorts = set()
-    for i in tile.bels:
-        sharedExternalPorts.update(i.sharedPort)
 
     writer.addComment("Tile IO ports from BELs", onNewLine=True, indentLevel=1)
 
@@ -237,7 +260,9 @@ def generateTile(
     writer.addComment("BEL ports (e.g., slices)", onNewLine=True)
     repeatDeclaration = set()
     for bel in tile.bels:
-        for i in bel.inputs + bel.outputs:
+        for i in bel.pin_names(BelPortKind.INTERNAL, IO.INPUT) + bel.pin_names(
+            BelPortKind.INTERNAL, IO.OUTPUT
+        ):
             if f"{i}" not in repeatDeclaration:
                 writer.addConnectionScalar(i)
                 repeatDeclaration.add(f"{bel.prefix}{i}")
@@ -412,46 +437,23 @@ def generateTile(
     belCounter = 0
     belConfigBitsCounter = 0
     for bel in tile.bels:
-        port_dict = defaultdict(list)
         ports_pairs = []
         portList = []
         signal = []
         userclk_pair = None
 
-        # build port list for internal and external ports
-        for port_type, bel_ports in bel.ports_vectors.items():
-            if port_type in ["external", "internal"]:
-                for port_name, info in bel_ports.items():
-                    _direction, width = info
-                    if width > 1:
-                        port_dict[port_name] = [
-                            (f"{bel.prefix}{port_name}{i}", f"{i}")
-                            for i in range(width)
-                        ]
-                    else:
-                        port_dict[port_name] = [
-                            (f"{bel.prefix}{port_name}", f"{i}") for i in range(width)
-                        ]
-
         # Shared ports
-        for port in bel.sharedPort:
-            if port[0] == "UserCLK":
-                if not disable_user_clk:
-                    userclk_pair = (port[0], port[0])
-            else:
-                ports_pairs.append((port[0], port[0]))
+        for port in bel.ports:
+            if port.kind != BelPortKind.SHARED:
+                continue
+            for pin in port.pins:
+                if port.is_clock:
+                    if not disable_user_clk:
+                        userclk_pair = (pin.name(), pin.name())
+                else:
+                    ports_pairs.append((pin.name(), pin.name()))
 
-        for portname, ports in port_dict.items():
-            if len(ports) > 1:
-                # Sort ports based on bit significance.
-                ports.sort(key=lambda x: int(x[1]) if x[1].isdigit() else -1)
-                # Concatenate the ports in the correct order.
-                concatenated_ports = ", ".join(port for port, _ in ports[::-1])
-                ports_pairs.append((portname, f"{{{concatenated_ports}}}"))
-            else:
-                # Single port, no need for concatenation.
-                single_port = ports[0][0]
-                ports_pairs.append((portname, single_port))
+        ports_pairs += _bel_bus_pairs(bel)
 
         # Makes sure UserCLK is after ports.
         if userclk_pair is not None:
@@ -500,7 +502,7 @@ def generateTile(
             )
     # bel input wire (bel output is input to switch matrix)
     for bel in tile.bels:
-        for p in bel.outputs:
+        for p in bel.pin_names(BelPortKind.INTERNAL, IO.OUTPUT):
             ports_pairs.append((p, p))
 
     # jump input wire: the matrix reads back what it drove on the source
@@ -522,7 +524,7 @@ def generateTile(
 
     # bel output wire (bel input is input to switch matrix)
     for bel in tile.bels:
-        for p in bel.inputs:
+        for p in bel.pin_names(BelPortKind.INTERNAL, IO.INPUT):
             ports_pairs.append((p, p))
 
     # jump output wire
@@ -674,22 +676,23 @@ def generateSuperTile(
     writer.addComment("Tile IO ports from BELs", onNewLine=True, indentLevel=1)
     for i in superTile.tiles:
         for b in i.bels:
-            for p in b.externalInput:
+            for p in b.pin_names(BelPortKind.EXTERNAL, IO.INPUT):
                 writer.addPortScalar(p, IO.INPUT, indentLevel=2)
-            for p in b.externalOutput:
+            for p in b.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT):
                 writer.addPortScalar(p, IO.OUTPUT, indentLevel=2)
-            for p in b.sharedPort:
-                if p[0] == "UserCLK":
+            for port in b.ports:
+                if port.kind != BelPortKind.SHARED or port.is_clock:
                     continue
-                writer.addPortScalar(p[0], p[1], indentLevel=2)
+                for pin in port.pins:
+                    writer.addPortScalar(pin.name(), port.io_direction, indentLevel=2)
 
     # add supertile-level BEL external ports
     if superTile.bels:
         writer.addComment("SuperTile BEL IO ports", onNewLine=True, indentLevel=1)
         for b in superTile.bels:
-            for p in b.externalInput:
+            for p in b.pin_names(BelPortKind.EXTERNAL, IO.INPUT):
                 writer.addPortScalar(p, IO.INPUT, indentLevel=2)
-            for p in b.externalOutput:
+            for p in b.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT):
                 writer.addPortScalar(p, IO.OUTPUT, indentLevel=2)
 
     st_config_bits = superTile.total_config_bits
@@ -818,7 +821,10 @@ def generateSuperTile(
 
     # BEL pin signals bridging the supertile BELs and the switch matrix
     bel_pin_signals = [
-        pin for bel in superTile.bels for pin in (*bel.inputs, *bel.outputs)
+        pin
+        for bel in superTile.bels
+        for io in (IO.INPUT, IO.OUTPUT)
+        for pin in bel.pin_names(BelPortKind.INTERNAL, io)
     ]
     if bel_pin_signals:
         writer.addComment("BEL pin signals (BEL <-> supertile SM)", onNewLine=True)
@@ -947,16 +953,11 @@ def generateSuperTile(
                 ports_pairs.append((p.name, f"Tile_X{x}Y{y}_{p.name}"))
 
             for b in tile.bels:
-                for p in b.externalInput:
+                for p in b.pin_names(BelPortKind.EXTERNAL, IO.INPUT):
                     ports_pairs.append((p, p))
 
-                for p in b.externalOutput:
+                for p in b.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT):
                     ports_pairs.append((p, p))
-
-                if not disable_user_clk:
-                    for p in b.sharedPort:
-                        if "UserCLK" not in p[0]:
-                            ports_pairs.append(("UserCLK", p[0]))
 
             # connect SJUMP ports to supertile-level signals
             for wire in superTile.sjump_wires:
@@ -1048,11 +1049,11 @@ def generateSuperTile(
                 sm_ports_pairs.append((pin.name(), f"{wire.signal_name}[{k}]"))
         # SM outputs drive BEL input signals (signals named after the BEL ports)
         for bel in superTile.bels:
-            for ip in bel.inputs:
+            for ip in bel.pin_names(BelPortKind.INTERNAL, IO.INPUT):
                 sm_ports_pairs.append((ip, ip))
         # BEL output signals feed back into the SM (routed to reverse SJUMP wires)
         for bel in superTile.bels:
-            for op in bel.outputs:
+            for op in bel.pin_names(BelPortKind.INTERNAL, IO.OUTPUT):
                 sm_ports_pairs.append((op, op))
         # SM outputs also drive reverse SJUMP signals into child tiles
         for wire in superTile.reverse_sjump_wires():
@@ -1083,31 +1084,8 @@ def generateSuperTile(
     # Instantiate supertile BELs
     st_bel_config_offset = superTile.supertile_matrix_config_bits
     for bel in superTile.bels:
-        bel_ports_pairs = []
-        # Bus the individual switch-matrix signals into the BEL's vector ports,
-        # mirroring the normal-tile BEL instantiation (e.g. .A({A7,...,A0})). The
-        # signals {prefix}{port}{i} are the supertile SM outputs / BEL inputs.
-        port_dict: defaultdict[str, list[tuple[str, str]]] = defaultdict(list)
-        for port_type, bel_ports in bel.ports_vectors.items():
-            if port_type in ("external", "internal"):
-                for port_name, info in bel_ports.items():
-                    _direction, width = info
-                    if width > 1:
-                        port_dict[port_name] = [
-                            (f"{bel.prefix}{port_name}{i}", f"{i}")
-                            for i in range(width)
-                        ]
-                    else:
-                        port_dict[port_name] = [
-                            (f"{bel.prefix}{port_name}", f"{i}") for i in range(width)
-                        ]
-        for portname, ports in port_dict.items():
-            if len(ports) > 1:
-                ports.sort(key=lambda x: int(x[1]) if x[1].isdigit() else -1)
-                concatenated = ", ".join(p for p, _ in ports[::-1])
-                bel_ports_pairs.append((portname, f"{{{concatenated}}}"))
-            else:
-                bel_ports_pairs.append((portname, ports[0][0]))
+        # The signals are the supertile SM outputs / BEL inputs.
+        bel_ports_pairs = _bel_bus_pairs(bel)
         if not disable_user_clk and bel.withUserCLK:
             # The supertile wrapper has no bare "UserCLK"; the BEL shares the
             # master tile's clock net (same selection the master tile uses: the

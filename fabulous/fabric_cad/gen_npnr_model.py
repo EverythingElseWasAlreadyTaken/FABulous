@@ -17,6 +17,7 @@ from fabulous.fabric_cad.timing_model.FABulous_timing_model_interface import (
     FABulousTimingModelInterface,
 )
 from fabulous.fabric_definition.bel import Bel
+from fabulous.fabric_definition.define import IO, BelPortKind
 from fabulous.fabric_definition.fabric import Fabric
 
 # Dummy BEL timing values (ns), mirroring nextpnr's historical hardcoded
@@ -145,17 +146,19 @@ def belLines(
     cType = bel.name
     if bel.name in ("LUT4c_frame_config", "LUT4c_frame_config_dffesr"):
         cType = "FABULOUS_LC"
+    pin_inputs = bel.pin_names(BelPortKind.INTERNAL, IO.INPUT)
+    pin_outputs = bel.pin_names(BelPortKind.INTERNAL, IO.OUTPUT)
     v1_line = (
-        f"X{x}Y{y},X{x},Y{y},{letter},{cType},{','.join(bel.inputs + bel.outputs)}"
+        f"X{x}Y{y},X{x},Y{y},{letter},{cType},{','.join(pin_inputs + pin_outputs)}"
     )
-    inputs = [p.removeprefix(bel.prefix) for p in bel.inputs]
-    outputs = [p.removeprefix(bel.prefix) for p in bel.outputs]
+    inputs = bel.pin_names(BelPortKind.INTERNAL, IO.INPUT, prefixed=False)
+    outputs = bel.pin_names(BelPortKind.INTERNAL, IO.OUTPUT, prefixed=False)
 
     def block(timing: bool) -> list[str]:
         lines = [f"BelBegin,X{x}Y{y},{letter},{cType},{bel.prefix}"]
-        for inp, stripped in zip(bel.inputs, inputs, strict=True):
+        for inp, stripped in zip(pin_inputs, inputs, strict=True):
             lines.append(f"I,{stripped},X{x}Y{y}.{inp}")
-        for outp, stripped in zip(bel.outputs, outputs, strict=True):
+        for outp, stripped in zip(pin_outputs, outputs, strict=True):
             lines.append(f"O,{stripped},X{x}Y{y}.{outp}")
         for feat, _cfg in sorted(bel.belFeatureMap.items(), key=lambda x: x[0]):
             lines.append(f"CFG,{feat}")

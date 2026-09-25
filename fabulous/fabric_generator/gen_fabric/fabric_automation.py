@@ -1,6 +1,5 @@
 """Functions for fabric automation, such as generating tile configurations and IOs."""
 
-import json
 import math
 import re
 from importlib import resources
@@ -11,9 +10,9 @@ from loguru import logger
 
 from fabulous.custom_exception import InvalidFileType, InvalidPortType, SpecMissMatch
 from fabulous.fabric_definition.bel import Bel
-from fabulous.fabric_definition.define import IO, HDLType, MultiplexerStyle
+from fabulous.fabric_definition.define import IO, BelPortKind, HDLType, MultiplexerStyle
 from fabulous.fabric_definition.gen_io import Gen_IO
-from fabulous.fabric_definition.port import TilePort
+from fabulous.fabric_definition.port import BelPort, TilePort
 from fabulous.fabric_generator.code_generator.code_generator_Verilog import (
     VerilogCodeGenerator,
 )
@@ -124,13 +123,13 @@ def generateCustomTileConfig(tile_path: Path) -> Path:
     has_enable = False
     for file in tile_bels:
         bel = parseBelFile(file, "")
-        if "RESET" in bel.localShared:
-            has_reset = True
-        if "ENABLE" in bel.localShared:
-            has_enable = True
-        for carry in bel.carry:
-            if carry not in tile_carrys:
-                tile_carrys.append(carry)
+        for port in bel.ports:
+            if port.local_shared == "RESET":
+                has_reset = True
+            if port.local_shared == "ENABLE":
+                has_enable = True
+            if port.carry is not None and port.carry not in tile_carrys:
+                tile_carrys.append(port.carry)
     # Create tile config CSV file
     logger.info(f"Creating tile config CSV file {tile_csv}")
     tile_csv.touch()
@@ -199,25 +198,25 @@ def generateSwitchmatrixList(
     ) as dummy_file_path:
         CLBDummyFile = dummy_file_path
 
-    belIns = sum((bel.inputs for bel in bels), [])
-    belOuts = sum((bel.outputs for bel in bels), [])
-    belCarrys = [bel.carry for bel in bels]
     portPairs = parseList(CLBDummyFile)
-    belLocalSharedPorts = [bel.localShared for bel in bels]
 
-    # build carryports datastructure and
-    # remove carrys from bel ports for further processing
+    # Carry and local shared ports are wired separately below, all other
+    # internal BEL pins are placed into the switch matrix template.
+    belIns: list[str] = []
+    belOuts: list[str] = []
     carryports: dict[str, dict[IO, list[str]]] = {}
-    for carrys in belCarrys:
-        for prefix in carrys:
-            if prefix not in carryports:
-                carryports[prefix] = {}
-                carryports[prefix][IO.INPUT] = []
-                carryports[prefix][IO.OUTPUT] = []
-            carryports[prefix][IO.INPUT].append(carrys[prefix][IO.INPUT])
-            belIns.remove(carrys[prefix][IO.INPUT])
-            carryports[prefix][IO.OUTPUT].append(carrys[prefix][IO.OUTPUT])
-            belOuts.remove(carrys[prefix][IO.OUTPUT])
+    localSharedPins: dict[str, list[str]] = {"RESET": [], "ENABLE": []}
+    for bel in bels:
+        for port in bel.ports:
+            if port.carry is not None:
+                chain = carryports.setdefault(port.carry, {IO.INPUT: [], IO.OUTPUT: []})
+                chain[port.io_direction].append(port.name)
+            elif port.local_shared is not None:
+                localSharedPins[port.local_shared].append(port.pins[-1].name())
+            elif port.kind == BelPortKind.INTERNAL and port.is_input:
+                belIns += [pin.name() for pin in port.pins]
+            elif port.kind == BelPortKind.INTERNAL and port.is_output:
+                belOuts += [pin.name() for pin in port.pins]
 
     # check if carry prefixes match
     if set(carryportsTile.keys()) != set(carryports.keys()):
@@ -227,14 +226,6 @@ def generateSwitchmatrixList(
             f"carry prefixes in bels: {set(carryports.keys())}",
         )
         raise ValueError
-
-    # Remove local shared ports from bel ports for further processing
-    for bel in belLocalSharedPorts:
-        for belType in bel:
-            if bel[belType][0] in belIns:
-                belIns.remove(bel[belType][0])
-            if bel[belType][0] in belOuts:
-                belOuts.remove(bel[belType][0])
 
     if len(belIns) > 32:
         raise ValueError(
@@ -355,11 +346,8 @@ def generateSwitchmatrixList(
         listfile.append(
             f"{{8}}{sharedResetTile[0].name}0,[J2MID_ABb_END0|J2MID_CDb_END0|J2MID_EFb_END0|J2MID_GHa_END0|JN2END1|JE2END1|JS2END1|JW2END1]"
         )
-        for belport in belLocalSharedPorts:
-            if bel_reset := belport["RESET"]:
-                listfile.append(
-                    f"{{2}}{bel_reset[0]},[{sharedResetTile[1].name}0|GND0]"
-                )
+        for pin in localSharedPins["RESET"]:
+            listfile.append(f"{{2}}{pin},[{sharedResetTile[1].name}0|GND0]")
     if "ENABLE" in localSharedPortsTile:
         sharedResetTile = localSharedPortsTile["ENABLE"]
         listfile.append("# Connect shared enable")
@@ -367,11 +355,8 @@ def generateSwitchmatrixList(
         listfile.append(
             f"{{8}}{sharedResetTile[0].name}0,[J2MID_ABb_END3|J2MID_CDb_END3|J2MID_EFb_END3|J2MID_GHa_END3|JN2END2|JE2END2|JS2END2|JW2END2]"
         )
-        for belport in belLocalSharedPorts:
-            if bel_enable := belport["ENABLE"]:
-                listfile.append(
-                    f"{{2}}{bel_enable[0]},[{sharedResetTile[1].name}0|VCC0]"
-                )
+        for pin in localSharedPins["ENABLE"]:
+            listfile.append(f"{{2}}{pin},[{sharedResetTile[1].name}0|VCC0]")
 
     with outFile.open("w") as f:
         f.write("\n".join(str(line) for line in listfile))
@@ -464,44 +449,34 @@ def addBelsToPrim(
             # check if its first port, to not set a comma before
             first = True
 
-            # ports contain the bel prefix, but this is not needed in the prims file
-            inputs = [p.removeprefix(bel.prefix) for p in bel.inputs]
-            outputs = [p.removeprefix(bel.prefix) for p in bel.outputs]
-            shared_ports = [p.removeprefix(bel.prefix) for p, _ in bel.sharedPort]
-            external_inputs: list[str] = []
-            external_outputs: list[str] = []
-            for external_port in bel.externalInput:
-                external_inputs.append(external_port.removeprefix(bel.prefix))
-            for external_port in bel.externalOutput:
-                external_outputs.append(external_port.removeprefix(bel.prefix))
+            # the prims file uses the module's own port names, without prefix
+            inputs = bel.pin_names(BelPortKind.INTERNAL, IO.INPUT, prefixed=False)
+            outputs = bel.pin_names(BelPortKind.INTERNAL, IO.OUTPUT, prefixed=False)
+            external_inputs = bel.pin_names(
+                BelPortKind.EXTERNAL, IO.INPUT, prefixed=False
+            )
+            external_outputs = bel.pin_names(
+                BelPortKind.EXTERNAL, IO.OUTPUT, prefixed=False
+            )
             external_ports = external_inputs + external_outputs
+            shared_directions = {
+                pin.name(): port.io_direction
+                for port in bel.ports
+                if port.kind == BelPortKind.SHARED
+                for pin in port.pins
+            }
+            shared_ports = list(shared_directions)
 
             if support_vectors:
-                # Find all ports with their directions
-                # need to parse the json file again, since port width
-                # is not known in BEL object
-                with bel.src.with_suffix(".json").open() as f:
-                    bel_dict = json.load(f)
-                module_ports = bel_dict["modules"][bel.module_name]["ports"]
-
-                # UserCLK needs to be renamed, otherwise yosys can't map the CLK
-                if module_ports["UserCLK"]:
-                    module_ports["CLK"] = module_ports["UserCLK"]
-                    del module_ports["UserCLK"]
-                # The config port is not needed in the prims file
-                if bel.config_port is not None:
-                    del module_ports[bel.config_port.name]
-
-                ports_dict = {}
-                for port_name, details in module_ports.items():
-                    if details["direction"] not in ports_dict:
-                        ports_dict[details["direction"]] = []
-                    if len(details["bits"]) > 1:
-                        ports_dict[details["direction"]].append(
-                            f"[{len(details['bits']) - 1}:0] {port_name}"
-                        )
-                    else:
-                        ports_dict[details["direction"]].append(port_name)
+                # UserCLK is renamed to CLK, otherwise yosys can't map the CLK;
+                # it goes last, as it always did.
+                ports_dict: dict[str, list[tuple[BelPort, str]]] = {}
+                for port in sorted(bel.ports, key=lambda p: p.base_name == "UserCLK"):
+                    name = "CLK" if port.base_name == "UserCLK" else port.base_name
+                    if port.width > 1:
+                        name = f"[{port.width - 1}:0] {name}"
+                    direction = str(port.io_direction.value).lower()
+                    ports_dict.setdefault(direction, []).append((port, name))
 
                 # build portlist
                 for direction, ports in ports_dict.items():
@@ -509,14 +484,11 @@ def addBelsToPrim(
                         modline += ",\n"
                     else:
                         first = False
-                    for port in ports:
-                        if port in external_ports:
+                    for port, name in ports:
+                        if port.kind == BelPortKind.EXTERNAL:
                             # add pad attribute to external ports
                             modline += "    (* iopad_external_pin *)\n"
-                        if port in shared_ports and port == "UserCLK":
-                            port = "CLK"
-
-                        modline += f"    {direction} {port}"
+                        modline += f"    {direction} {name}"
             else:  # No vector support
                 ports = inputs + outputs + external_ports + shared_ports
 
@@ -538,7 +510,7 @@ def addBelsToPrim(
                             modline += f"    output {port}"
 
                     if port in shared_ports:
-                        direction = dict(bel.sharedPort)[port]
+                        direction = shared_directions[port]
                         if port == "UserCLK":
                             # Rename UserCLK to CLK
                             # Otherwise Yosys can't map the CLK

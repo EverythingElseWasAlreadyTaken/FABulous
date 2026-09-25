@@ -1,7 +1,7 @@
 """Class for generating and managing the geometry of BELs."""
 
 from fabulous.fabric_definition.bel import Bel
-from fabulous.fabric_definition.define import IO
+from fabulous.fabric_definition.define import IO, BelPortKind
 from fabulous.geometry_generator.port_geometry import PortGeometry, PortType
 
 
@@ -83,10 +83,10 @@ class BelGeometry:
         """
         self.name = bel.name
         self.src = bel.src
-        self.internalInputs = bel.inputs
-        self.internalOutputs = bel.outputs
-        self.externalInputs = bel.externalInput
-        self.externalOutputs = bel.externalOutput
+        self.internalInputs = bel.pin_names(BelPortKind.INTERNAL, IO.INPUT)
+        self.internalOutputs = bel.pin_names(BelPortKind.INTERNAL, IO.OUTPUT)
+        self.externalInputs = bel.pin_names(BelPortKind.EXTERNAL, IO.INPUT)
+        self.externalOutputs = bel.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT)
 
         internalPortsAmount = len(self.internalInputs) + len(self.internalOutputs)
         externalPortsAmount = len(self.externalInputs) + len(self.externalOutputs)

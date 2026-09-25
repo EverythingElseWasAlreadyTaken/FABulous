@@ -19,6 +19,7 @@ from loguru import logger
 from fabulous.fabric_definition.define import (
     IO,
     SWITCH_MATRIX_CONSTANTS,
+    BelPortKind,
     ConfigBitMode,
     Direction,
     MultiplexerStyle,
@@ -148,7 +149,7 @@ def genTileSwitchMatrix(
 
     # bel wire input
     for b in tile.bels:
-        for p in b.outputs:
+        for p in b.pin_names(BelPortKind.INTERNAL, IO.OUTPUT):
             writer.addPortScalar(p, IO.INPUT, indentLevel=2)
 
     # jump wire input; a source-less jump names a constant (declared as a
@@ -166,7 +167,7 @@ def genTileSwitchMatrix(
 
     # bel wire output
     for b in tile.bels:
-        for p in b.inputs:
+        for p in b.pin_names(BelPortKind.INTERNAL, IO.INPUT):
             writer.addPortScalar(p, IO.OUTPUT, indentLevel=2)
 
     # jump wire output
@@ -479,14 +480,14 @@ def gen_super_tile_switch_matrix(
     if superTile.bels:
         writer.addComment("BEL input ports (SM outputs)", onNewLine=True)
     for bel in superTile.bels:
-        for p in bel.inputs:
+        for p in bel.pin_names(BelPortKind.INTERNAL, IO.INPUT):
             writer.addPortScalar(p, IO.OUTPUT, indentLevel=2)
 
     # Inputs: output ports of supertile BELs (SM routes them back to child tiles)
-    if any(bel.outputs for bel in superTile.bels):
+    if any(bel.pin_names(BelPortKind.INTERNAL, IO.OUTPUT) for bel in superTile.bels):
         writer.addComment("BEL output ports (SM inputs)", onNewLine=True)
     for bel in superTile.bels:
-        for p in bel.outputs:
+        for p in bel.pin_names(BelPortKind.INTERNAL, IO.OUTPUT):
             writer.addPortScalar(p, IO.INPUT, indentLevel=2)
 
     # Outputs: reverse SJUMP signals driven back into child tiles
