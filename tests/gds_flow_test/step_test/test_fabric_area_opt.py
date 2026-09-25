@@ -360,7 +360,6 @@ def _make_tile(name: str) -> Tile:
         tileDir=Path(),
         switch_matrix=SwitchMatrix(matrix_file=Path(), ports=(), connections={}),
         gen_ios=[],
-        userCLK=False,
     )
 
 

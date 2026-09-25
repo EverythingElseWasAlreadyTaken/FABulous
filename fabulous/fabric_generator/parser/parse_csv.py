@@ -262,7 +262,6 @@ def parseTilesCSV(
         bels: list[Bel] = []
         matrixDir: Path | None = None
         gen_ios: list[Gen_IO] = []
-        withUserCLK = False
         genMatrixList = False
         tileCarry: dict[str, dict[IO, str]] = {}
         localSharedPorts: dict[str, list[TilePort]] = {}
@@ -486,8 +485,6 @@ def parseTilesCSV(
                     "BEL, GEN_IO, MATRIX, and INCLUDE."
                 )
 
-        withUserCLK = any(bel.withUserCLK for bel in bels)
-
         if matrixDir is None:
             raise InvalidTileDefinition(
                 f"Tile {tileName!r} has no MATRIX line; a switch matrix "
@@ -512,7 +509,6 @@ def parseTilesCSV(
                     preserve_list_order=preserve_list_order,
                 ),
                 gen_ios=gen_ios,
-                userCLK=withUserCLK,
                 jump_wires=jump_wires,
             )
         )
@@ -571,7 +567,6 @@ def parseSupertilesCSV(fileName: Path, tileDic: dict[str, Tile]) -> list[SuperTi
         tileMap = []
         tiles = []
         bels = []
-        withUserCLK = False
         master_set = False
         master_coords: tuple[int, int] | None = None
         matrix_line_path: Path | None = None
@@ -629,12 +624,9 @@ def parseSupertilesCSV(fileName: Path, tileDic: dict[str, Tile]) -> list[SuperTi
                 master_set = True
             tileMap.append(row)
 
-        withUserCLK = any(bel.withUserCLK for bel in bels)
         # tileDir is the supertile CSV file path (matching Tile.tileDir), so
         # consumers use `tileDir.parent` for the supertile's directory.
-        super_tile = SuperTile(
-            name, fileName.absolute(), tiles, tileMap, bels, withUserCLK
-        )
+        super_tile = SuperTile(name, fileName.absolute(), tiles, tileMap, bels)
         super_tile.master_tile_coords = master_coords
 
         # The supertile switch matrix is taken from the MATRIX line (resolved

@@ -264,9 +264,6 @@ class TilePort(Port):
         The side of the tile where the port is located.
     term : bool
         Indicates if the port is a termination port. Defaults to False.
-    tile : Tile | None
-        The tile this port belongs to. Set once at construction and read-only
-        thereafter. Defaults to None, leaving the port unattached.
     wire_direction : Direction | None
         The direction the wire runs in. Defaults to None, which resolves to
         Direction.JUMP.
@@ -300,8 +297,6 @@ class TilePort(Port):
         io_direction: IO,
         side_of_tile: Side,
         term: bool = False,
-        tile: Tile | None = None,
-        # Backward compatibility parameters
         wire_direction: Direction | None = None,
         source_name: str = "",
         x_offset: int = 0,
@@ -313,8 +308,7 @@ class TilePort(Port):
         super().__init__(name, io_direction, wire_count * max(1, distance))
         self._side_of_tile = side_of_tile
         self._term = term
-        self._tile = tile
-        # Backward compatibility
+        self._tile = None
         self._wire_direction = (
             wire_direction if wire_direction is not None else Direction.JUMP
         )
@@ -342,7 +336,12 @@ class TilePort(Port):
         """The tile this port belongs to, or None while the port is unattached."""
         return self._tile
 
-    # Backward compatibility properties
+    @tile.setter
+    def tile(self, tile: Tile) -> None:
+        if self._tile is not None:
+            raise ValueError(f"{self} already belongs to tile {self._tile.name}")
+        self._tile = tile
+
     @property
     def wire_direction(self) -> Direction:
         """The direction the wire runs in."""
@@ -576,23 +575,14 @@ class SJumpPort(TilePort):
         `IO.INPUT` for one arriving from it.
     wire_count : int
         The number of wires, which is also the port's width.
-    tile : Tile | None
-        The tile this port belongs to. Defaults to None, leaving it unattached.
     """
 
-    def __init__(
-        self,
-        name: str,
-        io_direction: IO,
-        wire_count: int,
-        tile: Tile | None = None,
-    ) -> None:
+    def __init__(self, name: str, io_direction: IO, wire_count: int) -> None:
         is_output = io_direction == IO.OUTPUT
         super().__init__(
             name=name,
             io_direction=io_direction,
             side_of_tile=Side.ANY,
-            tile=tile,
             wire_direction=Direction.SJUMP,
             source_name=name if is_output else NULL_PORT_NAME,
             destination_name=NULL_PORT_NAME if is_output else name,

@@ -40,8 +40,6 @@ class SuperTile:
         The map of the tiles that make up the super tile
     bels : list[Bel]
         The list of bels of that the super tile contains
-    withUserCLK : bool
-        Whether the super tile has a userCLK port. Default is False.
     switch_matrix : SwitchMatrix | None
         The supertile switch matrix (source file, connectivity, config bits), or
         None if the supertile has no switch matrix.
@@ -57,9 +55,13 @@ class SuperTile:
     tiles: list[Tile]
     tileMap: list[list[Tile]]
     bels: list[Bel] = field(default_factory=list)
-    withUserCLK: bool = False
     switch_matrix: SwitchMatrix | None = None
     master_tile_coords: tuple[int, int] | None = None
+
+    @property
+    def withUserCLK(self) -> bool:
+        """Whether any supertile-level BEL uses the user clock."""
+        return any(bel.withUserCLK for bel in self.bels)
 
     def get_ports_around_tile(self) -> dict[str, list[list[TilePort]]]:
         """Return all the ports that are around the supertile.

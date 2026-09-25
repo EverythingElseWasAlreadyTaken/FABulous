@@ -229,7 +229,6 @@ def make_empty_tile(
             hdl_config_bits=config_bits or None,
         ),
         gen_ios=[],
-        userCLK=False,
         pinOrderConfig=pinOrderConfig,
     )
 

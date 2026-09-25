@@ -311,7 +311,6 @@ def _build_fabric(
             matrix_path, _TILE_NAME, switch_matrix_ports([], [bel])
         ),
         gen_ios=[],
-        userCLK=False,
     )
     tile.wireList = wires
 

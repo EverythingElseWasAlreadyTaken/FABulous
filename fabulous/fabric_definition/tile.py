@@ -27,7 +27,7 @@ class Tile:
     name : str
         The name of the tile
     ports : list[TilePort]
-        List of ports for the tile
+        List of ports for the tile. Each port is attached to this tile.
     bels : list[Bel]
         List of Basic Elements of Logic (BELs) in the tile
     tileDir : Path
@@ -37,8 +37,6 @@ class Tile:
         config-bit count.
     gen_ios : list[Gen_IO]
         List of general I/O components
-    userCLK : bool
-        True if the tile uses a clk signal
     pinOrderConfig : dict[Side, PinOrderConfig] | None, optional
         Configuration for pin ordering on each side of the tile. If None, defaults to
         BUS_MAJOR sorting on all sides.
@@ -60,8 +58,6 @@ class Tile:
         The switch matrix of the tile
     gen_ios : list[Gen_IO]
         The list of GEN_IOs of the tile
-    withUserCLK : bool
-        Whether the tile has a userCLK port. Default is False.
     wireList : list[Wire]
         The list of wires of the tile
     tileDir : Path
@@ -78,7 +74,6 @@ class Tile:
     bels: list[Bel]
     switch_matrix: SwitchMatrix
     gen_ios: list[Gen_IO]
-    withUserCLK: bool = False
     wireList: list[Wire] = field(default_factory=list)
     tileDir: Path = Path()
     partOfSuperTile: bool = False
@@ -92,17 +87,17 @@ class Tile:
         tileDir: Path,
         switch_matrix: SwitchMatrix,
         gen_ios: list[Gen_IO],
-        userCLK: bool,
         pinOrderConfig: dict[Side, "PinOrderConfig"] | None = None,
         jump_wires: list[JumpWire] | None = None,
     ) -> None:
         self.name = name
         self.portsInfo = ports
+        for port in ports:
+            port.tile = self
         self.jump_wires = jump_wires or []
         self.bels = bels
         self.gen_ios = gen_ios
         self.switch_matrix = switch_matrix
-        self.withUserCLK = userCLK
         self.wireList = []
         self.tileDir = tileDir
 
@@ -136,6 +131,11 @@ class Tile:
         if __o is None or not isinstance(__o, Tile):
             return False
         return self.name == __o.name
+
+    @property
+    def withUserCLK(self) -> bool:
+        """Whether any BEL of the tile uses the user clock."""
+        return any(bel.withUserCLK for bel in self.bels)
 
     def getWestSidePorts(self) -> list[TilePort]:
         """Get all ports physically located on the west side of the tile.

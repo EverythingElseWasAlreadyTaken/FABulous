@@ -353,7 +353,6 @@ class TestBelExternalPorts:
             tileDir=Path(),
             switch_matrix=SwitchMatrix(matrix_file=Path(), ports=(), connections={}),
             gen_ios=[],
-            userCLK=False,
         )
         net = supertile_netlist([[tile]])
 
@@ -388,7 +387,6 @@ class TestInterTileRouting:
             tileDir=Path(),
             switch_matrix=SwitchMatrix(matrix_file=Path(), ports=(), connections={}),
             gen_ios=[],
-            userCLK=False,
         )
         right = Tile(
             name="Right",
@@ -409,7 +407,6 @@ class TestInterTileRouting:
             tileDir=Path(),
             switch_matrix=SwitchMatrix(matrix_file=Path(), ports=(), connections={}),
             gen_ios=[],
-            userCLK=False,
         )
         net = supertile_netlist([[left, right]])
 

@@ -3,22 +3,24 @@
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
+from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import IO, Direction, Side
-from fabulous.fabric_definition.port import TilePort
+from fabulous.fabric_definition.port import BelPort, TilePort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
 
 
-def _mk_tile(ports: list[TilePort]) -> Tile:
-    """Construct a Tile with only portsInfo set — enough for get_port_count tests."""
+def _mk_tile(ports: list[TilePort], bels: list[Bel] | None = None) -> Tile:
+    """Construct a Tile with only ports (and BELs) set."""
     return Tile(
         name="T",
         ports=ports,
-        bels=[],
+        bels=bels or [],
         tileDir=Path(),
         switch_matrix=SwitchMatrix(matrix_file=Path(), ports=(), connections={}),
         gen_ios=[],
-        userCLK=False,
     )
 
 
@@ -124,3 +126,22 @@ class TestGetMinDieArea:
         )
         # 4 pins × 2 thickness + 2 offset = 10 tracks × 0.5 pitch = 5.0 um
         assert mw == Decimal("5.0")
+
+
+class TestTileOwnership:
+    """A tile owns its ports and derives its clock use from its BELs."""
+
+    def test_attaches_its_ports_once(self) -> None:
+        """Each port points back at its tile; it cannot join a second tile."""
+        ports = _directional_ports("NORTH", "N1BEG", "N1END", 1)
+        tile = _mk_tile(ports)
+        assert all(port.tile is tile for port in ports)
+        with pytest.raises(ValueError, match="already belongs"):
+            _mk_tile(ports)
+
+    @pytest.mark.parametrize("is_clock", [True, False])
+    def test_user_clk_follows_the_bels(self, is_clock: bool) -> None:
+        """`withUserCLK` is true exactly when a BEL has a clock port."""
+        clk = BelPort("UserCLK", IO.INPUT, 1, is_clock=is_clock)
+        bel = Bel(Path("FF.v"), "", "FF", [clk])
+        assert _mk_tile([], [bel]).withUserCLK is is_clock
