@@ -268,8 +268,8 @@ class TilePort(Port):
         The tile this port belongs to. Set once at construction and read-only
         thereafter. Defaults to None, leaving the port unattached.
     wire_direction : Direction | None
-        The wire direction (for backward compatibility with legacy Port).
-        Defaults to None, which resolves to Direction.JUMP.
+        The direction the wire runs in. Defaults to None, which resolves to
+        Direction.JUMP.
     source_name : str
         The source name of the wire connection. Defaults to "".
     x_offset : int
@@ -287,7 +287,6 @@ class TilePort(Port):
     _side_of_tile: Side
     _term: bool
     _tile: Tile | None
-    # Backward compatibility fields for wire routing
     _wire_direction: Direction
     _source_name: str
     _x_offset: int
@@ -346,32 +345,32 @@ class TilePort(Port):
     # Backward compatibility properties
     @property
     def wire_direction(self) -> Direction:
-        """Wire direction (backward compatibility)."""
+        """The direction the wire runs in."""
         return self._wire_direction
 
     @property
     def source_name(self) -> str:
-        """Source name (backward compatibility)."""
+        """The name of the wire's driving end, or NULL."""
         return self._source_name
 
     @property
     def x_offset(self) -> int:
-        """X-offset (backward compatibility)."""
+        """The column offset from the driving to the receiving tile."""
         return self._x_offset
 
     @property
     def y_offset(self) -> int:
-        """Y-offset (backward compatibility)."""
+        """The row offset from the driving to the receiving tile."""
         return self._y_offset
 
     @property
     def destination_name(self) -> str:
-        """Destination name (backward compatibility)."""
+        """The name of the wire's receiving end, or NULL."""
         return self._destination_name
 
     @property
     def wire_count(self) -> int:
-        """Wire count (backward compatibility)."""
+        """The number of wires per hop."""
         return self._wire_count
 
     def __repr__(self) -> str:
@@ -476,7 +475,6 @@ class TilePort(Port):
             return [n.replace("[", r"\[").replace("]", r"\]") for n in names]
         return names
 
-    # Backward compatibility methods from old Port class
     def get_port_regex(self, indexed: bool = False, prefix: str = "") -> str:
         """Expand port information to individual wire names.
 
@@ -558,92 +556,6 @@ class TilePort(Port):
             List of individual wire names for top-level connections.
         """
         return self._pin_names(self.top_pins, indexed, prefix, escape)
-
-    def expand_port_info(
-        self, mode: str = "SwitchMatrix"
-    ) -> tuple[list[str], list[str]]:
-        """Expand the port information to the individual bit signal.
-
-        If 'Indexed' is in the mode, then brackets are added to the signal name.
-
-        Parameters
-        ----------
-        mode : str, optional
-            Mode for expansion. Defaults to "SwitchMatrix".
-            Possible modes are 'all', 'allIndexed', 'Top', 'TopIndexed', 'AutoTop',
-            'AutoTopIndexed', 'SwitchMatrix', 'SwitchMatrixIndexed', 'AutoSwitchMatrix',
-            'AutoSwitchMatrixIndexed'
-
-        Returns
-        -------
-        tuple[list[str], list[str]]
-            A tuple of two lists. The first list contains the source names of the ports
-            and the second list contains the destination names of the ports.
-        """
-        inputs, outputs = [], []
-        thisRange = 0
-        openIndex = ""
-        closeIndex = ""
-
-        if "Indexed" in mode:
-            openIndex = "("
-            closeIndex = ")"
-
-        # range (wires-1 downto 0) as connected to the switch matrix
-        if mode == "SwitchMatrix" or mode == "SwitchMatrixIndexed":
-            thisRange = self.wire_count
-        elif mode == "AutoSwitchMatrix" or mode == "AutoSwitchMatrixIndexed":
-            if self.wire_direction == Direction.SJUMP:
-                thisRange = self.wire_count
-            elif self.is_null_terminated:
-                # the following line connects all wires to the switch matrix in the case
-                # one port is NULL (typically termination)
-                thisRange = (abs(self.x_offset) + abs(self.y_offset)) * self.wire_count
-            else:
-                # the following line connects all bottom wires to the switch matrix in
-                # the case begin and end ports are used
-                thisRange = self.wire_count
-        # range ((wires*distance)-1 downto 0) as connected to the tile top
-        elif mode in [
-            "all",
-            "allIndexed",
-            "Top",
-            "TopIndexed",
-            "AutoTop",
-            "AutoTopIndexed",
-        ]:
-            thisRange = (abs(self.x_offset) + abs(self.y_offset)) * self.wire_count
-
-        # the following three lines are needed to get the top line[wires] that
-        # are actually the connection from a switch matrix to the routing fabric
-        startIndex = 0
-        if mode in ["Top", "TopIndexed"]:
-            startIndex = (
-                (abs(self.x_offset) + abs(self.y_offset)) - 1
-            ) * self.wire_count
-
-        elif mode in ["AutoTop", "AutoTopIndexed"]:
-            if self.is_null_terminated:
-                # in case one port is NULL, then the all the other port wires get
-                # connected to the switch matrix.
-                startIndex = 0
-            else:
-                # "normal" case as for the CLBs
-                startIndex = (
-                    (abs(self.x_offset) + abs(self.y_offset)) - 1
-                ) * self.wire_count
-        if startIndex == thisRange:
-            thisRange = 1
-
-        for i in range(startIndex, thisRange):
-            if self.has_source:
-                inputs.append(f"{self.source_name}{openIndex}{str(i)}{closeIndex}")
-
-            if self.has_destination:
-                outputs.append(
-                    f"{self.destination_name}{openIndex}{str(i)}{closeIndex}"
-                )
-        return inputs, outputs
 
 
 class SJumpPort(TilePort):

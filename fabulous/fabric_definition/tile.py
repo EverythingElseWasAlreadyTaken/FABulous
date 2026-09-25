@@ -334,17 +334,7 @@ class Tile:
         int
             Total number of expanded ports on the given side.
         """
-        total = 0
-        for p in self.portsInfo:
-            if p.side_of_tile != side:
-                continue
-            inputs, outputs = p.expand_port_info("all")
-            if p.name == p.source_name:
-                total += len(inputs)
-            elif p.name == p.destination_name:
-                total += len(outputs)
-
-        return total
+        return sum(p.width for p in self.portsInfo if p.side_of_tile == side)
 
     def get_min_die_area(
         self,
