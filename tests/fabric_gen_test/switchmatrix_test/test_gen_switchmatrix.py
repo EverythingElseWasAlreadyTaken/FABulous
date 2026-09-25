@@ -420,3 +420,59 @@ class TestUnconnectedPortDiagnostic:
         ports, _, _ = parse_port_line("SOUTH,X1_Y1_2_X1_Y4_port,0,3,NULL,16")
 
         assert _unconnected_port_diagnostic(ports, "not_a_real_wire0") == ""
+
+
+class TestSwitchMatrixModulePorts:
+    """The matrix module declares its ports from `switch_matrix.ports`."""
+
+    @staticmethod
+    def _declared(rtl: str) -> list[str]:
+        return re.findall(r"^\s*(input|output)\s+(\w+),?$", rtl, re.MULTILINE)
+
+    def test_tile_and_supertile_port_order(
+        self,
+        tmp_path: Path,
+        code_generator_factory: Callable[[str, str], CodeGenerator],
+    ) -> None:
+        """SJUMP outputs precede SJUMP inputs; the supertile groups by role."""
+        tile_mat = tmp_path / "DSP_bot_switch_matrix.list"
+        create_switchmatrix_list(tile_mat, [("x0{2}", "[r0|GND0]"), ("x1", "r0")])
+        bot = make_empty_tile(
+            "DSP_bot",
+            [sjump_port("r", IO.INPUT, wire_count=1), sjump_port("x", IO.OUTPUT)],
+            tileDir=tmp_path,
+            matrixDir=tile_mat,
+            pinOrderConfig={},
+        )
+        bot.switch_matrix = SwitchMatrix.from_file(
+            tile_mat, "DSP_bot", switch_matrix_ports(bot.portsInfo, bot.bels)
+        )
+        writer = code_generator_factory(".v", "DSP_bot_switch_matrix")
+        genTileSwitchMatrix(writer, bot, False)
+        assert self._declared(writer.outFileName.read_text()) == [
+            ("output", "x0"),
+            ("output", "x1"),
+            ("input", "r0"),
+        ]
+
+        st_mat = tmp_path / "supertile_matrix.list"
+        create_switchmatrix_list(
+            st_mat,
+            [("SUPER_A0{2}", "[DSP_bot_x0|DSP_bot_x1]"), ("DSP_bot_r0", "SUPER_Q0")],
+        )
+        bel = make_muladd_bel([("SUPER_A0", IO.INPUT), ("SUPER_Q0", IO.OUTPUT)])
+        supertile = SuperTile(
+            name="DSP", tileDir=tmp_path, tiles=[bot], tileMap=[[bot]], bels=[bel]
+        )
+        supertile.switch_matrix = SwitchMatrix.from_file(
+            st_mat, "DSP", supertile.switch_matrix_ports(), canonical=False
+        )
+        writer = code_generator_factory(".v", "DSP_switch_matrix")
+        gen_super_tile_switch_matrix(writer, supertile)
+        assert self._declared(writer.outFileName.read_text()) == [
+            ("input", "DSP_bot_x0"),
+            ("input", "DSP_bot_x1"),
+            ("output", "SUPER_A0"),
+            ("input", "SUPER_Q0"),
+            ("output", "DSP_bot_r0"),
+        ]

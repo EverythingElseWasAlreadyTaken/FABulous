@@ -19,12 +19,16 @@ from loguru import logger
 from fabulous.fabric_definition.define import (
     IO,
     SWITCH_MATRIX_CONSTANTS,
-    BelPortKind,
     ConfigBitMode,
-    Direction,
     MultiplexerStyle,
 )
-from fabulous.fabric_definition.port import Port
+from fabulous.fabric_definition.port import (
+    BelPort,
+    Port,
+    SJumpPort,
+    SwitchMatrixPort,
+    TilePort,
+)
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.code_generator.code_generator import CodeGenerator
@@ -74,6 +78,49 @@ def _unconnected_port_diagnostic(ports: list[Port], port_name: str) -> str:
             "point-to-point bus."
         )
     return ""
+
+
+def _ports_from(
+    ports: tuple[SwitchMatrixPort, ...], origin: type, io: IO
+) -> list[SwitchMatrixPort]:
+    """Return the matrix ports of one origin type and direction, in port order.
+
+    The origin type is matched exactly: an `SJumpPort` is a `TilePort`, but
+    its matrix ports are grouped apart from the routing wires'.
+
+    Parameters
+    ----------
+    ports : tuple[SwitchMatrixPort, ...]
+        The matrix ports.
+    origin : type
+        The type of the port each matrix port wires to.
+    io : IO
+        The direction as seen from the switch matrix.
+
+    Returns
+    -------
+    list[SwitchMatrixPort]
+        The matching ports.
+    """
+    return [p for p in ports if type(p.origin) is origin and p.io_direction == io]
+
+
+def _add_port_pins(writer: CodeGenerator, ports: list[SwitchMatrixPort]) -> None:
+    """Declare every pin of the given matrix ports as a scalar module port.
+
+    The switch matrix module has one scalar port per pin, named the flat way
+    (`N1END0`), in the order of `ports` and least significant bit first.
+
+    Parameters
+    ----------
+    writer : CodeGenerator
+        The code generator writing the switch matrix module.
+    ports : list[SwitchMatrixPort]
+        The matrix ports to declare; each keeps its own direction.
+    """
+    for port in ports:
+        for pin in port.pins:
+            writer.addPortScalar(pin.name(), port.io_direction, indentLevel=2)
 
 
 def genTileSwitchMatrix(
@@ -141,52 +188,31 @@ def genTileSwitchMatrix(
         writer.addParameterEnd(indentLevel=1)
     writer.addPortStart(indentLevel=1)
 
-    # normal wire input (SJUMP is handled separately)
-    for i in tile.portsInfo:
-        if i.wire_direction != Direction.SJUMP and i.is_input:
-            for p in i.expand_port_info_by_name():
-                writer.addPortScalar(p, IO.INPUT, indentLevel=2)
-
-    # bel wire input
-    for b in tile.bels:
-        for p in b.pin_names(BelPortKind.INTERNAL, IO.OUTPUT):
-            writer.addPortScalar(p, IO.INPUT, indentLevel=2)
-
-    # jump wire input; a source-less jump names a constant (declared as a
-    # parameter in the body), not a port
-    for wire in tile.jump_wires:
-        if wire.source is not None and wire.destination is not None:
-            for pin in wire.destination.pins:
-                writer.addPortScalar(pin.name(), IO.INPUT, indentLevel=2)
-
-    # normal wire output (SJUMP is handled separately)
-    for i in tile.portsInfo:
-        if i.wire_direction != Direction.SJUMP and i.is_output:
-            for p in i.expand_port_info_by_name():
-                writer.addPortScalar(p, IO.OUTPUT, indentLevel=2)
-
-    # bel wire output
-    for b in tile.bels:
-        for p in b.pin_names(BelPortKind.INTERNAL, IO.INPUT):
-            writer.addPortScalar(p, IO.OUTPUT, indentLevel=2)
-
-    # jump wire output
-    for wire in tile.jump_wires:
-        if wire.source is not None:
-            for pin in wire.source.pins:
-                writer.addPortScalar(pin.name(), IO.OUTPUT, indentLevel=2)
-
-    # sjump wire output - SM drives OUTPUT signals exiting to supertile SM
-    for i in tile.portsInfo:
-        if i.wire_direction == Direction.SJUMP and i.is_output:
-            for p in i.expand_port_info_by_name():
-                writer.addPortScalar(p, IO.OUTPUT, indentLevel=2)
-
-    # sjump wire input - SM receives INPUT signals arriving from supertile SM
-    for i in tile.portsInfo:
-        if i.wire_direction == Direction.SJUMP and i.is_input:
-            for p in i.expand_port_info_by_name():
-                writer.addPortScalar(p, IO.INPUT, indentLevel=2)
+    # The module's ports are the matrix's own ports. A source-less jump names a
+    # constant (declared in the body), not a port, and neither is a literal
+    # constant; the jump ports that remain are the matrix ports of the wires.
+    sm_ports = tile.switch_matrix.ports
+    jump_ports = {
+        end
+        for wire in tile.jump_wires
+        if wire.source is not None
+        for end in (wire.source, wire.destination)
+        if end is not None
+    }
+    jump = [p for p in sm_ports if p in jump_ports]
+    for ports in (
+        _ports_from(sm_ports, TilePort, IO.INPUT),
+        _ports_from(sm_ports, BelPort, IO.INPUT),
+        [p for p in jump if p.is_input],
+        _ports_from(sm_ports, TilePort, IO.OUTPUT),
+        _ports_from(sm_ports, BelPort, IO.OUTPUT),
+        [p for p in jump if p.is_output],
+        # SJUMP: the matrix drives signals out to the supertile matrix and
+        # receives signals back from it
+        _ports_from(sm_ports, SJumpPort, IO.OUTPUT),
+        _ports_from(sm_ports, SJumpPort, IO.INPUT),
+    ):
+        _add_port_pins(writer, ports)
 
     writer.addComment("global", onNewLine=True)
     if noConfigBits > 0:
@@ -468,35 +494,31 @@ def gen_super_tile_switch_matrix(
         writer.addParameterEnd(indentLevel=1)
     writer.addPortStart(indentLevel=1)
 
+    sm_ports = superTile.switch_matrix.ports
+    forward = _ports_from(sm_ports, SJumpPort, IO.INPUT)
+    bel_inputs = _ports_from(sm_ports, BelPort, IO.OUTPUT)
+    bel_outputs = _ports_from(sm_ports, BelPort, IO.INPUT)
+    reverse = _ports_from(sm_ports, SJumpPort, IO.OUTPUT)
+
     # Inputs: SJUMP OUTPUT signals from each child tile ({tileName}_{portName}{i})
-    forward = superTile.forward_sjump_wires()
     if forward:
         writer.addComment("SJUMP inputs from child tiles", onNewLine=True)
-        for wire in forward:
-            for pin in wire.matrix_port.pins:
-                writer.addPortScalar(pin.name(), IO.INPUT, indentLevel=2)
+    _add_port_pins(writer, forward)
 
     # Outputs: input ports of supertile BELs (SM drives BEL inputs)
     if superTile.bels:
         writer.addComment("BEL input ports (SM outputs)", onNewLine=True)
-    for bel in superTile.bels:
-        for p in bel.pin_names(BelPortKind.INTERNAL, IO.INPUT):
-            writer.addPortScalar(p, IO.OUTPUT, indentLevel=2)
+    _add_port_pins(writer, bel_inputs)
 
     # Inputs: output ports of supertile BELs (SM routes them back to child tiles)
-    if any(bel.pin_names(BelPortKind.INTERNAL, IO.OUTPUT) for bel in superTile.bels):
+    if bel_outputs:
         writer.addComment("BEL output ports (SM inputs)", onNewLine=True)
-    for bel in superTile.bels:
-        for p in bel.pin_names(BelPortKind.INTERNAL, IO.OUTPUT):
-            writer.addPortScalar(p, IO.INPUT, indentLevel=2)
+    _add_port_pins(writer, bel_outputs)
 
     # Outputs: reverse SJUMP signals driven back into child tiles
-    reverse = superTile.reverse_sjump_wires()
     if reverse:
         writer.addComment("Reverse SJUMP outputs (SM -> child tile)", onNewLine=True)
-        for wire in reverse:
-            for pin in wire.matrix_port.pins:
-                writer.addPortScalar(pin.name(), IO.OUTPUT, indentLevel=2)
+    _add_port_pins(writer, reverse)
 
     writer.addComment("global", onNewLine=True)
     if noConfigBits > 0:
