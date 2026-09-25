@@ -201,6 +201,9 @@ class Fabric:
                         "BEL and are only valid inside a supertile's tiles."
                     )
 
+        # TODO: this extends the commonWirePair already computed in parse_csv,
+        # and it is used to resolve NULL-terminated wire ends by name. Replace
+        # both with a pin-level inter-tile wire edge.
         for row in self.tile:
             for tile in row:
                 if tile is None:

@@ -952,6 +952,9 @@ def parseFabricCSV(fileName: str) -> Fabric:
     height = len(fabricTiles)
     width = len(fabricTiles[0])
 
+    # TODO: Fabric.__post_init__ recomputes commonWirePair from the tile ports
+    # (with an exact NULL check, not this substring one). Both go away once the
+    # inter-tile wire is a pin-level edge instead of name pairs.
     common_wire_pair = list(dict.fromkeys(common_wire_pair))
     common_wire_pair = [
         (i, j) for (i, j) in common_wire_pair if "NULL" not in i and "NULL" not in j
