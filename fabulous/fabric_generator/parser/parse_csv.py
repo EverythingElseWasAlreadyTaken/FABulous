@@ -1,7 +1,6 @@
 """Contains functions for parsing CSV files related to the fabric definition."""
 
 import re
-from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -688,8 +687,7 @@ def parseSupertilesCSV(fileName: Path, tileDic: dict[str, Tile]) -> list[SuperTi
                     row_master = True
                     continue
                 if j in tileDic:
-                    tileDic[j].partOfSuperTile = True
-                    t = deepcopy(tileDic[j])
+                    t = tileDic[j]
                     row.append(t)
                     if t not in tiles:
                         tiles.append(t)
@@ -718,8 +716,14 @@ def parseSupertilesCSV(fileName: Path, tileDic: dict[str, Tile]) -> list[SuperTi
 
         # tileDir is the supertile CSV file path (matching Tile.tileDir), so
         # consumers use `tileDir.parent` for the supertile's directory.
-        super_tile = SuperTile(name, fileName.absolute(), tiles, tileMap, bels)
-        super_tile.master_tile_coords = master_coords
+        super_tile = SuperTile(
+            name,
+            fileName.absolute(),
+            tiles,
+            tileMap,
+            bels,
+            master_tile_coords=master_coords,
+        )
         super_tile.config_mem = empty_config_mem(
             super_tile.directory / f"{name}_ConfigMem.csv"
         )
@@ -735,6 +739,18 @@ def parseSupertilesCSV(fileName: Path, tileDic: dict[str, Tile]) -> list[SuperTi
                 )
             super_tile.switch_matrix = SwitchMatrix.from_file(
                 st_matrix_dir, name, super_tile.switch_matrix_ports(), canonical=False
+            )
+        elif super_tile.sjump_wires:
+            raise InvalidSupertileDefinition(
+                f"Supertile '{name}': its subtiles declare SJUMP wires, but it has "
+                "no MATRIX line. SJUMP wires connect to the supertile switch "
+                "matrix, so a supertile with SJUMP wires needs one."
+            )
+        elif super_tile.bels:
+            raise InvalidSupertileDefinition(
+                f"Supertile '{name}': it has BELs, but no MATRIX line. Supertile "
+                "BELs connect to the supertile switch matrix, so a supertile "
+                "with BELs needs one."
             )
 
         new_supertiles.append(super_tile)
@@ -1048,7 +1064,7 @@ def parseFabricCSV(fileName: str) -> Fabric:
         fabricLine = []
         for i in fabricLineTmp:
             if i in tileDic:
-                fabricLine.append(deepcopy(tileDic[i]))
+                fabricLine.append(tileDic[i])
                 usedTile.add(i)
             elif i == "Null" or i == "NULL" or i == "None":
                 fabricLine.append(None)

@@ -136,7 +136,7 @@ class FABulousFabric(FABulousFabricMacroFlow):
                 Path(p) for p in self.config.get("FABULOUS_TILE_LIBRARY") or []
             ]
             macro_names = [
-                t.name for t in self.fabric.tileDic.values() if not t.partOfSuperTile
+                t.name for t in self.fabric.tileDic.values() if t.super_tile is None
             ]
             macro_names += list(self.fabric.superTileDic)
             tile_macro_dirs = _discover_tile_macros(macro_names, tile_lib_paths)

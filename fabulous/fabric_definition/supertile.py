@@ -63,6 +63,32 @@ class SuperTile:
     master_tile_coords: tuple[int, int] | None = None
     config_mem: ConfigMem | None = None
 
+    def __post_init__(self) -> None:
+        """Attach this supertile to its subtile types and check its BEL count.
+
+        A supertile's BELs are emitted at its master tile, sharing the BEL
+        letter space (A, B, ...) with the master tile's own BELs, so the two
+        together must fit in 26 letters.
+
+        Raises
+        ------
+        ValueError
+            If the supertile's and its master tile's BELs exceed 26.
+        """
+        for row in self.tileMap:
+            for tile in row:
+                if tile is not None:
+                    tile.super_tile = self
+        if self.bels:
+            mx, my = self.get_master_tile_coords()
+            master_tile = self.tileMap[my][mx]
+            if master_tile is not None and len(master_tile.bels) + len(self.bels) > 26:
+                raise ValueError(
+                    "Due to naming limitations, supertile "
+                    f"{self.name} and its master tile {master_tile.name} "
+                    "together cannot have more than 26 BELs."
+                )
+
     @property
     def withUserCLK(self) -> bool:
         """Whether any supertile-level BEL uses the user clock."""

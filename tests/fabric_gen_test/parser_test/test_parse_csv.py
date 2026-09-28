@@ -4,8 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from fabulous.custom_exception import InvalidFabricParameter, InvalidPortType
+from fabulous.custom_exception import (
+    InvalidFabricParameter,
+    InvalidPortType,
+    InvalidSupertileDefinition,
+)
 from fabulous.fabric_definition.define import IO, ConfigBitMode, Direction, Side
+from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.parser.parse_csv import (
     parse_port_line,
     parse_tile_from_dir,
@@ -14,6 +19,7 @@ from fabulous.fabric_generator.parser.parse_csv import (
     parseTilesCSV,
 )
 from fabulous.fabulous_settings import init_context
+from tests.conftest import make_empty_tile, sjump_port
 
 # (kind, physical side of the OUTPUT/start port, physical side of the INPUT/end port)
 DIRECTIONAL_CASES = [
@@ -194,19 +200,40 @@ class TestUserCLKDirection:
             parseFabricCSV(str(self._set_direction(project, "UP")))
 
 
+def _fresh_dsp_tiles(project: Path) -> dict[str, Tile]:
+    """Parse the DSP subtiles anew, free to join another supertile."""
+    tiles = {}
+    for name in ("DSP_top", "DSP_bot"):
+        (tile,) = parseTilesCSV(project / "Tile" / "DSP" / name / f"{name}.csv")[0]
+        tiles[name] = tile
+    return tiles
+
+
+def _write_bel_supertile(project: Path, bel_line: str) -> Path:
+    """Write a supertile `ST` over `DSP_bot` with the BEL line, and its matrix."""
+    dsp = project / "Tile" / "DSP"
+    (dsp / "ST_switch_matrix.v").write_text(
+        "// NumberOfConfigBits: 0\nmodule ST_switch_matrix(); endmodule\n"
+    )
+    csv = dsp / "ST.csv"
+    csv.write_text(
+        f"SuperTILE,ST\nDSP_bot\n{bel_line}\nMATRIX,./ST_switch_matrix.v\n"
+        "EndSuperTILE\n"
+    )
+    return csv
+
+
 @pytest.mark.parametrize("prefix", ["", "MUL_"])
 def test_supertile_bel_add_as_custom_prim(project: Path, prefix: str) -> None:
     """A supertile BEL flagged `ADD_AS_CUSTOM_PRIM` lands in `custom_prims.v`."""
     init_context(project)
     prims = project / "user_design" / "custom_prims.v"
     prims.unlink(missing_ok=True)
-    csv = project / "Tile" / "DSP" / "ST.csv"
-    csv.write_text(
-        "SuperTILE,ST\nNull\n"
-        f"BEL,./DSP_bot/MULADD.v,{prefix},ADD_AS_CUSTOM_PRIM\nEndSuperTILE\n"
+    csv = _write_bel_supertile(
+        project, f"BEL,./DSP_bot/MULADD.v,{prefix},ADD_AS_CUSTOM_PRIM"
     )
 
-    (supertile,) = parseSupertilesCSV(csv, {})
+    (supertile,) = parseSupertilesCSV(csv, _fresh_dsp_tiles(project))
 
     assert supertile.bels[0].prefix == prefix
     assert "module MULADD" in prims.read_text()
@@ -240,12 +267,9 @@ def test_supertile_prefix_add_as_custom_prim_warns(
     init_context(project)
     prims = project / "user_design" / "custom_prims.v"
     prims.unlink(missing_ok=True)
-    csv = project / "Tile" / "DSP" / "ST.csv"
-    csv.write_text(
-        "SuperTILE,ST\nNull\nBEL,./DSP_bot/MULADD.v,ADD_AS_CUSTOM_PRIM\nEndSuperTILE\n"
-    )
+    csv = _write_bel_supertile(project, "BEL,./DSP_bot/MULADD.v,ADD_AS_CUSTOM_PRIM")
 
-    (supertile,) = parseSupertilesCSV(csv, {})
+    (supertile,) = parseSupertilesCSV(csv, _fresh_dsp_tiles(project))
 
     assert "ADD_AS_CUSTOM_PRIM in the prefix field" in caplog.text
     assert supertile.bels[0].prefix == ""
@@ -319,13 +343,13 @@ def test_a_supertile_declared_in_the_fabric_csv_maps_into_its_own_directory(
     """A supertile declared in `fabric.csv` expects its mapping beside its children."""
     init_context(project)
     fabric_csv = project / "fabric.csv"
-    fabric = parseFabricCSV(str(fabric_csv))
     fabric_csv.write_text(
         fabric_csv.read_text()
         + "\nSuperTILE,DSP_INLINE,\nDSP_top,\nDSP_bot,\nEndSuperTILE,\n"
     )
 
-    (super_tile,) = parseSupertilesCSV(fabric_csv, fabric.tileDic)
+    # A tile type joins one supertile only: take subtiles not yet in `DSP`.
+    (super_tile,) = parseSupertilesCSV(fabric_csv, _fresh_dsp_tiles(project))
 
     assert super_tile.config_mem.source.parent == project / "Tile" / "DSP"
 
@@ -348,3 +372,36 @@ def test_a_chain_tile_parsed_from_its_directory_ignores_a_stale_mapping(
     )
 
     assert tile.config_mem.config_bits == 0
+
+
+class TestParseSupertiles:
+    """Supertile definitions are checked when they are parsed."""
+
+    @pytest.mark.parametrize("with_sjump", [False, True])
+    def test_sjump_wires_need_a_supertile_matrix(
+        self, tmp_path: Path, with_sjump: bool
+    ) -> None:
+        """SJUMP wires lead to the supertile matrix, so one must be declared."""
+        ports = [sjump_port("A", IO.OUTPUT)] if with_sjump else []
+        bot = make_empty_tile("DSP_bot", ports, pinOrderConfig={})
+        csv = tmp_path / "DSP.csv"
+        csv.write_text("SuperTILE,DSP\nDSP_bot\nEndSuperTILE\n")
+
+        if with_sjump:
+            with pytest.raises(InvalidSupertileDefinition, match="no MATRIX line"):
+                parseSupertilesCSV(csv, {"DSP_bot": bot})
+        else:
+            (super_tile,) = parseSupertilesCSV(csv, {"DSP_bot": bot})
+            assert super_tile.switch_matrix is None
+
+    def test_bels_need_a_supertile_matrix(self, tmp_path: Path) -> None:
+        """Supertile BELs connect to the supertile matrix, so one must be declared."""
+        (tmp_path / "ADD.v").write_text(
+            "module ADD (input A, output Q);\n    assign Q = A;\nendmodule\n"
+        )
+        bot = make_empty_tile("DSP_bot", pinOrderConfig={})
+        csv = tmp_path / "DSP.csv"
+        csv.write_text("SuperTILE,DSP\nBEL,./ADD.v\nDSP_bot\nEndSuperTILE\n")
+
+        with pytest.raises(InvalidSupertileDefinition, match="has BELs, but no MATRIX"):
+            parseSupertilesCSV(csv, {"DSP_bot": bot})

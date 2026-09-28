@@ -371,8 +371,6 @@ def _build_fabric(
         config_mem=empty_config_mem(Path("ConfigMem.csv")),
         gen_ios=[],
     )
-    tile.wireList = wires
-
     fabric = Fabric(fabric_dir=root)
     fabric.tile = [[tile]]
     fabric.tileDic = {tile.name: tile}
@@ -381,6 +379,7 @@ def _build_fabric(
         frame_bits_per_row=_FRAME_BITS,
         max_frames_per_col=_MAX_FRAMES,
     )
+    fabric.wires = {(0, 0): wires}
     fabric.numberOfRows = 1
     fabric.numberOfColumns = 1
     return fabric

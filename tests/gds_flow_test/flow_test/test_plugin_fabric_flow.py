@@ -386,10 +386,9 @@ class TestAutoDiscoveryIncludesSuperTiles:
 
         regular = mocker.MagicMock()
         regular.name = "LUT4AB"
-        regular.partOfSuperTile = False
+        regular.super_tile = None
         subtile = mocker.MagicMock()
         subtile.name = "DSP_top"
-        subtile.partOfSuperTile = True
 
         mock_fabric = mocker.MagicMock()
         mock_fabric.name = "MyFab"
