@@ -179,29 +179,6 @@ class Fabric:
         if self.desync_flag != 20:
             raise ValueError("Due to bitstream limitations, desync_flag must be 20.")
 
-        for tile in self.tileDic.values():
-            if len(tile.bels) > 26:
-                raise ValueError(
-                    "Due to naming limitations, "
-                    f"tile {tile.name} cannot have more than 26 BELs."
-                )
-
-        # A supertile's BELs are emitted at its master tile, sharing the BEL
-        # letter space (A, B, ...) with the master tile's own BELs, so the two
-        # together must fit in 26 letters.
-        for superTile in self.superTileDic.values():
-            mx, my = superTile.get_master_tile_coords()
-            master_tile = superTile.tileMap[my][mx]
-            if (
-                master_tile is not None
-                and len(master_tile.bels) + len(superTile.bels) > 26
-            ):
-                raise ValueError(
-                    "Due to naming limitations, supertile "
-                    f"{superTile.name} and its master tile {master_tile.name} "
-                    "together cannot have more than 26 BELs."
-                )
-
         # A subtile type only exists as part of its supertile: every cell of one
         # must be covered by a placement of the supertile's arrangement. SJUMP
         # wires route a subtile to its supertile's switch matrix, so a tile type

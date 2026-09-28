@@ -1,6 +1,7 @@
 """Tests for hardcoded validation checks in Fabric.__post_init__."""
 
 from collections.abc import Callable
+from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -100,30 +101,6 @@ class TestFabricValidation:
         with pytest.raises(ValueError, match=error_match):
             make_fabric(**overrides)
 
-    @pytest.mark.parametrize(
-        ("num_bels", "should_raise"),
-        [
-            pytest.param(26, False, id="bels_at_boundary"),
-            pytest.param(27, True, id="bels_exceed_26"),
-            pytest.param(30, True, id="bels_far_exceed_26"),
-        ],
-    )
-    def test_tile_bel_count(
-        self,
-        make_fabric: Callable[..., Fabric],
-        num_bels: int,
-        should_raise: bool,
-    ) -> None:
-        tile = MagicMock(spec=Tile)
-        tile.name = "test_tile"
-        tile.bels = [MagicMock() for _ in range(num_bels)]
-        if should_raise:
-            with pytest.raises(ValueError, match="cannot have more than 26 BELs"):
-                make_fabric(tileDic={"test_tile": tile})
-        else:
-            fabric = make_fabric(tileDic={"test_tile": tile})
-            assert len(fabric.tileDic["test_tile"].bels) == num_bels
-
 
 class TestSubtileBackReference:
     """A subtile type knows its supertile, and has only one."""
@@ -200,3 +177,33 @@ class TestSuperTilePlacement:
             (0, 0): fabric.instances[0][0],
             (0, 1): fabric.instances[1][0],
         }
+
+
+class TestSuperTileBelLimit:
+    """A supertile's BELs share the master tile's 26 BEL letters."""
+
+    @pytest.mark.parametrize(
+        ("master_bels", "super_bels", "should_raise"),
+        [
+            pytest.param(20, 6, False, id="at_boundary"),
+            pytest.param(20, 7, True, id="exceeds_26"),
+        ],
+    )
+    def test_supertile_and_master_bel_count(
+        self, master_bels: int, super_bels: int, should_raise: bool
+    ) -> None:
+        top, bot = make_empty_tile("TOP"), make_empty_tile("BOT")
+        bot.bels = [MagicMock() for _ in range(master_bels)]
+        expectation = (
+            pytest.raises(ValueError, match="together cannot have more than")
+            if should_raise
+            else nullcontext()
+        )
+        with expectation:
+            SuperTile(
+                name="COL",
+                tileDir=Path(),
+                tiles=[top, bot],
+                tileMap=[[top], [bot]],
+                bels=[MagicMock() for _ in range(super_bels)],
+            )

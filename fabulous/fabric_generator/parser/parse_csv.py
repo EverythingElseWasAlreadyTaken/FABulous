@@ -624,8 +624,14 @@ def parseSupertilesCSV(fileName: Path, tileDic: dict[str, Tile]) -> list[SuperTi
 
         # tileDir is the supertile CSV file path (matching Tile.tileDir), so
         # consumers use `tileDir.parent` for the supertile's directory.
-        super_tile = SuperTile(name, fileName.absolute(), tiles, tileMap, bels)
-        super_tile.master_tile_coords = master_coords
+        super_tile = SuperTile(
+            name,
+            fileName.absolute(),
+            tiles,
+            tileMap,
+            bels,
+            master_tile_coords=master_coords,
+        )
 
         # The supertile switch matrix is taken from the MATRIX line (resolved
         # relative to the CSV). There is no auto-discovery: a supertile without a

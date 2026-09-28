@@ -63,6 +63,11 @@ class Tile:
         The path to the tile folder
     pinOrderConfig : dict, optional
         Configuration for pin ordering on each side of the tile.
+
+    Raises
+    ------
+    ValueError
+        If the tile has more than 26 BELs (BELs are named by the letters A-Z).
     """
 
     name: str
@@ -92,6 +97,10 @@ class Tile:
             port.tile = self
         self.jump_wires = jump_wires or []
         self.bels = bels
+        if len(bels) > 26:
+            raise ValueError(
+                f"Due to naming limitations, tile {name} cannot have more than 26 BELs."
+            )
         self.gen_ios = gen_ios
         self.switch_matrix = switch_matrix
         self.tileDir = tileDir

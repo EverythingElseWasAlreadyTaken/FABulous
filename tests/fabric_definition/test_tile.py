@@ -145,3 +145,24 @@ class TestTileOwnership:
         clk = BelPort("UserCLK", IO.INPUT, 1, is_clock=is_clock)
         bel = Bel(Path("FF.v"), "", "FF", [clk])
         assert _mk_tile([], [bel]).withUserCLK is is_clock
+
+    @pytest.mark.parametrize(
+        ("num_bels", "should_raise"),
+        [
+            pytest.param(26, False, id="bels_at_boundary"),
+            pytest.param(27, True, id="bels_exceed_26"),
+        ],
+    )
+    def test_bel_count_is_limited_to_26(
+        self, num_bels: int, should_raise: bool
+    ) -> None:
+        """BELs are named A-Z, so a tile holds at most 26 of them."""
+        bels = [
+            Bel(Path(f"B{i}.v"), "", f"B{i}", [BelPort("I", IO.INPUT, 1)])
+            for i in range(num_bels)
+        ]
+        if should_raise:
+            with pytest.raises(ValueError, match="cannot have more than 26 BELs"):
+                _mk_tile([], bels)
+        else:
+            assert len(_mk_tile([], bels).bels) == num_bels
