@@ -10,7 +10,7 @@ from fabulous.fabric_definition.define import IO, Direction, PinSortMode, Side
 from fabulous.fabric_definition.gen_io import Gen_IO
 from fabulous.fabric_definition.port import TilePort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
-from fabulous.fabric_definition.wire import JumpWire, Wire
+from fabulous.fabric_definition.wire import JumpWire
 
 if TYPE_CHECKING:
     from fabulous.fabric_generator.gds_generator.gen_io_pin_config_yaml import (
@@ -58,8 +58,6 @@ class Tile:
         The switch matrix of the tile
     gen_ios : list[Gen_IO]
         The list of GEN_IOs of the tile
-    wireList : list[Wire]
-        The list of wires of the tile
     tileDir : Path
         The path to the tile folder
     partOfSuperTile : bool, optional
@@ -74,7 +72,6 @@ class Tile:
     bels: list[Bel]
     switch_matrix: SwitchMatrix
     gen_ios: list[Gen_IO]
-    wireList: list[Wire] = field(default_factory=list)
     tileDir: Path = Path()
     partOfSuperTile: bool = False
     pinOrderConfig: dict = field(default_factory=dict)
@@ -98,7 +95,6 @@ class Tile:
         self.bels = bels
         self.gen_ios = gen_ios
         self.switch_matrix = switch_matrix
-        self.wireList = []
         self.tileDir = tileDir
 
         if pinOrderConfig is None:

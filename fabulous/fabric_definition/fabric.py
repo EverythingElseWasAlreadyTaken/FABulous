@@ -91,6 +91,10 @@ class Fabric:
         The key is the name of the tile and the value is the tile.
     commonWirePair : list[tuple[str, str]]
         A list of common wire pairs in the fabric.
+    wires : dict[tuple[int, int], list[Wire]]
+        The wires leaving each placed tile, by `(x, y)`. Derived in
+        `__post_init__`; a stopgap until inter-tile wires are pin-level
+        connections.
     """
 
     fabric_dir: Path
@@ -120,6 +124,7 @@ class Fabric:
     unusedTileDic: dict[str, Tile] = field(default_factory=dict)
     unusedSuperTileDic: dict[str, SuperTile] = field(default_factory=dict)
     commonWirePair: list[tuple[str, str]] = field(default_factory=list)
+    wires: dict[tuple[int, int], list[Wire]] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
         """Generate and get all the wire pairs in the fabric.
@@ -222,6 +227,7 @@ class Fabric:
             for x, tile in enumerate(row):
                 if tile is None:
                     continue
+                wires: list[Wire] = []
                 for port in tile.portsInfo:
                     if (
                         abs(port.x_offset) <= 1
@@ -229,7 +235,7 @@ class Fabric:
                         and not port.is_null_terminated
                     ):
                         for i in range(port.wire_count):
-                            tile.wireList.append(
+                            wires.append(
                                 Wire(
                                     direction=port.wire_direction,
                                     source=f"{port.source_name}{i}",
@@ -251,7 +257,7 @@ class Fabric:
                                 )
                             else:
                                 cascadedI = i - port.wire_count
-                                tile.wireList.append(
+                                wires.append(
                                     Wire(
                                         direction=Direction.JUMP,
                                         source=f"{port.destination_name}{i}",
@@ -262,7 +268,7 @@ class Fabric:
                                         destinationTile=f"X{x}Y{y}",
                                     )
                                 )
-                            tile.wireList.append(
+                            wires.append(
                                 Wire(
                                     direction=port.wire_direction,
                                     source=f"{port.source_name}{i}",
@@ -284,7 +290,7 @@ class Fabric:
                                 )
                             else:
                                 cascadedI = i - port.wire_count
-                                tile.wireList.append(
+                                wires.append(
                                     Wire(
                                         direction=Direction.JUMP,
                                         source=f"{port.destination_name}{i}",
@@ -295,7 +301,7 @@ class Fabric:
                                         destinationTile=f"X{x}Y{y}",
                                     )
                                 )
-                            tile.wireList.append(
+                            wires.append(
                                 Wire(
                                     direction=port.wire_direction,
                                     source=f"{port.source_name}{i}",
@@ -317,7 +323,7 @@ class Fabric:
 
                         value = min(max(port.x_offset, -1), 1)
                         for i in range(port.wire_count * abs(port.x_offset)):
-                            tile.wireList.append(
+                            wires.append(
                                 Wire(
                                     direction=port.wire_direction,
                                     source=f"{source_name}{i}",
@@ -331,7 +337,7 @@ class Fabric:
 
                         value = min(max(port.y_offset, -1), 1)
                         for i in range(port.wire_count * abs(port.y_offset)):
-                            tile.wireList.append(
+                            wires.append(
                                 Wire(
                                     direction=port.wire_direction,
                                     source=f"{source_name}{i}",
@@ -348,7 +354,7 @@ class Fabric:
                     for src, dst in zip(
                         jump.source.pins, jump.destination.pins, strict=True
                     ):
-                        tile.wireList.append(
+                        wires.append(
                             Wire(
                                 direction=Direction.JUMP,
                                 source=src.name(),
@@ -359,7 +365,7 @@ class Fabric:
                                 destinationTile="",
                             )
                         )
-                tile.wireList = list(dict.fromkeys(tile.wireList))
+                self.wires[(x, y)] = list(dict.fromkeys(wires))
 
     def iter_super_tile_placements(
         self, superTile: SuperTile | None = None
