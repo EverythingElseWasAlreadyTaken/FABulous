@@ -4,10 +4,19 @@ from pathlib import Path
 
 import pytest
 
-from fabulous.custom_exception import InvalidFabricParameter, InvalidPortType
+from fabulous.custom_exception import (
+    InvalidFabricParameter,
+    InvalidPortType,
+    InvalidSupertileDefinition,
+)
 from fabulous.fabric_definition.define import IO, Direction, Side
-from fabulous.fabric_generator.parser.parse_csv import parse_port_line, parseFabricCSV
+from fabulous.fabric_generator.parser.parse_csv import (
+    parse_port_line,
+    parseFabricCSV,
+    parseSupertilesCSV,
+)
 from fabulous.fabulous_settings import init_context
+from tests.conftest import make_empty_tile, sjump_port
 
 # (kind, physical side of the OUTPUT/start port, physical side of the INPUT/end port)
 DIRECTIONAL_CASES = [
@@ -186,3 +195,36 @@ class TestUserCLKDirection:
         init_context(project)
         with pytest.raises(InvalidFabricParameter, match="UP"):
             parseFabricCSV(str(self._set_direction(project, "UP")))
+
+
+class TestParseSupertiles:
+    """Supertile definitions are checked when they are parsed."""
+
+    @pytest.mark.parametrize("with_sjump", [False, True])
+    def test_sjump_wires_need_a_supertile_matrix(
+        self, tmp_path: Path, with_sjump: bool
+    ) -> None:
+        """SJUMP wires lead to the supertile matrix, so one must be declared."""
+        ports = [sjump_port("A", IO.OUTPUT)] if with_sjump else []
+        bot = make_empty_tile("DSP_bot", ports, pinOrderConfig={})
+        csv = tmp_path / "DSP.csv"
+        csv.write_text("SuperTILE,DSP\nDSP_bot\nEndSuperTILE\n")
+
+        if with_sjump:
+            with pytest.raises(InvalidSupertileDefinition, match="no MATRIX line"):
+                parseSupertilesCSV(csv, {"DSP_bot": bot})
+        else:
+            (super_tile,) = parseSupertilesCSV(csv, {"DSP_bot": bot})
+            assert super_tile.switch_matrix is None
+
+    def test_bels_need_a_supertile_matrix(self, tmp_path: Path) -> None:
+        """Supertile BELs connect to the supertile matrix, so one must be declared."""
+        (tmp_path / "ADD.v").write_text(
+            "module ADD (input A, output Q);\n    assign Q = A;\nendmodule\n"
+        )
+        bot = make_empty_tile("DSP_bot", pinOrderConfig={})
+        csv = tmp_path / "DSP.csv"
+        csv.write_text("SuperTILE,DSP\nBEL,./ADD.v\nDSP_bot\nEndSuperTILE\n")
+
+        with pytest.raises(InvalidSupertileDefinition, match="has BELs, but no MATRIX"):
+            parseSupertilesCSV(csv, {"DSP_bot": bot})

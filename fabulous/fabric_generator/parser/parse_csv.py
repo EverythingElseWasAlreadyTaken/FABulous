@@ -645,6 +645,18 @@ def parseSupertilesCSV(fileName: Path, tileDic: dict[str, Tile]) -> list[SuperTi
             super_tile.switch_matrix = SwitchMatrix.from_file(
                 st_matrix_dir, name, super_tile.switch_matrix_ports(), canonical=False
             )
+        elif super_tile.sjump_wires:
+            raise InvalidSupertileDefinition(
+                f"Supertile '{name}': its subtiles declare SJUMP wires, but it has "
+                "no MATRIX line. SJUMP wires connect to the supertile switch "
+                "matrix, so a supertile with SJUMP wires needs one."
+            )
+        elif super_tile.bels:
+            raise InvalidSupertileDefinition(
+                f"Supertile '{name}': it has BELs, but no MATRIX line. Supertile "
+                "BELs connect to the supertile switch matrix, so a supertile "
+                "with BELs needs one."
+            )
 
         new_supertiles.append(super_tile)
 
