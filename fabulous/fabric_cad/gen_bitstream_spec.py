@@ -235,12 +235,12 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
         if super_tile.switch_matrix is not None:
             sm_connections = super_tile.switch_matrix.named_connections
 
-        tx_local, ty_local = super_tile.get_master_tile_coords()
-
-        for base_fx, base_fy, _ in fabric.iter_super_tile_placements(super_tile):
-            ftx = base_fx + tx_local
-            fty = base_fy + ty_local
-            master_tile = fabric.tile[fty][ftx]
+        for placement in fabric.super_tile_instances:
+            if placement.super_tile is not super_tile:
+                continue
+            base_fx, base_fy = placement.x, placement.y
+            ftx, fty = placement.master.x, placement.master.y
+            master_tile = placement.master.tile_type
 
             frame_map = specData["FrameMap"].setdefault(master_tile.name, {})
             for frame_idx, mask in st_mask_dic.items():

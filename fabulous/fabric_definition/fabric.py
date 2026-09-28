@@ -16,6 +16,7 @@ from fabulous.fabric_definition.define import (
     MultiplexerStyle,
     Side,
 )
+from fabulous.fabric_definition.instance import SuperTileInstance, TileInstance
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_definition.wire import Wire
@@ -95,6 +96,12 @@ class Fabric:
         The wires leaving each placed tile, by `(x, y)`. Derived in
         `__post_init__`; a stopgap until inter-tile wires are pin-level
         connections.
+    instances : list[list[TileInstance | None]]
+        The placement of a tile type at each grid cell (None for an empty
+        cell), mirroring `tile`. Derived in `__post_init__`.
+    super_tile_instances : list[SuperTileInstance]
+        The supertile placements, each mapping its `tileMap` positions to the
+        tile instances covering them. Derived in `__post_init__`.
     """
 
     fabric_dir: Path
@@ -125,6 +132,10 @@ class Fabric:
     unusedSuperTileDic: dict[str, SuperTile] = field(default_factory=dict)
     commonWirePair: list[tuple[str, str]] = field(default_factory=list)
     wires: dict[tuple[int, int], list[Wire]] = field(default_factory=dict, init=False)
+    instances: list[list[TileInstance | None]] = field(default_factory=list, init=False)
+    super_tile_instances: list[SuperTileInstance] = field(
+        default_factory=list, init=False
+    )
 
     def __post_init__(self) -> None:
         """Generate and get all the wire pairs in the fabric.
@@ -191,15 +202,37 @@ class Fabric:
                     "together cannot have more than 26 BELs."
                 )
 
-        # SJUMP wires route a basic tile to a BEL hosted in its supertile's
-        # master tile; they are only meaningful inside a supertile. A tile that
-        # belongs to a supertile carries partOfSuperTile (set by the parser), so
-        # reject any SJUMP-declaring tile that is not flagged as such.
-        for row in self.tile:
-            for tile in row:
-                if tile is None:
+        # A subtile type only exists as part of its supertile: every cell of one
+        # must be covered by a placement of the supertile's arrangement. SJUMP
+        # wires route a subtile to its supertile's switch matrix, so a tile type
+        # declaring them must be a subtile type.
+        self.instances = [
+            [
+                None if tile is None else TileInstance(x, y, tile)
+                for x, tile in enumerate(row)
+            ]
+            for y, row in enumerate(self.tile)
+        ]
+        self.super_tile_instances = self._place_super_tiles()
+        covered = {
+            instance
+            for placement in self.super_tile_instances
+            for instance in placement.tiles.values()
+        }
+        for row in self.instances:
+            for instance in row:
+                if instance is None:
                     continue
-                if tile.get_sjump_ports() and not tile.partOfSuperTile:
+                tile, x, y = instance.tile_type, instance.x, instance.y
+                if tile.super_tile is not None:
+                    if instance not in covered:
+                        raise ValueError(
+                            f"Tile '{tile.name}' at X{x}Y{y} is a subtile but is "
+                            "not placed in its supertile's arrangement. A subtile "
+                            "can only be placed as part of its supertile; copy and "
+                            "rename the tile for a standalone version."
+                        )
+                elif tile.get_sjump_ports():
                     raise ValueError(
                         f"Tile '{tile.name}' declares SJUMP wires but is not part "
                         "of any supertile. SJUMP wires route to a supertile-hosted "
@@ -367,51 +400,51 @@ class Fabric:
                         )
                 self.wires[(x, y)] = list(dict.fromkeys(wires))
 
-    def iter_super_tile_placements(
-        self, superTile: SuperTile | None = None
-    ) -> Generator[tuple[int, int, SuperTile], None, None]:
-        """Yield `(base_fx, base_fy, superTile)` for every supertile placement.
+    def _place_super_tiles(self) -> list[SuperTileInstance]:
+        """Find every placement of a supertile's arrangement in the grid.
 
-        Each supertile type's `tileMap` pattern is matched against the fabric
-        grid; `(base_fx, base_fy)` is the top-left corner of a match. Shared by
-        the SJUMP wire pass, the nextpnr model, and the bitstream spec so they all
-        locate supertile instances identically.
+        Each supertile type's `tileMap` is matched against the grid at every
+        base cell. A match claims its tile instances; a later match overlapping
+        claimed instances is skipped, so every cell belongs to at most one
+        placement.
 
-        Parameters
-        ----------
-        superTile : SuperTile | None, optional
-            If given, only placements of this supertile are yielded; otherwise
-            every supertile type in the fabric is scanned.
-
-        Yields
-        ------
-        tuple[int, int, SuperTile]
-            The placement's top-left grid coordinates and the supertile there.
+        Returns
+        -------
+        list[SuperTileInstance]
+            The placements, per supertile type in row-major order.
         """
-        candidates = (
-            [superTile] if superTile is not None else list(self.superTileDic.values())
-        )
-        for st in candidates:
+        placements: list[SuperTileInstance] = []
+        claimed: set[TileInstance] = set()
+        for st in self.superTileDic.values():
             for base_fy in range(len(self.tile) - st.max_height + 1):
                 for base_fx in range(len(self.tile[base_fy]) - st.max_width + 1):
-                    if self._matches_super_tile(st, base_fx, base_fy):
-                        yield base_fx, base_fy, st
+                    if not self._matches_super_tile(st, base_fx, base_fy):
+                        continue
+                    tiles = {
+                        (lx, ly): self.instances[base_fy + ly][base_fx + lx]
+                        for ly, row in enumerate(st.tileMap)
+                        for lx, sub in enumerate(row)
+                        if sub is not None
+                    }
+                    if claimed.intersection(tiles.values()):
+                        continue
+                    claimed.update(tiles.values())
+                    placements.append(SuperTileInstance(base_fx, base_fy, st, tiles))
+        return placements
 
     def _matches_super_tile(
         self, superTile: SuperTile, base_fx: int, base_fy: int
     ) -> bool:
-        """Return whether `superTile`'s tileMap matches the grid at the base."""
-        for ly, st_row in enumerate(superTile.tileMap):
-            for lx, st_tile in enumerate(st_row):
-                fy = base_fy + ly
-                fx = base_fx + lx
-                grid_tile = self.tile[fy][fx]
-                if st_tile is None:
-                    if grid_tile is not None:
-                        return False
-                elif grid_tile is None or grid_tile.name != st_tile.name:
-                    return False
-        return True
+        """Return whether `superTile`'s tileMap matches the grid at the base.
+
+        Grid cells and the `tileMap` share the tile type objects, so a match is
+        the same object (or None) in every cell.
+        """
+        return all(
+            self.tile[base_fy + ly][base_fx + lx] is sub
+            for ly, row in enumerate(superTile.tileMap)
+            for lx, sub in enumerate(row)
+        )
 
     def __repr__(self) -> str:
         """Return the string representation of the fabric.
@@ -649,31 +682,12 @@ class Fabric:
         result: list[Tile | SuperTile] = []
 
         # Add all regular tiles from tileDic
-        result.extend([i for i in self.tileDic.values() if not i.partOfSuperTile])
+        result.extend(i for i in self.tileDic.values() if i.super_tile is None)
 
         # Add all SuperTiles from superTileDic
         result.extend(self.superTileDic.values())
 
         return result
-
-    def get_super_tile_containing(self, tile_name: str) -> SuperTile | None:
-        """Return the SuperTile that contains the named tile, if any.
-
-        Parameters
-        ----------
-        tile_name : str
-            Name of the (sub-)tile to look up.
-
-        Returns
-        -------
-        SuperTile | None
-            The SuperTile whose constituent tiles include ``tile_name``, or None
-            if the tile is not part of any SuperTile.
-        """
-        for super_tile in self.superTileDic.values():
-            if any(tile.name == tile_name for tile in super_tile.tiles):
-                return super_tile
-        return None
 
     def get_tile_row_column_indices(self, tile_name: str) -> tuple[set[int], set[int]]:
         """Get all row and column indices where a tile type appears.

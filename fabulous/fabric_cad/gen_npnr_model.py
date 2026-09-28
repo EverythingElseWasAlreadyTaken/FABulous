@@ -306,7 +306,9 @@ def genNextpnrModel(
                 constrainStr.extend(constrain_lines)
 
     # Supertile SJUMP, BEL and switch-matrix PIP emission.
-    for base_fx, base_fy, super_tile in fabric.iter_super_tile_placements():
+    for placement in fabric.super_tile_instances:
+        super_tile = placement.super_tile
+        base_fx, base_fy = placement.x, placement.y
         for wire in super_tile.sjump_wires:
             sx, sy = wire.source_cell(base_fx, base_fy)
             source_tile = fabric.tile[sy][sx]
@@ -324,9 +326,7 @@ def genNextpnrModel(
         if not super_tile.bels and super_tile.supertile_matrix_dir is None:
             continue
 
-        tx_local, ty_local = super_tile.get_master_tile_coords()
-        ftx = base_fx + tx_local
-        fty = base_fy + ty_local
+        ftx, fty = placement.master.x, placement.master.y
 
         bel_offset = len(fabric.tile[fty][ftx].bels)
         belStr.append(f"#SuperTile_{super_tile.name}_X{ftx}Y{fty}")

@@ -43,8 +43,6 @@ def test_supertile_bottom_child_usrclk_connects_to_global(
     """
     top = mk_tile("ST_top")
     bot = mk_tile("ST_bot")
-    top.partOfSuperTile = True
-    bot.partOfSuperTile = True
     supertile = SuperTile(
         name="ST",
         tileDir=top.tileDir,

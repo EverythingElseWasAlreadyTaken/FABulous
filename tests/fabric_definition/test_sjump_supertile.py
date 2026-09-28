@@ -216,8 +216,6 @@ class TestSJumpPips:
             tiles=[top, bot],
             tileMap=[[top], [bot]],
         )
-        for t in supertile.tiles:
-            t.partOfSuperTile = True
         return make_fabric(
             tile=[[top], [bot]],
             superTileDic={"DSP": supertile},
@@ -259,7 +257,6 @@ class TestSJumpRequiresSupertile:
         self, make_fabric: Callable[..., Fabric]
     ) -> None:
         bot = _tile("DSP_bot", [sjump_port("A", IO.OUTPUT)])
-        bot.partOfSuperTile = True  # set by the parser for supertile members
         supertile = SuperTile(
             name="DSP",
             tileDir=Path(),
@@ -320,8 +317,6 @@ class TestGenNpnrModelSupertile:
         supertile.switch_matrix = SwitchMatrix.from_file(
             st_mat, "DSP", supertile.switch_matrix_ports(), canonical=False
         )
-        for t in supertile.tiles:
-            t.partOfSuperTile = True
         return make_fabric(tile=[[top], [bot]], superTileDic={"DSP": supertile})
 
     def test_forward_pip_has_bel_input_as_destination(self, fabric: Fabric) -> None:
@@ -366,8 +361,6 @@ class TestGenNpnrModelSupertile:
             tileMap=[[top], [bot]],
             bels=[bel],
         )
-        for t in supertile.tiles:
-            t.partOfSuperTile = True
         fabric = make_fabric(tile=[[top], [bot]], superTileDic={"DSP": supertile})
 
         _, belv1, belv2, belv3, _ = genNextpnrModel(fabric)
@@ -438,8 +431,6 @@ class TestGenBitstreamSpecSupertileMux:
         supertile.switch_matrix = SwitchMatrix.from_file(
             st_mat, "DSP", supertile.switch_matrix_ports(), canonical=False
         )
-        for t in supertile.tiles:
-            t.partOfSuperTile = True
         fabric = make_fabric(tile=[[top], [bot]], superTileDic={"DSP": supertile})
         return generateBitstreamSpec(fabric)
 

@@ -13,8 +13,6 @@ Key features:
 - Configuration data distribution and management
 """
 
-from collections.abc import Generator
-
 from fabulous.fabric_definition.define import (
     IO,
     USER_CLK_PREDECESSOR,
@@ -24,7 +22,6 @@ from fabulous.fabric_definition.define import (
     grid_at,
 )
 from fabulous.fabric_definition.fabric import Fabric
-from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.code_generator.code_generator import CodeGenerator
 from fabulous.fabric_generator.code_generator.code_generator_VHDL import (
@@ -40,36 +37,6 @@ _SIDE_INPUT_CONNECTIONS = (
     (Tile.getSouthPorts, 0, -1),  # south input <- north neighbour
     (Tile.getWestPorts, 1, 0),  # west input  <- east neighbour
 )
-
-
-def iter_super_tile_anchors(
-    fabric: Fabric,
-) -> Generator[tuple[int, int, SuperTile], None, None]:
-    """Yield `(anchor_x, anchor_y, superTile)` for every supertile placement.
-
-    The anchor is the first non-NULL child tile in row-major order for each
-    placement -- the same position at which `generateFabric` instantiates the
-    supertile wrapper.
-
-    Parameters
-    ----------
-    fabric : Fabric
-        The fabric whose grid is scanned for supertile placements.
-
-    Yields
-    ------
-    tuple[int, int, SuperTile]
-        The anchor `(x, y)` and the `SuperTile` placed there.
-    """
-    for base_fx, base_fy, superTile in fabric.iter_super_tile_placements():
-        for ly, row in enumerate(superTile.tileMap):
-            for lx, tile in enumerate(row):
-                if tile is not None:
-                    yield base_fx + lx, base_fy + ly, superTile
-                    break
-            else:
-                continue
-            break
 
 
 def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
@@ -111,7 +78,8 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
 
     # supertile-level BEL external ports (the BEL lives in the wrapper, not a
     # child tile); declare them at the wrapper's anchor coordinates.
-    for ax, ay, superTile in iter_super_tile_anchors(fabric):
+    for placement in fabric.super_tile_instances:
+        ax, ay, superTile = placement.anchor.x, placement.anchor.y, placement.super_tile
         for bel in superTile.bels:
             for i in bel.pin_names(BelPortKind.EXTERNAL, IO.INPUT):
                 writer.addPortScalar(f"Tile_X{ax}Y{ay}_{i}", IO.INPUT, indentLevel=2)
@@ -154,7 +122,7 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
         # every tileDir is the fabric.csv itself rather than a per-tile directory.
         tileRoot = fabric.fabric_dir.parent / "Tile"
         for tile in fabric.tileDic.values():
-            if tile.partOfSuperTile:
+            if tile.super_tile is not None:
                 continue
             writer.addComponentDeclarationForFile(
                 str(tileRoot / tile.name / f"{tile.name}.vhdl")
@@ -260,7 +228,6 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
         for x, tile in enumerate(row):
             tileLocationOffset: list[tuple[int, int]] = []
             superTileLoc = []
-            superTile = None
             if tile is None:
                 continue
 
@@ -271,11 +238,7 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
             # get all the ports of the tile. If is a super tile, we loop over the
             # tile map and find all the offset of the subtile, and all their related
             # ports.
-            if tile.partOfSuperTile:
-                for k, v in fabric.superTileDic.items():
-                    if tile.name in [i.name for i in v.tiles]:
-                        superTile = fabric.superTileDic[k]
-                        break
+            superTile = tile.super_tile
 
             if superTile:
                 ports_around = superTile.get_ports_around_tile()
@@ -295,7 +258,7 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
             # if is a normal tile then the offset is (0, 0)
             for i, j in tileLocationOffset:
                 here = fabric.tile[y + j][x + i]
-                in_super = here.partOfSuperTile
+                in_super = superTile is not None
 
                 def _local_names(
                     ports: list, _i: int = i, _j: int = j, in_super: bool = in_super

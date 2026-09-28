@@ -19,10 +19,7 @@ from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.code_generator.code_generator import CodeGenerator
-from fabulous.fabric_generator.gen_fabric.gen_fabric import (
-    generateFabric,
-    iter_super_tile_anchors,
-)
+from fabulous.fabric_generator.gen_fabric.gen_fabric import generateFabric
 from fabulous.fabric_generator.gen_fabric.gen_tile import generateSuperTile
 from tests.conftest import make_empty_tile, make_muladd_bel, sjump_port
 from tests.fabric_gen_test.conftest import create_switchmatrix_list
@@ -33,6 +30,7 @@ def test_generate_fabric_uses_fabric_name(mocker: MockerFixture) -> None:
     fabric = mocker.create_autospec(Fabric)
     fabric.name = "test_fabric"
     fabric.tile = []
+    fabric.super_tile_instances = []
     fabric.configBitMode = ConfigBitMode.FLIPFLOP_CHAIN
     fabric.maxFramesPerCol = 20
     fabric.frameBitsPerRow = 32
@@ -191,17 +189,15 @@ def test_supertile_vhdl_declares_all_instantiated_components(
         assert f"component {entity}" in rtl, f"{entity} component not declared"
 
 
-def test_iter_supertile_anchors_yields_top_left_anchor(tmp_path: Path) -> None:
-    """Each supertile placement yields one anchor at its top-left child tile.
+def test_supertile_instance_anchor_and_master(tmp_path: Path) -> None:
+    """A placement's anchor is its top-left child; its master may differ.
 
-    `generateFabric` names a supertile's top-level EXTERNAL ports at this
-    anchor (matching the wrapper instance `Tile_X{x}Y{y}_DSP`), so the helper
-    must return the top-left child (DSP_top), not the master (DSP_bot below it).
+    `generateFabric` names a supertile's top-level EXTERNAL ports at the anchor
+    (matching the wrapper instance `Tile_X{x}Y{y}_DSP`), so it must be the
+    top-left child (DSP_top), not the master (DSP_bot below it).
     """
     supertile = _supertile(tmp_path)
     top, bot = supertile.tiles
-    top.partOfSuperTile = True
-    bot.partOfSuperTile = True
     fabric = Fabric(
         fabric_dir=tmp_path,
         tile=[[top], [bot]],
@@ -210,10 +206,10 @@ def test_iter_supertile_anchors_yields_top_left_anchor(tmp_path: Path) -> None:
         superTileDic={"DSP": supertile},
     )
 
-    anchors = list(iter_super_tile_anchors(fabric))
-
-    # One placement; anchor is the top-left child at (0, 0), i.e. DSP_top.
-    assert anchors == [(0, 0, supertile)]
+    (placement,) = fabric.super_tile_instances
+    assert placement.super_tile is supertile
+    assert (placement.anchor.x, placement.anchor.y) == (0, 0)
+    assert (placement.master.x, placement.master.y) == (0, 1)
 
 
 @pytest.mark.parametrize("side", sorted(USER_CLK_PREDECESSOR))

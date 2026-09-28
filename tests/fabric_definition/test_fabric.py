@@ -125,39 +125,78 @@ class TestFabricValidation:
             assert len(fabric.tileDic["test_tile"].bels) == num_bels
 
 
-class TestGetSuperTileContaining:
-    """Resolve which SuperTile (if any) a tile belongs to."""
+class TestSubtileBackReference:
+    """A subtile type knows its supertile, and has only one."""
 
-    @staticmethod
-    def _make_super_tile(name: str, tile_names: list[str]) -> SuperTile:
-        tiles = [make_empty_tile(tile_name) for tile_name in tile_names]
-        return SuperTile(
-            name=name,
-            tileDir=Path(),
-            tiles=tiles,
-            tileMap=[tiles],
+    def test_supertile_attaches_its_subtile_types(self) -> None:
+        a, b, other = (make_empty_tile(n) for n in ("SUB_A", "SUB_B", "OTHER"))
+        super_tile = SuperTile(
+            name="SUPER_X", tileDir=Path(), tiles=[a, b], tileMap=[[a, b, a]]
         )
 
-    def test_returns_supertile_for_member_tile(
+        assert a.super_tile is super_tile
+        assert b.super_tile is super_tile
+        assert other.super_tile is None
+
+    def test_subtile_of_two_supertiles_raises(self) -> None:
+        a = make_empty_tile("SUB_A")
+        SuperTile(name="SUPER_X", tileDir=Path(), tiles=[a], tileMap=[[a]])
+
+        with pytest.raises(ValueError, match="already a subtile of supertile"):
+            SuperTile(name="SUPER_Y", tileDir=Path(), tiles=[a], tileMap=[[a]])
+
+
+class TestSuperTilePlacement:
+    """A subtile type only exists as part of its supertile's arrangement."""
+
+    @staticmethod
+    def _column_super_tile(top: Tile, bot: Tile) -> SuperTile:
+        return SuperTile(
+            name="COL", tileDir=Path(), tiles=[top, bot], tileMap=[[top], [bot]]
+        )
+
+    @pytest.mark.parametrize(
+        "grid_names",
+        [
+            pytest.param([["TOP"]], id="subtile_without_its_partner"),
+            pytest.param([["BOT"], ["TOP"]], id="wrong_arrangement"),
+        ],
+    )
+    def test_subtile_outside_its_arrangement_raises(
+        self, make_fabric: Callable[..., Fabric], grid_names: list[list[str]]
+    ) -> None:
+        tiles = {n: make_empty_tile(n) for n in ("TOP", "BOT")}
+        super_tile = self._column_super_tile(tiles["TOP"], tiles["BOT"])
+        grid = [[tiles[n] for n in row] for row in grid_names]
+
+        with pytest.raises(ValueError, match="not placed in its supertile"):
+            make_fabric(tile=grid, superTileDic={"COL": super_tile})
+
+    def test_overlapping_placements_leave_a_subtile_uncovered(
         self, make_fabric: Callable[..., Fabric]
     ) -> None:
-        super_tile = self._make_super_tile("SUPER_X", ["SUB_A", "SUB_B"])
-        fabric = make_fabric(superTileDic={"SUPER_X": super_tile})
+        """`[[A], [A]]` in a column of three A: the third A is not placed."""
+        a = make_empty_tile("A")
+        super_tile = self._column_super_tile(a, a)
 
-        assert fabric.get_super_tile_containing("SUB_A") is super_tile
-        assert fabric.get_super_tile_containing("SUB_B") is super_tile
+        with pytest.raises(ValueError, match="X0Y2"):
+            make_fabric(tile=[[a], [a], [a]], superTileDic={"COL": super_tile})
 
-    def test_returns_none_for_non_member_tile(
+    def test_instances_share_the_type_and_map_the_placement(
         self, make_fabric: Callable[..., Fabric]
     ) -> None:
-        super_tile = self._make_super_tile("SUPER_X", ["SUB_A"])
-        fabric = make_fabric(superTileDic={"SUPER_X": super_tile})
+        """Every cell is an instance of the shared type; a placement maps its cells."""
+        top, bot, plain = (make_empty_tile(n) for n in ("TOP", "BOT", "PLAIN"))
+        super_tile = self._column_super_tile(top, bot)
+        fabric = make_fabric(
+            tile=[[top, plain], [bot, plain]], superTileDic={"COL": super_tile}
+        )
 
-        assert fabric.get_super_tile_containing("OTHER") is None
-
-    def test_returns_none_without_supertiles(
-        self, make_fabric: Callable[..., Fabric]
-    ) -> None:
-        fabric = make_fabric()
-
-        assert fabric.get_super_tile_containing("ANY") is None
+        assert fabric.instances[0][1] is not fabric.instances[1][1]
+        assert fabric.instances[0][1].tile_type is fabric.instances[1][1].tile_type
+        (placement,) = fabric.super_tile_instances
+        assert (placement.x, placement.y) == (0, 0)
+        assert placement.tiles == {
+            (0, 0): fabric.instances[0][0],
+            (0, 1): fabric.instances[1][0],
+        }

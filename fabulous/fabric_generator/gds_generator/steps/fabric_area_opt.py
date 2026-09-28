@@ -115,7 +115,7 @@ class NLPTileProblem(ElementwiseProblem):
 
         tile_min: dict[str, tuple[float, float]] = {}
         for tile in fabric.tileDic.values():
-            if tile.partOfSuperTile:
+            if tile.super_tile is not None:
                 continue
             tile_min[tile.name] = _combined_min(tile.name)
 
@@ -280,7 +280,7 @@ class NLPTileProblem(ElementwiseProblem):
 
         xu = xl * 3.0  # upper bound safety floor
         for tile in fabric.tileDic.values():
-            if tile.partOfSuperTile:
+            if tile.super_tile is not None:
                 continue
             required = self.min_areas.get(tile.name, 0.0) * (1.0 + self.area_margin)
             if required <= 0:
@@ -324,7 +324,7 @@ class NLPTileProblem(ElementwiseProblem):
         # same row/col group share identical dimensions.
         tile_constraints: list[tuple[str, int, int]] = []
         for tile in fabric.tileDic.values():
-            if tile.partOfSuperTile:
+            if tile.super_tile is not None:
                 continue
             rows = self.tile_row_set[tile.name]
             cols = self.tile_column_set[tile.name]
@@ -818,7 +818,7 @@ class FabricAreaOptimisation(Step):
             return Decimal(problem.get_row_height(res.X, row)).quantize(quant)
 
         for tile in fabric.tileDic.values():
-            if tile.partOfSuperTile:
+            if tile.super_tile is not None:
                 continue
             result_dict[tile.name] = (
                 zero,

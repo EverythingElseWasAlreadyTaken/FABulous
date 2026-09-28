@@ -605,12 +605,6 @@ class FABulous_API:
             )
             raise ValueError
 
-        # update bels on all tiles in fabric.tile
-        for row in self.fabric.tile:
-            for tile in row:
-                if tile and tile.name == tile_name:
-                    tile.bels += bels
-
         return bels
 
     def genFabricIOBels(self) -> None:

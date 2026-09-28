@@ -74,10 +74,10 @@ def generateUserDesignTopWrapper(
     # appending them to the master tile's BEL list yields the same BEL letters
     # the nextpnr model uses.
     super_tile_bels: dict[tuple[int, int], list] = {}
-    for base_fx, base_fy, superTile in fabric.iter_super_tile_placements():
-        mx, my = superTile.get_master_tile_coords()
-        super_tile_bels.setdefault((base_fx + mx, base_fy + my), []).extend(
-            superTile.bels
+    for placement in fabric.super_tile_instances:
+        master = placement.master
+        super_tile_bels.setdefault((master.x, master.y), []).extend(
+            placement.super_tile.bels
         )
 
     # generate component instantioations

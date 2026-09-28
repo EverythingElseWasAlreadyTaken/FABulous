@@ -58,6 +58,13 @@ class SuperTile:
     switch_matrix: SwitchMatrix | None = None
     master_tile_coords: tuple[int, int] | None = None
 
+    def __post_init__(self) -> None:
+        """Attach this supertile to each of its subtile types."""
+        for row in self.tileMap:
+            for tile in row:
+                if tile is not None:
+                    tile.super_tile = self
+
     @property
     def withUserCLK(self) -> bool:
         """Whether any supertile-level BEL uses the user clock."""

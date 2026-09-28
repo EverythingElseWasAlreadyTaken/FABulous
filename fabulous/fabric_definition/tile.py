@@ -13,6 +13,7 @@ from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.wire import JumpWire
 
 if TYPE_CHECKING:
+    from fabulous.fabric_definition.supertile import SuperTile
     from fabulous.fabric_generator.gds_generator.gen_io_pin_config_yaml import (
         PinOrderConfig,
     )
@@ -60,8 +61,6 @@ class Tile:
         The list of GEN_IOs of the tile
     tileDir : Path
         The path to the tile folder
-    partOfSuperTile : bool, optional
-        Whether the tile is part of a super tile. Default is False.
     pinOrderConfig : dict, optional
         Configuration for pin ordering on each side of the tile.
     """
@@ -73,7 +72,6 @@ class Tile:
     switch_matrix: SwitchMatrix
     gen_ios: list[Gen_IO]
     tileDir: Path = Path()
-    partOfSuperTile: bool = False
     pinOrderConfig: dict = field(default_factory=dict)
 
     def __init__(
@@ -88,6 +86,7 @@ class Tile:
         jump_wires: list[JumpWire] | None = None,
     ) -> None:
         self.name = name
+        self._super_tile: SuperTile | None = None
         self.portsInfo = ports
         for port in ports:
             port.tile = self
@@ -127,6 +126,26 @@ class Tile:
         if __o is None or not isinstance(__o, Tile):
             return False
         return self.name == __o.name
+
+    @property
+    def super_tile(self) -> "SuperTile | None":
+        """The supertile this tile type is a subtile of, or None.
+
+        A subtile type only exists as part of its supertile, and belongs to one
+        supertile type only (it may fill several of its positions).
+        """
+        return self._super_tile
+
+    @super_tile.setter
+    def super_tile(self, super_tile: "SuperTile") -> None:
+        if self._super_tile is not None and self._super_tile is not super_tile:
+            raise ValueError(
+                f"Tile '{self.name}' is already a subtile of supertile "
+                f"'{self._super_tile.name}' and cannot also be one of "
+                f"'{super_tile.name}'. Copy and rename the tile to use it in "
+                "another supertile."
+            )
+        self._super_tile = super_tile
 
     @property
     def withUserCLK(self) -> bool:
