@@ -6,13 +6,15 @@ how many wires run in parallel. The line is a `ChannelDeclaration`, shared by
 the ports it declares. A line may leave one end `NULL`: the tile then only
 starts or only ends the channel, and the missing name is found in the other
 tile types' declarations. The resolved channel, with both ends named, is a
-`RoutingChannel`; it is unique in the fabric.
+`RoutingChannel`; it is unique in the fabric. Both are interned: equal values
+are the same object.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from dataclasses import astuple, dataclass
+from typing import TYPE_CHECKING, Any
+from weakref import WeakValueDictionary
 
 from fabulous.fabric_definition.define import Direction
 
@@ -23,8 +25,25 @@ ROUTING_DIRECTIONS = (Direction.NORTH, Direction.EAST, Direction.SOUTH, Directio
 """The directions of lines that declare a routing channel between tiles."""
 
 
+class _Interned(type):
+    """Metaclass returning one shared object per distinct field values."""
+
+    def __init__(cls, *args: Any) -> None:  # noqa: ANN401
+        super().__init__(*args)
+        cls._interned = WeakValueDictionary()
+
+    def __call__(cls, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        obj = super().__call__(*args, **kwargs)
+        return cls._interned.setdefault(astuple(obj), obj)
+
+
+def _reduce(obj: object) -> tuple:
+    """Rebuild through the constructor, so copies and unpickling stay interned."""
+    return type(obj), astuple(obj)
+
+
 @dataclass(frozen=True)
-class ChannelDeclaration:
+class ChannelDeclaration(metaclass=_Interned):
     """One wire line of a tile CSV.
 
     Attributes
@@ -52,6 +71,8 @@ class ChannelDeclaration:
     begin: str | None
     end: str | None
 
+    __reduce__ = _reduce
+
     @property
     def distance(self) -> int:
         """The number of tiles the wire spans."""
@@ -64,7 +85,7 @@ class ChannelDeclaration:
 
 
 @dataclass(frozen=True)
-class RoutingChannel:
+class RoutingChannel(metaclass=_Interned):
     """A routing channel of the fabric, with both ends named.
 
     Attributes
@@ -89,6 +110,8 @@ class RoutingChannel:
     wire_count: int
     begin: str
     end: str
+
+    __reduce__ = _reduce
 
     @property
     def step(self) -> tuple[int, int]:

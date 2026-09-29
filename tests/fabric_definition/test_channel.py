@@ -1,6 +1,8 @@
 """Tests for routing channel declarations and their fabric-wide resolution."""
 
+import pickle
 from collections.abc import Callable
+from copy import deepcopy
 
 import pytest
 
@@ -23,6 +25,21 @@ def _decl(begin: str | None, end: str | None, y: int = -4) -> ChannelDeclaration
     return ChannelDeclaration(N, 0, y, 4, begin, end)
 
 
+@pytest.mark.parametrize(
+    "copy",
+    [
+        pytest.param(lambda _: _decl("N4BEG", "N4END"), id="rebuilt"),
+        pytest.param(deepcopy, id="deepcopy"),
+        pytest.param(lambda d: pickle.loads(pickle.dumps(d)), id="pickle"),
+    ],
+)
+def test_equal_declarations_are_one_object(
+    copy: Callable[[ChannelDeclaration], ChannelDeclaration],
+) -> None:
+    declaration = _decl("N4BEG", "N4END")
+    assert copy(declaration) is declaration
+
+
 class TestResolveChannels:
     """A line with a NULL end resolves to the channel it takes part in."""
 
@@ -35,7 +52,7 @@ class TestResolveChannels:
         channels = resolve_channels([full, start, end])
 
         expected = RoutingChannel(N, 0, -4, 4, "N4BEG", "N4END")
-        assert channels[full] == channels[start] == channels[end] == expected
+        assert channels[full] is channels[start] is channels[end] is expected
 
     def test_halves_without_a_full_line_pair_by_name(self) -> None:
         start, end = _decl("bot2top", None, -1), _decl(None, "bot2top", -1)
