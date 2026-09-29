@@ -194,6 +194,7 @@ def make_empty_tile(
     name: str,
     ports: list[TilePort] | None = None,
     *,
+    sjump_ports: list[SJumpPort] | None = None,
     tileDir: Path = Path(),
     matrixDir: Path = Path(),
     pinOrderConfig: dict | None = None,
@@ -219,6 +220,7 @@ def make_empty_tile(
         ),
         gen_ios=[],
         pinOrderConfig=pinOrderConfig,
+        sjump_ports=sjump_ports,
     )
 
 

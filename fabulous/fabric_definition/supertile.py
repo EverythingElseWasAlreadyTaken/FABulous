@@ -215,7 +215,7 @@ class SuperTile:
             for y, row in enumerate(self.tileMap)
             for x, tile in enumerate(row)
             if tile is not None
-            for p in tile.get_sjump_ports()
+            for p in tile.sjump_ports
         ]
         if not ports:
             return []

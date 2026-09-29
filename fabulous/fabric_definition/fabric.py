@@ -221,7 +221,7 @@ class Fabric:
                             "can only be placed as part of its supertile; copy and "
                             "rename the tile for a standalone version."
                         )
-                elif tile.get_sjump_ports():
+                elif tile.sjump_ports:
                     raise ValueError(
                         f"Tile '{tile.name}' declares SJUMP wires but is not part "
                         "of any supertile. SJUMP wires route to a supertile-hosted "
@@ -233,7 +233,7 @@ class Fabric:
             for row in self.tile
             for tile in row
             if tile is not None
-            for port in tile.routing_ports
+            for port in tile.portsInfo
         )
         # Reported, not fatal: work on single tiles goes on with a fabric in
         # progress; everything using the whole fabric refuses it.
@@ -245,7 +245,7 @@ class Fabric:
                 if tile is None:
                     continue
                 wires: list[Wire] = []
-                for port in tile.routing_ports:
+                for port in tile.portsInfo:
                     if (
                         abs(port.x_offset) <= 1
                         and abs(port.y_offset) <= 1
@@ -447,7 +447,7 @@ class Fabric:
             for row in self.instances
             for instance in row
             if instance is not None
-            for p in instance.tile_type.routing_ports
+            for p in instance.tile_type.portsInfo
         }
         problems = []
         for (x, y, channel, io), instance in ends.items():

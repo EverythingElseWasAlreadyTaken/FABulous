@@ -21,7 +21,6 @@ from fabulous.fabric_definition.define import (
     USER_CLK_PREDECESSOR,
     BelPortKind,
     ConfigBitMode,
-    Direction,
     Side,
     grid_at,
 )
@@ -169,15 +168,12 @@ def generateTile(
         writer.addComment(str(port), indentLevel=2, onNewLine=False)
 
     # SJUMP ports: OUTPUT exits toward supertile SM; INPUT enters from supertile SM
-    sjump_ports = tile.get_sjump_ports()
-    if sjump_ports:
+    if tile.sjump_ports:
         writer.addComment(
             "SJUMP ports (supertile BEL interface)", onNewLine=True, indentLevel=1
         )
-        for p in sjump_ports:
-            writer.addPortVector(
-                p.name, p.io_direction, f"{p.wire_count}-1", indentLevel=2
-            )
+        for p in tile.sjump_ports:
+            writer.addPortVector(p.name, p.io_direction, f"{p.width}-1", indentLevel=2)
 
     # now we have to scan all BELs if they use external pins,
     # because they have to be exported to the tile entity
@@ -489,10 +485,9 @@ def generateTile(
         belCounter += 1
 
     ports_pairs = []
-    # normal input wire (excludes SJUMP, which is handled separately;
-    # otherwise SJUMP inputs would be bound twice in the switch-matrix instance)
+    # normal input wire
     for i in tile.portsInfo:
-        if i.wire_direction != Direction.SJUMP and i.is_input:
+        if i.is_input:
             ports_pairs += list(
                 zip(
                     i.expand_port_info_by_name(),
@@ -511,9 +506,9 @@ def generateTile(
             for dst, src in zip(wire.destination.pins, wire.source.pins, strict=True):
                 ports_pairs.append((dst.name(), src.name(indexed=True)))
 
-    # normal output wire (SJUMP is handled separately)
+    # normal output wire
     for i in tile.portsInfo:
-        if i.wire_direction != Direction.SJUMP and i.is_output:
+        if i.is_output:
             ports_pairs += list(
                 zip(
                     i.expand_port_info_by_name(),
@@ -535,10 +530,10 @@ def generateTile(
 
     # sjump output wire - SM drives SJUMP OUTPUT signals exiting to supertile SM
     port, signal = [], []
-    for i in tile.portsInfo:
-        if i.wire_direction == Direction.SJUMP and i.is_output:
-            port += i.expand_port_info_by_name()
-            signal += i.expand_port_info_by_name(indexed=True)
+    for i in tile.sjump_ports:
+        if i.is_output:
+            port += [pin.name() for pin in i.pins]
+            signal += [pin.name(indexed=True) for pin in i.pins]
 
     ports_pairs += list(zip(port, signal, strict=True))
 
@@ -546,10 +541,10 @@ def generateTile(
     # The tile port is a vector, so index into it (Q[0]) rather than using the
     # scalar SM-port name (Q0), which would be a floating implicit wire.
     port, signal = [], []
-    for i in tile.portsInfo:
-        if i.wire_direction == Direction.SJUMP and i.is_input:
-            port += i.expand_port_info_by_name()
-            signal += i.expand_port_info_by_name(indexed=True)
+    for i in tile.sjump_ports:
+        if i.is_input:
+            port += [pin.name() for pin in i.pins]
+            signal += [pin.name(indexed=True) for pin in i.pins]
 
     ports_pairs += list(zip(port, signal, strict=True))
 

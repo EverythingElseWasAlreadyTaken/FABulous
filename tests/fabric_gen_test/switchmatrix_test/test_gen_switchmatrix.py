@@ -338,7 +338,7 @@ class TestSuperTileSwitchMatrixConstants:
         create_switchmatrix_list(mat, connections)
         bot = make_empty_tile(
             "DSP_bot",
-            [sjump_port("x", IO.OUTPUT, wire_count=1)],
+            sjump_ports=[sjump_port("x", IO.OUTPUT, wire_count=1)],
             tileDir=tmp_path,
             matrixDir=tmp_path / "DSP_bot_switch_matrix.list",
             pinOrderConfig={},
@@ -439,13 +439,16 @@ class TestSwitchMatrixModulePorts:
         create_switchmatrix_list(tile_mat, [("x0{2}", "[r0|GND0]"), ("x1", "r0")])
         bot = make_empty_tile(
             "DSP_bot",
-            [sjump_port("r", IO.INPUT, wire_count=1), sjump_port("x", IO.OUTPUT)],
+            sjump_ports=[
+                sjump_port("r", IO.INPUT, wire_count=1),
+                sjump_port("x", IO.OUTPUT),
+            ],
             tileDir=tmp_path,
             matrixDir=tile_mat,
             pinOrderConfig={},
         )
         bot.switch_matrix = SwitchMatrix.from_file(
-            tile_mat, "DSP_bot", switch_matrix_ports(bot.portsInfo, bot.bels)
+            tile_mat, "DSP_bot", switch_matrix_ports(bot.sjump_ports, bot.bels)
         )
         writer = code_generator_factory(".v", "DSP_bot_switch_matrix")
         genTileSwitchMatrix(writer, bot, False)

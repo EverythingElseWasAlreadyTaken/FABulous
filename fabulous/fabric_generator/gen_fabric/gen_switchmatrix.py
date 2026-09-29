@@ -85,9 +85,6 @@ def _ports_from(
 ) -> list[SwitchMatrixPort]:
     """Return the matrix ports of one origin type and direction, in port order.
 
-    The origin type is matched exactly: an `SJumpPort` is a `TilePort`, but
-    its matrix ports are grouped apart from the routing wires'.
-
     Parameters
     ----------
     ports : tuple[SwitchMatrixPort, ...]

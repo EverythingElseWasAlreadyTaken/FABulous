@@ -14,7 +14,7 @@ from fabulous.fabric_definition.define import (
     Side,
 )
 from fabulous.fabric_definition.fabric import Fabric
-from fabulous.fabric_definition.port import BelConfigPort, Port
+from fabulous.fabric_definition.port import BelConfigPort, SJumpPort
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
@@ -49,11 +49,11 @@ def _supertile(tmp_path: Path, config_port: BelConfigPort | None = None) -> Supe
     mat = tmp_path / "supertile_matrix.list"
     create_switchmatrix_list(mat, [("{2}SUPER_A0", "[DSP_bot_A0|DSP_bot_A1]")])
 
-    def mk(name: str, ports: list[Port]) -> Tile:
+    def mk(name: str, ports: list[SJumpPort]) -> Tile:
         """Build a minimal child tile rooted at `tmp_path`."""
         return make_empty_tile(
             name,
-            ports,
+            sjump_ports=ports,
             tileDir=tmp_path,
             matrixDir=tmp_path / f"{name}_switch_matrix.list",
             pinOrderConfig={},
@@ -130,11 +130,11 @@ def _vhdl_supertile(tmp_path: Path) -> SuperTile:
     mat = tmp_path / "supertile_matrix.list"
     create_switchmatrix_list(mat, [("{2}SUPER_A0", "[DSP_bot_A0|DSP_bot_A1]")])
 
-    def mk(name: str, ports: list[Port]) -> Tile:
+    def mk(name: str, ports: list[SJumpPort]) -> Tile:
         """Build a minimal child tile rooted at `tmp_path`."""
         return make_empty_tile(
             name,
-            ports,
+            sjump_ports=ports,
             tileDir=tmp_path,
             matrixDir=tmp_path / f"{name}_switch_matrix.list",
             pinOrderConfig={},

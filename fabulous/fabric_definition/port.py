@@ -4,7 +4,7 @@ This module contains the port class hierarchy for representing different types o
 in the FPGA fabric:
 - Pin: A single bit of a port; the node of the routing graph
 - Port: Base class for all port types
-- TilePort: Port on a tile with side and termination information
+- TilePort: Port on a tile at one end of a routing channel
 - SJumpPort: Tile port facing the switch matrix of the surrounding supertile
 - BelPort: Port on a BEL (Basic Element of Logic)
 - ConfigPort: A port carrying configuration bits into a module
@@ -18,11 +18,11 @@ from dataclasses import dataclass
 from functools import cached_property, total_ordering
 from typing import TYPE_CHECKING
 
-from fabulous.fabric_definition.channel import ChannelDeclaration
 from fabulous.fabric_definition.define import IO, BelPortKind, Direction, Side
 
 if TYPE_CHECKING:
     from fabulous.fabric_definition.bel import Bel
+    from fabulous.fabric_definition.channel import ChannelDeclaration
     from fabulous.fabric_definition.tile import Tile
 
 NULL_PORT_NAME = "NULL"
@@ -414,7 +414,7 @@ class TilePort(Port):
         only exposes its first `wire_count` bits; the remaining slices pass
         through the tile untouched.
         """
-        if self.is_null_terminated and self.wire_direction != Direction.SJUMP:
+        if self.is_null_terminated:
             return self._spanned_pins
         return self.pins[: self.wire_count]
 
@@ -425,8 +425,6 @@ class TilePort(Port):
         The mirror image of `sm_pins`: a named spanning wire hands its last
         `wire_count` bits to the neighbour, everything else stays inside.
         """
-        if self.wire_direction == Direction.SJUMP:
-            return self.pins
         if self.is_null_terminated:
             return self._spanned_pins
         return self.pins[self.width - self.wire_count :]
@@ -522,14 +520,13 @@ class TilePort(Port):
         return self._pin_names(self.top_pins, indexed, prefix, escape)
 
 
-class SJumpPort(TilePort):
+class SJumpPort(Port):
     """A tile port that faces the switch matrix of the surrounding supertile.
 
-    An SJUMP wire is one-way and never leaves the supertile, so unlike a
-    spanning `TilePort` it has no offset, no partner port at the far side of
-    the tile and no NULL-terminated expansion: every bit faces both the tile's
-    own switch matrix and the supertile's. `SJumpWire` pairs it with the
-    supertile matrix port it reaches.
+    An SJUMP wire is one-way and never leaves the supertile, so it is not part
+    of a routing channel: it has no side, no offset and no partner port, and
+    every bit faces both the tile's own switch matrix and the supertile's.
+    `SJumpWire` pairs it with the supertile matrix port it reaches.
 
     Parameters
     ----------
@@ -538,37 +535,13 @@ class SJumpPort(TilePort):
     io_direction : IO
         `IO.OUTPUT` for a signal leaving the tile towards the supertile matrix,
         `IO.INPUT` for one arriving from it.
-    wire_count : int
-        The number of wires, which is also the port's width.
+    width : int
+        The number of wires.
     """
-
-    def __init__(self, name: str, io_direction: IO, wire_count: int) -> None:
-        is_output = io_direction == IO.OUTPUT
-        super().__init__(
-            ChannelDeclaration(
-                Direction.SJUMP,
-                0,
-                0,
-                wire_count,
-                begin=name if is_output else None,
-                end=None if is_output else name,
-            ),
-            io_direction,
-        )
-
-    @property
-    def side_of_tile(self) -> Side:
-        """An SJUMP port faces the supertile matrix, on no side of the tile."""
-        return Side.ANY
 
     @property
     def sm_pins(self) -> tuple[Pin, ...]:
         """Every pin faces the tile's own switch matrix."""
-        return self.pins
-
-    @property
-    def top_pins(self) -> tuple[Pin, ...]:
-        """Every pin faces the supertile, which is this port's top level."""
         return self.pins
 
     def __repr__(self) -> str:
@@ -809,7 +782,7 @@ class SwitchMatrixPort(Port):
         `IO.OUTPUT`, a mux input is `IO.INPUT`.
     width : int
         The bit width of the port. Defaults to 1.
-    origin : TilePort | BelPort | None
+    origin : TilePort | SJumpPort | BelPort | None
         The tile or BEL port this port wires to, or None for a constant.
         Defaults to None.
     prefix : str
@@ -820,7 +793,7 @@ class SwitchMatrixPort(Port):
         instead of `{name}{index}`. Defaults to False.
     """
 
-    _origin: TilePort | BelPort | None
+    _origin: TilePort | SJumpPort | BelPort | None
     _prefix: str
     _literal: bool
 
@@ -829,7 +802,7 @@ class SwitchMatrixPort(Port):
         name: str,
         io_direction: IO,
         width: int = 1,
-        origin: TilePort | BelPort | None = None,
+        origin: TilePort | SJumpPort | BelPort | None = None,
         prefix: str = "",
         literal: bool = False,
     ) -> None:
@@ -839,12 +812,14 @@ class SwitchMatrixPort(Port):
         self._literal = literal
 
     @classmethod
-    def from_tile_port(cls, port: TilePort, prefix: str = "") -> SwitchMatrixPort:
+    def from_tile_port(
+        cls, port: TilePort | SJumpPort, prefix: str = ""
+    ) -> SwitchMatrixPort:
         """Build the matrix port for the switch-matrix-facing pins of a tile port.
 
         Parameters
         ----------
-        port : TilePort
+        port : TilePort | SJumpPort
             The tile port. Its `sm_pins` set the width; the direction is the
             tile port's own (the matrix drives a tile output).
         prefix : str, optional
@@ -876,7 +851,7 @@ class SwitchMatrixPort(Port):
         return cls(port.name, io, port.width, port)
 
     @property
-    def origin(self) -> TilePort | BelPort | None:
+    def origin(self) -> TilePort | SJumpPort | BelPort | None:
         """The tile or BEL port this port wires to, or None for a constant."""
         return self._origin
 

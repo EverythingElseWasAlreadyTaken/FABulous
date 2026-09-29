@@ -15,7 +15,6 @@ from fabulous.fabric_definition.port import (
     SwitchMatrixPort,
     TilePort,
 )
-from tests.conftest import sjump_port
 
 
 class TestPort:
@@ -359,13 +358,6 @@ class TestTilePortPins:
         assert port.has_destination is has_destination
         assert port.is_null_terminated is not (has_source and has_destination)
 
-    def test_sjump_exposes_all_pins(self) -> None:
-        """An SJUMP port has zero offset and is fully visible on both sides."""
-        port = sjump_port("J", IO.OUTPUT, wire_count=3)
-        assert port.sm_pins == port.pins
-        assert port.top_pins == port.pins
-        assert port.expand_port_info_by_name_top() == ["J0", "J1", "J2"]
-
 
 class TestSwitchMatrixPort:
     """A matrix port names its pins after the tile pins it wires to."""
@@ -404,23 +396,12 @@ class TestSwitchMatrixPort:
 
 
 class TestSJumpPort:
-    """An SJUMP port has no offset and no spanning expansion."""
+    """An SJUMP port is no part of a routing channel."""
 
     @pytest.mark.parametrize("io", [IO.OUTPUT, IO.INPUT])
     def test_every_pin_faces_both_matrices(self, io: IO) -> None:
-        """Width is the wire count; the matrix and top level see all of it."""
+        """Width is the wire count; the matrix sees all of it."""
         port = SJumpPort("A", io, 4)
         assert port.width == 4
         assert port.sm_pins == port.pins
-        assert port.top_pins == port.pins
-        assert port.x_offset == 0
-        assert port.y_offset == 0
-        assert port.side_of_tile is Side.ANY
-        assert port.wire_direction is Direction.SJUMP
-
-    def test_one_way_naming(self) -> None:
-        """Only the driven end carries the name; the other is NULL."""
-        out = SJumpPort("A", IO.OUTPUT, 1)
-        assert (out.source_name, out.destination_name) == ("A", "NULL")
-        inp = SJumpPort("Q", IO.INPUT, 1)
-        assert (inp.source_name, inp.destination_name) == ("NULL", "Q")
+        assert not isinstance(port, TilePort)

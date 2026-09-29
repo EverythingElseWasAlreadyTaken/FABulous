@@ -9,7 +9,8 @@ from fabulous.custom_exception import (
     InvalidPortType,
     InvalidSwitchMatrixDefinition,
 )
-from fabulous.fabric_definition.define import IO, Direction
+from fabulous.fabric_definition.define import IO
+from fabulous.fabric_definition.port import SJumpPort
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_generator.parser.parse_csv import (
@@ -274,10 +275,10 @@ class TestParseSJumpPortLine:
         ports, _ = parse_port_line("SJUMP,A,0,0,NULL,8")
         assert len(ports) == 1
         (port,) = ports
-        assert port.wire_direction == Direction.SJUMP
+        assert isinstance(port, SJumpPort)
         assert port.io_direction == IO.OUTPUT
         assert port.name == "A"
-        assert (port.x_offset, port.y_offset) == (0, 0)
+        assert port.width == 8
 
     def test_input_form(self) -> None:
         (port,), _ = parse_port_line("SJUMP,NULL,0,0,Q,8")
@@ -310,7 +311,7 @@ class TestSuperTileMatrixValidation:
         # DSP_bot drives operand A0 up to the BEL and reads result Q0 back.
         bot = make_empty_tile(
             "DSP_bot",
-            [
+            sjump_ports=[
                 sjump_port("A", IO.OUTPUT, wire_count=1),
                 sjump_port("Q", IO.INPUT, wire_count=1),
             ],

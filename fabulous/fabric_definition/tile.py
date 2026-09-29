@@ -6,10 +6,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fabulous.fabric_definition.bel import Bel
-from fabulous.fabric_definition.channel import ROUTING_DIRECTIONS
 from fabulous.fabric_definition.define import IO, Direction, PinSortMode, Side
 from fabulous.fabric_definition.gen_io import Gen_IO
-from fabulous.fabric_definition.port import TilePort
+from fabulous.fabric_definition.port import SJumpPort, TilePort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.wire import JumpWire
 
@@ -29,7 +28,8 @@ class Tile:
     name : str
         The name of the tile
     ports : list[TilePort]
-        List of ports for the tile. Each port is attached to this tile.
+        The routing channel ports of the tile. Each port is attached to this
+        tile.
     bels : list[Bel]
         List of Basic Elements of Logic (BELs) in the tile
     tileDir : Path
@@ -45,15 +45,20 @@ class Tile:
     jump_wires : list[JumpWire] | None, optional
         The tile-internal wires looping a switch-matrix output back into a
         switch-matrix input. Defaults to none.
+    sjump_ports : list[SJumpPort] | None, optional
+        The ports facing the switch matrix of the surrounding supertile.
+        Defaults to none.
 
     Attributes
     ----------
     name : str
         The name of the tile
     portsInfo : list[TilePort]
-        The list of ports of the tile
+        The routing channel ports of the tile
     jump_wires : list[JumpWire]
         The tile-internal jump wires
+    sjump_ports : list[SJumpPort]
+        The ports facing the supertile's switch matrix
     bels: list[Bel]
         The list of BELs of the tile
     switch_matrix : SwitchMatrix
@@ -74,6 +79,7 @@ class Tile:
     name: str
     portsInfo: list[TilePort]
     jump_wires: list[JumpWire]
+    sjump_ports: list[SJumpPort]
     bels: list[Bel]
     switch_matrix: SwitchMatrix
     gen_ios: list[Gen_IO]
@@ -90,13 +96,15 @@ class Tile:
         gen_ios: list[Gen_IO],
         pinOrderConfig: dict[Side, "PinOrderConfig"] | None = None,
         jump_wires: list[JumpWire] | None = None,
+        sjump_ports: list[SJumpPort] | None = None,
     ) -> None:
         self.name = name
         self._super_tile: SuperTile | None = None
         self.portsInfo = ports
+        self.jump_wires = jump_wires or []
+        self.sjump_ports = sjump_ports or []
         for port in ports:
             port.tile = self
-        self.jump_wires = jump_wires or []
         self.bels = bels
         if len(bels) > 26:
             raise ValueError(
@@ -278,42 +286,15 @@ class Tile:
             if p.wire_direction == Direction.WEST and p.io_direction == io
         ]
 
-    @property
-    def routing_ports(self) -> list[TilePort]:
-        """The ports that take part in a routing channel between tiles."""
-        return [p for p in self.portsInfo if p.wire_direction in ROUTING_DIRECTIONS]
-
-    def get_sjump_ports(self) -> list[TilePort]:
-        """Get all ports with SJUMP wire direction.
-
-        SJUMP ports are one-way connections between the tile and a supertile
-        BEL: OUTPUT ports exit toward the supertile switch matrix, INPUT ports
-        receive results back. Both directions are returned; callers filter by
-        `in_out` as needed.
-
-        Returns
-        -------
-        list[TilePort]
-            List of SJUMP-direction ports.
-        """
-        return [p for p in self.portsInfo if p.wire_direction == Direction.SJUMP]
-
     def getTileInputNames(self) -> list[str]:
         """Get all input port destination names for the tile.
 
         Returns
         -------
         list[str]
-            List of destination names for input ports, excluding JUMP,
-            and SJUMP direction ports.
+            List of destination names for input ports.
         """
-        return [
-            p.destination_name
-            for p in self.portsInfo
-            if p.has_destination
-            and p.wire_direction not in (Direction.JUMP, Direction.SJUMP)
-            and p.is_input
-        ]
+        return [p.destination_name for p in self.portsInfo if p.is_input]
 
     def getTileOutputNames(self) -> list[str]:
         """Get all output port source names for the tile.
@@ -321,16 +302,9 @@ class Tile:
         Returns
         -------
         list[str]
-            List of source names for output ports, excluding JUMP, and
-            SJUMP direction ports.
+            List of source names for output ports.
         """
-        return [
-            p.source_name
-            for p in self.portsInfo
-            if p.has_source
-            and p.wire_direction not in (Direction.JUMP, Direction.SJUMP)
-            and p.is_output
-        ]
+        return [p.source_name for p in self.portsInfo if p.is_output]
 
     @property
     def globalConfigBits(self) -> int:

@@ -206,7 +206,7 @@ class TestParseSupertiles:
     ) -> None:
         """SJUMP wires lead to the supertile matrix, so one must be declared."""
         ports = [sjump_port("A", IO.OUTPUT)] if with_sjump else []
-        bot = make_empty_tile("DSP_bot", ports, pinOrderConfig={})
+        bot = make_empty_tile("DSP_bot", sjump_ports=ports, pinOrderConfig={})
         csv = tmp_path / "DSP.csv"
         csv.write_text("SuperTILE,DSP\nDSP_bot\nEndSuperTILE\n")
 

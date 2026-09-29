@@ -58,7 +58,7 @@ USER_CLK_DIRECTIONS: dict[str, Side] = {
 
 def parse_port_line(
     line: str,
-) -> tuple[list[TilePort], JumpWire | None]:
+) -> tuple[list[TilePort | SJumpPort], JumpWire | None]:
     """Parse a single line of the port configuration from the CSV file.
 
     A `JUMP` line stays inside the tile, so it yields no tile ports but a
@@ -76,9 +76,9 @@ def parse_port_line(
 
     Returns
     -------
-    tuple[list[TilePort], JumpWire | None]
-        The parsed tile ports, sharing the line's `ChannelDeclaration`, and the
-        jump wire of a `JUMP` line.
+    tuple[list[TilePort | SJumpPort], JumpWire | None]
+        The parsed tile ports (sharing the line's `ChannelDeclaration`) or the
+        `SJumpPort` of an `SJUMP` line, and the jump wire of a `JUMP` line.
     """
     fields: list[str] = line.split(",")
     port_type = fields[0]
@@ -113,7 +113,7 @@ def parse_port_line(
                 "Rename the wire so it does not end in a digit."
             )
 
-    ports: list[TilePort] = []
+    ports: list[TilePort | SJumpPort] = []
     jump_wire: JumpWire | None = None
 
     if wire_direction in (
@@ -233,7 +233,7 @@ def parseTilesCSV(fileName: Path, preserve_list_order: bool = False) -> list[Til
                 f"Tile name '{tileName}' does not match folder name "
                 f"'{filePathParent.name}' in {fileName}."
             )
-        ports: list[TilePort] = []
+        ports: list[TilePort | SJumpPort] = []
         jump_wires: list[JumpWire] = []
         bels: list[Bel] = []
         matrixDir: Path | None = None
@@ -468,20 +468,23 @@ def parseTilesCSV(fileName: Path, preserve_list_order: bool = False) -> list[Til
                 tileName, bels, matrixDir, tileCarry, localSharedPorts
             )
 
+        sjump_ports = [p for p in ports if isinstance(p, SJumpPort)]
+        tile_ports = [p for p in ports if isinstance(p, TilePort)]
         new_tiles.append(
             Tile(
                 name=tileName,
-                ports=ports,
+                ports=tile_ports,
                 bels=bels,
                 tileDir=fileName,
                 switch_matrix=SwitchMatrix.from_file(
                     matrixDir,
                     tileName,
-                    switch_matrix_ports(ports, bels, jump_wires),
+                    switch_matrix_ports([*tile_ports, *sjump_ports], bels, jump_wires),
                     preserve_list_order=preserve_list_order,
                 ),
                 gen_ios=gen_ios,
                 jump_wires=jump_wires,
+                sjump_ports=sjump_ports,
             )
         )
 
