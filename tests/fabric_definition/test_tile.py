@@ -21,7 +21,9 @@ def _mk_tile(ports: list[TilePort], bels: list[Bel] | None = None) -> Tile:
         ports=ports,
         bels=bels or [],
         tileDir=Path(),
-        switch_matrix=SwitchMatrix(matrix_file=Path(), ports=(), connections={}),
+        switch_matrix=SwitchMatrix(
+            matrix_file=Path(), ports=(), connections={}, name="T"
+        ),
         config_mem=empty_config_mem(Path("ConfigMem.csv")),
         gen_ios=[],
     )

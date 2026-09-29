@@ -25,6 +25,7 @@ from fabulous.fabric_definition.define import (
     DEFAULT_SWITCH_MATRIX_DELAY,
     DEFAULT_USER_CLK_SIDE,
     FRAME_BITS_PER_ROW,
+    HIERARCHY_SEPARATOR,
     IO,
     MAX_FRAMES_PER_COL,
     ConfigBitMode,
@@ -116,6 +117,11 @@ def parse_port_line(
     # The trailing digits are read back as that index. A name that ends in a
     # digit is ambiguous once expanded.
     for wire_name in (source_name, destination_name):
+        if HIERARCHY_SEPARATOR in wire_name:
+            raise InvalidPortType(
+                f"Wire name '{wire_name}' contains '{HIERARCHY_SEPARATOR}', which "
+                "separates an instance from its pin in the fabric model's names."
+            )
         if wire_name != NULL_PORT_NAME and wire_name[-1:].isdigit():
             raise InvalidPortType(
                 f"Wire name '{wire_name}' ends in a digit, which is ambiguous: "
@@ -133,6 +139,11 @@ def parse_port_line(
         Direction.SOUTH,
         Direction.WEST,
     ):
+        if x_offset and y_offset:
+            raise InvalidPortType(
+                f"Invalid port line '{line.strip()}': routing runs in one "
+                f"direction, so X or Y offset must be 0 (got {x_offset},{y_offset})."
+            )
         # A NULL end is the far side of the routing relation, not an interface
         # of this tile, so the line declares one port per *named* end.
         if source_name == NULL_PORT_NAME and destination_name == NULL_PORT_NAME:

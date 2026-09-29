@@ -8,7 +8,7 @@ supports CSV serialization for integration with geometry files.
 from csv import writer as csvWriter
 
 from fabulous.custom_exception import InvalidPortType
-from fabulous.fabric_definition.fabric import Direction
+from fabulous.fabric_definition.define import Direction
 from fabulous.geometry_generator.geometry_obj import Location
 
 

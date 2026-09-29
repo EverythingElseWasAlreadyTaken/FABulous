@@ -225,6 +225,7 @@ def make_empty_tile(
             matrix_file=matrixDir,
             ports=(),
             connections={},
+            name=name,
             hdl_config_bits=config_bits or None,
         ),
         gen_ios=[],

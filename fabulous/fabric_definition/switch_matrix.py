@@ -97,6 +97,9 @@ class SwitchMatrix:
     connections : dict[Pin, tuple[Pin, ...]]
         Mux output pin -> its mux input pins. Every mux output pin has an
         entry, possibly empty. Empty for hand-written HDL.
+    name : str
+        The name of the tile or supertile the matrix belongs to; it names the
+        matrix module and its instance.
     preserve_list_order : bool
         Whether the mux-input order is significant (MSB-first `.list` order)
         rather than the canonical input order. Recorded once at read time
@@ -109,8 +112,24 @@ class SwitchMatrix:
     matrix_file: Path
     ports: tuple[SwitchMatrixPort, ...]
     connections: dict[Pin, tuple[Pin, ...]]
+    name: str
     preserve_list_order: bool = False
     hdl_config_bits: int | None = None
+
+    def __post_init__(self) -> None:
+        """Attach the ports to this matrix."""
+        for port in self.ports:
+            port.matrix = self
+
+    @property
+    def module_name(self) -> str:
+        """The name of the matrix's RTL module."""
+        return f"{self.name}_switch_matrix"
+
+    @property
+    def instance_name(self) -> str:
+        """The instance name of the matrix in its tile's RTL."""
+        return f"Inst_{self.module_name}"
 
     @property
     def named_connections(self) -> dict[str, list[str]]:
@@ -173,7 +192,7 @@ class SwitchMatrix:
             Path to the switch matrix file. Supported extensions: `.csv`,
             `.list`, `.v`, `.sv`, `.vhdl`, `.vhd`.
         tile_name : str
-            Tile name, used only in the hand-written-HDL warning message.
+            The name of the tile or supertile; names the matrix (`name`).
         ports : Iterable[SwitchMatrixPort]
             The matrix ports in canonical order (`switch_matrix_ports`).
         preserve_list_order : bool, optional
@@ -207,13 +226,15 @@ class SwitchMatrix:
                 # A .csv is authored in its final order: rows are the mux
                 # outputs, cell values the per-mux input order.
                 raw = parseMatrix(path, preserve_list_order)
-                return cls.from_names(path, tuple(ports), raw, preserve_list_order)
+                return cls.from_names(
+                    path, tile_name, tuple(ports), raw, preserve_list_order
+                )
             case ".list":
                 raw = parseList(path, "source")
                 if preserve_list_order:
                     raw = {k: list(reversed(v)) for k, v in raw.items()}
                 return cls.from_names(
-                    path, tuple(ports), raw, preserve_list_order, canonical
+                    path, tile_name, tuple(ports), raw, preserve_list_order, canonical
                 )
             case ".v" | ".sv" | ".vhdl" | ".vhd":
                 logger.warning(
@@ -229,6 +250,7 @@ class SwitchMatrix:
                     matrix_file=path,
                     ports=(),
                     connections={},
+                    name=tile_name,
                     preserve_list_order=preserve_list_order,
                     hdl_config_bits=cls._extract_config_bits_from_hdl(path),
                 )
@@ -241,6 +263,7 @@ class SwitchMatrix:
     def from_names(
         cls,
         path: Path,
+        name: str,
         ports: tuple[SwitchMatrixPort, ...],
         raw: dict[str, list[str]],
         preserve_list_order: bool = False,
@@ -252,6 +275,8 @@ class SwitchMatrix:
         ----------
         path : Path
             The matrix file the names came from (kept as `matrix_file`).
+        name : str
+            The name of the tile or supertile the matrix belongs to.
         ports : tuple[SwitchMatrixPort, ...]
             The matrix ports in canonical order.
         raw : dict[str, list[str]]
@@ -277,7 +302,7 @@ class SwitchMatrix:
         InvalidSwitchMatrixDefinition
             If a name is not a pin of `ports`.
         """
-        matrix = cls(path, ports, {}, preserve_list_order)
+        matrix = cls(path, ports, {}, name, preserve_list_order)
         outputs = {pin.name(): pin for pin in matrix.mux_outputs}
         inputs = {pin.name(): pin for pin in matrix.mux_inputs}
         input_index = {pin: i for i, pin in enumerate(matrix.mux_inputs)}
@@ -302,7 +327,7 @@ class SwitchMatrix:
 
         if not canonical:
             connections = {out: tuple(ins) for out, ins in resolved.items()}
-            return cls(path, ports, connections, preserve_list_order)
+            return cls(path, ports, connections, name, preserve_list_order)
 
         # Unconnected outputs keep an empty entry so generation's
         # "not connected to anything" check still fires.
@@ -312,7 +337,7 @@ class SwitchMatrix:
             if not preserve_list_order:
                 ins = sorted(ins, key=lambda pin: input_index[pin])
             connections[out] = tuple(ins)
-        return cls(path, ports, connections, preserve_list_order)
+        return cls(path, ports, connections, name, preserve_list_order)
 
     def to_csv_file(self, path: Path, tile_name: str) -> None:
         """Write the switch matrix connections to a `.csv` file.

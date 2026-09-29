@@ -1,117 +1,15 @@
-"""Wire class for managing connections between tiles."""
+"""Jump wires: fixed wires between switch matrix ports of a tile or supertile."""
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
-from fabulous.fabric_definition.define import IO, Direction
+from fabulous.fabric_definition.define import IO
 from fabulous.fabric_definition.port import (
     NULL_PORT_NAME,
     SJumpPort,
     SwitchMatrixPort,
 )
-
-
-@dataclass(frozen=True, eq=True)
-class Wire:
-    """Store wire connections that span across multiple tiles.
-
-    If working on connections between two adjacent tiles,
-    the Port class should have all the required information.
-    The main use of this class is to assist model generation,
-    where information at individual wire level is needed.
-
-    Attributes
-    ----------
-    direction : Direction
-        The direction of the wire
-    source : str
-        The source name of the wire
-    x_offset : int
-        The X-offset of the wire
-    y_offset : int
-        The Y-offset of the wire
-    destination : str
-        The destination name of the wire
-    sourceTile : str
-        The source tile name of the wire
-    destinationTile : str
-        The destination tile name of the wire
-    """
-
-    direction: Direction
-    source: str
-    x_offset: int
-    y_offset: int
-    destination: str
-    sourceTile: str
-    destinationTile: str
-
-    def __repr__(self) -> str:
-        """Return string representation of the wire.
-
-        Returns
-        -------
-        str
-            A compact string showing source, offsets, and destination.
-        """
-        return f"{self.source}-X{self.x_offset}Y{self.y_offset}>{self.destination}"
-
-    def __eq__(self, __o: object, /) -> bool:
-        """Check if two `Wire` objects are equal.
-
-        Two wires are considered equal if they have the same
-        source and destination names.
-
-        Parameters
-        ----------
-        __o : object
-            The object to compare with.
-
-        Returns
-        -------
-        bool
-            True if the wires are equal, False otherwise.
-        """
-        if __o is None or not isinstance(__o, Wire):
-            return False
-        return self.source == __o.source and self.destination == __o.destination
-
-    def __post_init__(self) -> None:
-        """Validate wire configuration after initialization.
-
-        Check that source and destination tile names follow the expected format
-        (X{num}Y{num}) or are empty for boundary conditions. This validation
-        ensures that wires don't reference tiles outside the fabric boundaries.
-
-        Raises
-        ------
-        ValueError
-            If source or destination tile names are invalid for non-zero offsets.
-        """
-
-        def validSourceDestination(name: str) -> bool:
-            """Check if the source or destination tile name is valid."""
-            if self.x_offset == 0 and self.y_offset == 0:
-                return True
-            if not name:
-                return True
-            return re.match(r"^X\d+Y\d+$", name) is not None
-
-        if not validSourceDestination(self.sourceTile):
-            raise ValueError(
-                f"Invalid source tile name: {self.sourceTile} for wire {self}, "
-                "your source is located out side of the fabric, please check the "
-                "source and destination port offset."
-            )
-        if not validSourceDestination(self.destinationTile):
-            raise ValueError(
-                f"Invalid destination tile name: {self.destinationTile} for wire "
-                f"{self}, "
-                "your destination is located out side of the fabric, please check "
-                "the source and destination port offset."
-            )
 
 
 @dataclass(frozen=True)
@@ -165,7 +63,9 @@ class JumpWire:
             source = SwitchMatrixPort(source_name, IO.OUTPUT, wire_count)
         destination = None
         if destination_name != NULL_PORT_NAME:
-            destination = SwitchMatrixPort(destination_name, IO.INPUT, wire_count)
+            destination = SwitchMatrixPort(
+                destination_name, IO.INPUT, wire_count, constant=source is None
+            )
         return cls(source, destination)
 
     @property
@@ -183,13 +83,10 @@ class SJumpWire:
     An SJUMP line declares one end: a port of the child tile. The other end is
     a port of the supertile's switch matrix, named `{tile}_{port}` so the
     matrix can tell apart the same port of two child tiles. This pairs the two
-    and owns that naming, the direction flip between them (what the child
-    drives, the matrix reads) and the offset from one end to the other.
-
-    The supertile's switch matrix lives in the wrapper at its master tile, so
-    the wire spans from the child tile's cell of the `tileMap` to the master's.
-    That is fixed by the supertile's own layout, independently of where the
-    supertile is placed in the fabric.
+    and owns that naming and the direction flip between them (what the child
+    drives, the matrix reads). Its bits are fixed connections of the supertile
+    (`SuperTile.fixed_connections`), from the child's `tileMap` position to the
+    master tile's, where the matrix sits.
 
     Attributes
     ----------
@@ -199,10 +96,6 @@ class SJumpWire:
         The child tile's column in the supertile's `tileMap`.
     y : int
         The child tile's row in the supertile's `tileMap`.
-    master_x : int
-        The master tile's column in the supertile's `tileMap`.
-    master_y : int
-        The master tile's row in the supertile's `tileMap`.
     child_port : SJumpPort
         The child tile's port.
     matrix_port : SwitchMatrixPort
@@ -212,15 +105,11 @@ class SJumpWire:
     tile_name: str
     x: int
     y: int
-    master_x: int
-    master_y: int
     child_port: SJumpPort
     matrix_port: SwitchMatrixPort
 
     @classmethod
-    def create(
-        cls, tile_name: str, x: int, y: int, master: tuple[int, int], port: SJumpPort
-    ) -> SJumpWire:
+    def create(cls, tile_name: str, x: int, y: int, port: SJumpPort) -> SJumpWire:
         """Build the wire and the supertile matrix port for a child tile port.
 
         Parameters
@@ -231,8 +120,6 @@ class SJumpWire:
             The child tile's column in the supertile's `tileMap`.
         y : int
             The child tile's row in the supertile's `tileMap`.
-        master : tuple[int, int]
-            The master tile's `(column, row)` in the supertile's `tileMap`.
         port : SJumpPort
             The child tile's port.
 
@@ -243,7 +130,7 @@ class SJumpWire:
         """
         io = IO.INPUT if port.is_output else IO.OUTPUT
         matrix_port = SwitchMatrixPort(port.name, io, port.width, port, f"{tile_name}_")
-        return cls(tile_name, x, y, master[0], master[1], port, matrix_port)
+        return cls(tile_name, x, y, port, matrix_port)
 
     @property
     def signal_name(self) -> str:
@@ -259,46 +146,3 @@ class SJumpWire:
     def wire_count(self) -> int:
         """The number of wires."""
         return self.child_port.width
-
-    @property
-    def x_offset(self) -> int:
-        """Columns from this wire's source cell to its destination cell."""
-        delta = self.master_x - self.x
-        return delta if self.is_forward else -delta
-
-    @property
-    def y_offset(self) -> int:
-        """Rows from this wire's source cell to its destination cell."""
-        delta = self.master_y - self.y
-        return delta if self.is_forward else -delta
-
-    def source_cell(self, base_x: int, base_y: int) -> tuple[int, int]:
-        """Return the fabric cell this wire starts in.
-
-        That is the cell that owns the wire: the child tile's for a forward
-        wire, the master tile's (which hosts the matrix) for a reverse one. The
-        destination cell is this plus `(x_offset, y_offset)`.
-
-        Parameters
-        ----------
-        base_x : int
-            The fabric column of the supertile placement's top-left cell.
-        base_y : int
-            The fabric row of the supertile placement's top-left cell.
-
-        Returns
-        -------
-        tuple[int, int]
-            The `(column, row)` of the source cell.
-        """
-        if self.is_forward:
-            return base_x + self.x, base_y + self.y
-        return base_x + self.master_x, base_y + self.master_y
-
-    @property
-    def pin_names(self) -> list[tuple[str, str]]:
-        """The `(source, destination)` wire name of each bit, in bit order."""
-        pairs = zip(self.child_port.pins, self.matrix_port.pins, strict=True)
-        if self.is_forward:
-            return [(child.name(), matrix.name()) for child, matrix in pairs]
-        return [(matrix.name(), child.name()) for child, matrix in pairs]

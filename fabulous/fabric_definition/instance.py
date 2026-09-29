@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from fabulous.fabric_definition.connection import FixedConnection, InstancePin
+
 if TYPE_CHECKING:
     from fabulous.fabric_definition.supertile import SuperTile
     from fabulous.fabric_definition.tile import Tile
@@ -33,6 +35,20 @@ class TileInstance:
     x: int
     y: int
     tile_type: Tile
+
+    @property
+    def fixed_connections(self) -> list[FixedConnection[InstancePin]]:
+        """The tile type's hard wires, placed at this instance.
+
+        Returns
+        -------
+        list[FixedConnection[InstancePin]]
+            The tile type's `fixed_connections`, both ends at this instance.
+        """
+        return [
+            FixedConnection((self, c.source), (self, c.sink), c.declaration)
+            for c in self.tile_type.fixed_connections
+        ]
 
 
 @dataclass(frozen=True, eq=False)
@@ -72,3 +88,20 @@ class SuperTileInstance:
         The fabric instantiates the supertile wrapper at this cell.
         """
         return next(iter(self.tiles.values()))
+
+    @property
+    def fixed_connections(self) -> list[FixedConnection[InstancePin]]:
+        """The supertile type's hard wires, placed onto its tile instances.
+
+        Returns
+        -------
+        list[FixedConnection[InstancePin]]
+            The supertile's `fixed_connections`, each `tileMap` position
+            replaced by the tile instance covering it.
+        """
+        connections = []
+        for c in self.super_tile.fixed_connections:
+            (src_at, src), (dst_at, dst) = c.source, c.sink
+            source, sink = (self.tiles[src_at], src), (self.tiles[dst_at], dst)
+            connections.append(FixedConnection(source, sink, c.declaration))
+        return connections

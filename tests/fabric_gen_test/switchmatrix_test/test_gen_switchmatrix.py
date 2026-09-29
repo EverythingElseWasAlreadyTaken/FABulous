@@ -91,7 +91,7 @@ class TestListExport:
         )
         ports = switch_matrix_ports([], [bel])
         sm = SwitchMatrix.from_names(
-            Path("x.csv"), ports, {"A_I": ["X", "Y"], "B_I": ["Z"], "C_I": []}
+            Path("x.csv"), "T", ports, {"A_I": ["X", "Y"], "B_I": ["Z"], "C_I": []}
         )
         out = tmp_path / "m.list"
         sm.to_list_file(out)
@@ -109,7 +109,11 @@ class TestListExport:
         )
         ports = switch_matrix_ports([], [bel])
         sm = SwitchMatrix.from_names(
-            Path("x.csv"), ports, {"A": ["Z", "Y", "X"]}, preserve_list_order=True
+            Path("x.csv"),
+            "T",
+            ports,
+            {"A": ["Z", "Y", "X"]},
+            preserve_list_order=True,
         )
         out = tmp_path / "m.list"
         sm.to_list_file(out)

@@ -12,7 +12,6 @@ placement and routing for user designs.
 import string
 from pathlib import Path
 
-from fabulous.custom_exception import InvalidState
 from fabulous.fabric_cad.timing_model.FABulous_timing_model_interface import (
     FABulousTimingModelInterface,
 )
@@ -146,8 +145,14 @@ def belLines(
     cType = bel.name
     if bel.name in ("LUT4c_frame_config", "LUT4c_frame_config_dffesr"):
         cType = "FABULOUS_LC"
-    pin_inputs = bel.pin_names(BelPortKind.INTERNAL, IO.INPUT)
-    pin_outputs = bel.pin_names(BelPortKind.INTERNAL, IO.OUTPUT)
+    pin_inputs, pin_outputs = (
+        [
+            pin.full_name()
+            for port in bel.get_ports(BelPortKind.INTERNAL, io)
+            for pin in port.pins
+        ]
+        for io in (IO.INPUT, IO.OUTPUT)
+    )
     v1_line = (
         f"X{x}Y{y},X{x},Y{y},{letter},{cType},{','.join(pin_inputs + pin_outputs)}"
     )
@@ -226,11 +231,6 @@ def genNextpnrModel(
         - belv2Str: A string with new style BEL definitions.
         - belv3Str: A string with new style BEL definitions including timing.
         - constrainStr: A string with constraint definitions.
-
-    Raises
-    ------
-    InvalidState
-        If a wire in a tile points to an invalid tile outside the fabric bounds.
     """
     fabric.check_routing_channels()
     pipStr = []
@@ -256,41 +256,15 @@ def genNextpnrModel(
             if tile is None:
                 continue
             pipStr.append(f"#Tile-internal pips on tile X{x}Y{y}:")
-            for source, sinkList in tile.switch_matrix.named_connections.items():
-                for sink in sinkList:
+            for sink, sources in tile.switch_matrix.connections.items():
+                for source in sources:
                     delay: float = DUMMY_PIP_DELAY
                     if delay_model is not None:
-                        delay = delay_model.pip_delay(tile.name, sink, source)
-                    pipStr.append(
-                        f"X{x}Y{y},{sink},X{x}Y{y},{source},{delay},{sink}.{source}"
-                    )
-
-            pipStr.append(f"#Tile-external pips on tile X{x}Y{y}:")
-            for wire in fabric.wires[(x, y)]:
-                xDst = x + wire.x_offset
-                yDst = y + wire.y_offset
-                if (not (0 <= xDst <= fabric.numberOfColumns)) or (
-                    not (0 <= yDst <= fabric.numberOfRows)
-                ):
-                    raise InvalidState(
-                        f"Wire {wire} in tile X{x}Y{y} points to an invalid tile "
-                        f"X{xDst}Y{yDst}. "
-                        "Please check your tile CSV file for unmatching wires/offsets!"
-                    )
-
-                delay: float = DUMMY_PIP_DELAY
-                if delay_model is not None:
-                    delay = delay_model.pip_delay(
-                        tile.name,
-                        wire.source,
-                        wire.destination,
-                    )
-                pipStr.append(
-                    f"X{x}Y{y},{wire.source},"
-                    f"X{x + wire.x_offset}Y{y + wire.y_offset},{wire.destination},"
-                    f"{delay},"
-                    f"{wire.source}.{wire.destination}"
-                )
+                        delay = delay_model.pip_delay(
+                            tile.name, source.name(), sink.name()
+                        )
+                    src, dst = source.full_name(), sink.full_name()
+                    pipStr.append(f"X{x}Y{y},{src},X{x}Y{y},{dst},{delay},{src}.{dst}")
 
             # BEL definitions: legacy v1, and new-style v2 / v3 (with timing arcs).
             belStr.append(f"#Tile_X{x}Y{y}")
@@ -306,24 +280,25 @@ def genNextpnrModel(
                 belv3Str.extend(v3_lines)
                 constrainStr.extend(constrain_lines)
 
-    # Supertile SJUMP, BEL and switch-matrix PIP emission.
+    # Fixed connections are pips without config bits, in the tile they start.
+    pipStr.append("#Fixed connections:")
+    for connection in fabric.fixed_connections():
+        (src_at, src_pin), (dst_at, dst_pin) = connection.source, connection.sink
+        src, dst = src_pin.full_name(), dst_pin.full_name()
+        delay = DUMMY_PIP_DELAY
+        if delay_model is not None:
+            delay = delay_model.pip_delay(
+                src_at.tile_type.name, src_pin.name(), dst_pin.name()
+            )
+        pipStr.append(
+            f"X{src_at.x}Y{src_at.y},{src},X{dst_at.x}Y{dst_at.y},{dst},"
+            f"{delay},{src}.{dst}"
+        )
+
+    # Supertile BEL and switch-matrix PIP emission; its SJUMP wires and BEL
+    # boundary are fixed connections, emitted above.
     for placement in fabric.super_tile_instances:
         super_tile = placement.super_tile
-        base_fx, base_fy = placement.x, placement.y
-        for wire in super_tile.sjump_wires:
-            sx, sy = wire.source_cell(base_fx, base_fy)
-            source_tile = fabric.tile[sy][sx]
-            for source, destination in wire.pin_names:
-                delay: float = DUMMY_PIP_DELAY
-                if delay_model is not None:
-                    delay = delay_model.pip_delay(source_tile.name, source, destination)
-                pipStr.append(
-                    f"X{sx}Y{sy},{source},"
-                    f"X{sx + wire.x_offset}Y{sy + wire.y_offset},{destination},"
-                    f"{delay},"
-                    f"{source}.{destination}"
-                )
-
         if not super_tile.bels and super_tile.supertile_matrix_dir is None:
             continue
 
@@ -344,13 +319,16 @@ def genNextpnrModel(
             constrainStr.extend(constrain_lines)
 
         if super_tile.switch_matrix is not None:
-            for sink, sources in super_tile.switch_matrix.named_connections.items():
-                for src in sources:
+            for sink, sources in super_tile.switch_matrix.connections.items():
+                for source in sources:
                     delay = DUMMY_PIP_DELAY
                     if delay_model is not None:
-                        delay = delay_model.pip_delay(super_tile.name, sink, src)
+                        delay = delay_model.pip_delay(
+                            super_tile.name, source.name(), sink.name()
+                        )
+                    src, dst = source.full_name(), sink.full_name()
                     pipStr.append(
-                        f"X{ftx}Y{fty},{src},X{ftx}Y{fty},{sink},{delay},{src}.{sink}"
+                        f"X{ftx}Y{fty},{src},X{ftx}Y{fty},{dst},{delay},{src}.{dst}"
                     )
 
     return (

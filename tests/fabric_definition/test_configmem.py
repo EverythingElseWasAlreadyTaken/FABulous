@@ -171,7 +171,9 @@ def _tile(tmp_path: Path, config_mem: ConfigMem) -> Tile:
         ports=[],
         bels=[],
         tileDir=tmp_path / "T.csv",
-        switch_matrix=SwitchMatrix(matrix_file=Path(), ports=(), connections={}),
+        switch_matrix=SwitchMatrix(
+            matrix_file=Path(), ports=(), connections={}, name="T"
+        ),
         config_mem=config_mem,
         gen_ios=[],
     )

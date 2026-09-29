@@ -28,7 +28,7 @@ from fabulous.fabric_definition.configmem import (
     ConfigMem,
     empty_config_mem,
 )
-from fabulous.fabric_definition.define import IO, ConfigBitMode, Direction
+from fabulous.fabric_definition.define import IO, ConfigBitMode
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.port import BelConfigPort, BelPort
 from fabulous.fabric_definition.switch_matrix import (
@@ -36,7 +36,7 @@ from fabulous.fabric_definition.switch_matrix import (
     switch_matrix_ports,
 )
 from fabulous.fabric_definition.tile import Tile
-from fabulous.fabric_definition.wire import Wire
+from fabulous.fabric_definition.wire import JumpWire
 from fabulous.fabulous_repl.fabulous_repl import FABulousREPL
 from tests.conftest import make_empty_tile, make_fabric_from_grid, run_cmd
 
@@ -300,18 +300,15 @@ def _write_matrix(path: Path, sources: list[str]) -> None:
     path.write_text("\n".join(lines) + "\n")
 
 
-def _natural_wires() -> list[Wire]:
-    """Return the wire list used by the tests.
+def _natural_wires() -> list[JumpWire]:
+    """Return the jump wires used by the tests.
 
     Returns
     -------
-    list[Wire]
-        Two immutable wires in their declared insertion order.
+    list[JumpWire]
+        Two immutable one-bit wires in their declared insertion order.
     """
-    return [
-        Wire(Direction.JUMP, "W_A", 0, 0, "W_B", "", ""),
-        Wire(Direction.JUMP, "W_C", 0, 0, "W_D", "", ""),
-    ]
+    return [JumpWire.create("W_A", "W_B", 1), JumpWire.create("W_C", "W_D", 1)]
 
 
 def _build_fabric(
@@ -319,7 +316,7 @@ def _build_fabric(
     name: str,
     feature_map: dict[str, dict],
     sources: list[str],
-    wires: list[Wire],
+    wires: list[JumpWire],
 ) -> Fabric:
     """Build a single-tile fabric backed by on-disk ConfigMem and matrix CSVs.
 
@@ -334,7 +331,7 @@ def _build_fabric(
         BEL feature map populating the single BEL.
     sources : list[str]
         Switch-matrix source rows, in the desired insertion order.
-    wires : list[Wire]
+    wires : list[JumpWire]
         Immutable wire connections, in the desired insertion order.
 
     Returns
@@ -366,23 +363,24 @@ def _build_fabric(
         bels=[bel],
         tileDir=tile_dir / f"{_TILE_NAME}.csv",
         switch_matrix=SwitchMatrix.from_file(
-            matrix_path, _TILE_NAME, switch_matrix_ports([], [bel])
+            matrix_path, _TILE_NAME, switch_matrix_ports([], [bel], wires)
         ),
         config_mem=empty_config_mem(Path("ConfigMem.csv")),
         gen_ios=[],
+        jump_wires=wires,
     )
-    fabric = Fabric(fabric_dir=root)
-    fabric.tile = [[tile]]
-    fabric.tileDic = {tile.name: tile}
     tile.config_mem = ConfigMem.from_csv(
         tile_dir / f"{_TILE_NAME}_ConfigMem.csv",
         frame_bits_per_row=_FRAME_BITS,
         max_frames_per_col=_MAX_FRAMES,
     )
-    fabric.wires = {(0, 0): wires}
-    fabric.numberOfRows = 1
-    fabric.numberOfColumns = 1
-    return fabric
+    return Fabric(
+        fabric_dir=root,
+        tile=[[tile]],
+        numberOfRows=1,
+        numberOfColumns=1,
+        tileDic={tile.name: tile},
+    )
 
 
 def test_bitstream_spec_is_deterministic(tmp_path: Path) -> None:
@@ -435,10 +433,12 @@ def test_bitstream_spec_assigns_bit_offsets_in_insertion_order(
     # overwrite, landing on offset 2 -> physical position 29.
     assert tile_spec["A.F_B"] == {29: "1"}
     assert tile_spec["A.F_C"] == {28: "1"}
-    assert tile_spec["D0.S0"] == {27: "0"}
-    assert tile_spec["D1.S0"] == {27: "1"}
-    assert tile_spec["D0.S1"] == {26: "0"}
-    assert tile_spec["D1.S1"] == {26: "1"}
+    # Switch matrix pins are named by the matrix instance.
+    sm = "Inst_TESTTILE_switch_matrix__"
+    assert tile_spec[f"{sm}D0.{sm}S0"] == {27: "0"}
+    assert tile_spec[f"{sm}D1.{sm}S0"] == {27: "1"}
+    assert tile_spec[f"{sm}D0.{sm}S1"] == {26: "0"}
+    assert tile_spec[f"{sm}D1.{sm}S1"] == {26: "1"}
     # Immutable wires emit empty bit maps.
-    assert tile_spec["W_A.W_B"] == {}
-    assert tile_spec["W_C.W_D"] == {}
+    assert tile_spec[f"{sm}W_A0.{sm}W_B0"] == {}
+    assert tile_spec[f"{sm}W_C0.{sm}W_D0"] == {}

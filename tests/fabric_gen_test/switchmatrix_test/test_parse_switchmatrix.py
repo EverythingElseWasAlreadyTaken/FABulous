@@ -327,7 +327,7 @@ class TestSuperTileMatrixValidation:
         )
 
     def test_port_name_sets(self) -> None:
-        sm = SwitchMatrix(Path(), self._supertile().switch_matrix_ports(), {})
+        sm = SwitchMatrix(Path(), self._supertile().switch_matrix_ports(), {}, "DSP")
         # mux inputs: child OUTPUT SJUMP wire + BEL output (+ constants)
         assert {p.name() for p in sm.mux_inputs} >= {"DSP_bot_A0", "SUPER_Q0"}
         # mux outputs: BEL input + child INPUT SJUMP wire
@@ -359,8 +359,8 @@ class TestSuperTileMatrixValidation:
         ports = self._supertile().switch_matrix_ports()
         path = Path("supertile_matrix.list")
         if error_match is None:
-            sm = SwitchMatrix.from_names(path, ports, connections)
+            sm = SwitchMatrix.from_names(path, "DSP", ports, connections)
             assert sm.named_connections == connections
         else:
             with pytest.raises(InvalidSwitchMatrixDefinition, match=error_match):
-                SwitchMatrix.from_names(path, ports, connections)
+                SwitchMatrix.from_names(path, "DSP", ports, connections)
