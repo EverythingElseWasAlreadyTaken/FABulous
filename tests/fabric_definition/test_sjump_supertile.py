@@ -13,6 +13,7 @@ import pytest
 
 from fabulous.fabric_cad.gen_bitstream_spec import generateBitstreamSpec
 from fabulous.fabric_cad.gen_npnr_model import genNextpnrModel
+from fabulous.fabric_definition.channel import ChannelDeclaration
 from fabulous.fabric_definition.define import IO, Direction, Side
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.port import TilePort
@@ -78,23 +79,27 @@ class TestTileGetSJumpPorts:
             name="J",
             io_direction=IO.OUTPUT,
             side_of_tile=Side.NORTH,
-            wire_direction=Direction.JUMP,
-            source_name="J",
-            x_offset=0,
-            y_offset=0,
-            destination_name="J",
-            wire_count=1,
+            declaration=ChannelDeclaration(
+                Direction.JUMP,
+                0,
+                0,
+                1,
+                begin="J",
+                end="J",
+            ),
         )
         normal = TilePort(
             name="N1BEG",
             io_direction=IO.OUTPUT,
             side_of_tile=Side.NORTH,
-            wire_direction=Direction.NORTH,
-            source_name="N1BEG",
-            x_offset=0,
-            y_offset=-1,
-            destination_name="N1END",
-            wire_count=4,
+            declaration=ChannelDeclaration(
+                Direction.NORTH,
+                0,
+                -1,
+                4,
+                begin="N1BEG",
+                end="N1END",
+            ),
         )
         tile = _tile("DSP_bot", [sjump_out, jump, normal, sjump_in])
 

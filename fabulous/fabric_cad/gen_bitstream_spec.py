@@ -60,6 +60,7 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
     dict[str, dict]
         The bits stream specification of the fabric.
     """
+    fabric.check_routing_channels()
     specData = {
         "TileMap": {},
         "TileSpecs": {},

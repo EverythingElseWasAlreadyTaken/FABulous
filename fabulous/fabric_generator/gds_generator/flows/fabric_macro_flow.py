@@ -152,6 +152,7 @@ class FABulousFabricMacroFlow(Classic):
         pdk: str | None = None,
         **custom_config_overrides: dict,
     ) -> None:
+        fabric.check_routing_channels()
         self.fabric = fabric
         self.macros, self.tile_sizes = _build_macros(tile_macro_dirs)
 

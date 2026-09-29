@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fabulous.fabric_definition.bel import Bel
+from fabulous.fabric_definition.channel import ROUTING_DIRECTIONS
 from fabulous.fabric_definition.define import IO, Direction, PinSortMode, Side
 from fabulous.fabric_definition.gen_io import Gen_IO
 from fabulous.fabric_definition.port import TilePort
@@ -276,6 +277,11 @@ class Tile:
             for p in self.portsInfo
             if p.wire_direction == Direction.WEST and p.io_direction == io
         ]
+
+    @property
+    def routing_ports(self) -> list[TilePort]:
+        """The ports that take part in a routing channel between tiles."""
+        return [p for p in self.portsInfo if p.wire_direction in ROUTING_DIRECTIONS]
 
     def get_sjump_ports(self) -> list[TilePort]:
         """Get all ports with SJUMP wire direction.

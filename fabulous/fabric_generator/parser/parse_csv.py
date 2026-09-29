@@ -45,6 +45,7 @@ from fabulous.fabulous_settings import get_context
 
 if TYPE_CHECKING:
     from fabulous.fabric_definition.bel import Bel
+from fabulous.fabric_definition.channel import ChannelDeclaration
 
 # fabric.csv `UserCLKDirection` value -> side the clock enters each tile.
 USER_CLK_DIRECTIONS: dict[str, Side] = {
@@ -57,7 +58,7 @@ USER_CLK_DIRECTIONS: dict[str, Side] = {
 
 def parse_port_line(
     line: str,
-) -> tuple[list[TilePort], JumpWire | None, tuple[str, str] | None]:
+) -> tuple[list[TilePort], JumpWire | None]:
     """Parse a single line of the port configuration from the CSV file.
 
     A `JUMP` line stays inside the tile, so it yields no tile ports but a
@@ -75,9 +76,9 @@ def parse_port_line(
 
     Returns
     -------
-    tuple[list[TilePort], JumpWire | None, tuple[str, str] | None]
-        The parsed tile ports, the jump wire of a `JUMP` line, and an optional
-        common wire pair.
+    tuple[list[TilePort], JumpWire | None]
+        The parsed tile ports, sharing the line's `ChannelDeclaration`, and the
+        jump wire of a `JUMP` line.
     """
     fields: list[str] = line.split(",")
     port_type = fields[0]
@@ -114,7 +115,6 @@ def parse_port_line(
 
     ports: list[TilePort] = []
     jump_wire: JumpWire | None = None
-    common_wire_pair: tuple[str, str] | None
 
     if wire_direction in (
         Direction.NORTH,
@@ -130,42 +130,29 @@ def parse_port_line(
                 "both NULL, so the line declares neither a tile port nor a wire."
             )
 
+        declaration = ChannelDeclaration(
+            wire_direction,
+            x_offset,
+            y_offset,
+            wire_count,
+            begin=None if source_name == NULL_PORT_NAME else source_name,
+            end=None if destination_name == NULL_PORT_NAME else destination_name,
+        )
         # Output port (source side)
-        if source_name != NULL_PORT_NAME:
+        if declaration.begin is not None:
             ports.append(
-                TilePort(
-                    name=source_name,
-                    io_direction=IO.OUTPUT,
-                    side_of_tile=Side[port_type],
-                    wire_direction=wire_direction,
-                    source_name=source_name,
-                    x_offset=x_offset,
-                    y_offset=y_offset,
-                    destination_name=destination_name,
-                    wire_count=wire_count,
-                )
+                TilePort(declaration.begin, IO.OUTPUT, Side[port_type], declaration)
             )
-
         # Input port (destination side)
-        if destination_name != NULL_PORT_NAME:
+        if declaration.end is not None:
             ports.append(
                 TilePort(
-                    name=destination_name,
-                    io_direction=IO.INPUT,
-                    side_of_tile=Side[port_type].opposite,
-                    wire_direction=wire_direction,
-                    source_name=source_name,
-                    x_offset=x_offset,
-                    y_offset=y_offset,
-                    destination_name=destination_name,
-                    wire_count=wire_count,
+                    declaration.end, IO.INPUT, Side[port_type].opposite, declaration
                 )
             )
-        common_wire_pair = (f"{source_name}", f"{destination_name}")
 
     elif wire_direction is Direction.JUMP:
         jump_wire = JumpWire.create(source_name, destination_name, wire_count)
-        common_wire_pair = None
 
     elif wire_direction is Direction.SJUMP:
         # SJUMP,source,0,0,NULL,n  -> OUTPUT: signal exits tile toward supertile SM
@@ -189,16 +176,13 @@ def parse_port_line(
             ports.append(SJumpPort(source_name, IO.OUTPUT, wire_count))
         else:
             ports.append(SJumpPort(destination_name, IO.INPUT, wire_count))
-        common_wire_pair = None
 
     else:
         raise InvalidPortType(f"Unknown port type: {port_type}")
-    return (ports, jump_wire, common_wire_pair)
+    return (ports, jump_wire)
 
 
-def parseTilesCSV(
-    fileName: Path, preserve_list_order: bool = False
-) -> tuple[list[Tile], list[tuple[str, str]]]:
+def parseTilesCSV(fileName: Path, preserve_list_order: bool = False) -> list[Tile]:
     """Parse a CSV tile configuration file and returns all tile objects.
 
     Parameters
@@ -211,8 +195,8 @@ def parseTilesCSV(
 
     Returns
     -------
-    tuple[list[Tile], list[tuple[str, str]]]
-        A tuple containing a list of Tile objects and a list of common wire pairs.
+    list[Tile]
+        The parsed tiles.
 
     Raises
     ------
@@ -244,7 +228,6 @@ def parseTilesCSV(
     tilesData = re.findall(r"TILE(.*?)EndTILE", file, re.MULTILINE | re.DOTALL)
 
     new_tiles = []
-    common_wire_pairs = []
     proj_dir = get_context().proj_dir
 
     # Parse each tile config
@@ -271,7 +254,7 @@ def parseTilesCSV(
             if not temp or temp[0] == "":
                 continue
             if temp[0] in Direction:
-                port, jump_wire, common_wire_pair = parse_port_line(item)
+                port, jump_wire = parse_port_line(item)
                 if jump_wire is not None:
                     jump_wires.append(jump_wire)
                 if "CARRY" in temp[6]:
@@ -323,8 +306,6 @@ def parseTilesCSV(
                         )
 
                 ports.extend(port)
-                if common_wire_pair:
-                    common_wire_pairs.append(common_wire_pair)
 
             elif temp[0] == "BEL":
                 belFilePath = filePathParent.joinpath(temp[1])
@@ -470,12 +451,10 @@ def parseTilesCSV(
                     if not lineItem[0]:
                         continue
 
-                    port, jump_wire, common_wire_pair = parse_port_line(line)
+                    port, jump_wire = parse_port_line(line)
                     ports.extend(port)
                     if jump_wire is not None:
                         jump_wires.append(jump_wire)
-                    if common_wire_pair:
-                        common_wire_pairs.append(common_wire_pair)
 
             else:
                 raise InvalidTileDefinition(
@@ -512,7 +491,7 @@ def parseTilesCSV(
             )
         )
 
-    return (new_tiles, common_wire_pairs)
+    return new_tiles
 
 
 def parseSupertilesCSV(fileName: Path, tileDic: dict[str, Tile]) -> list[SuperTile]:
@@ -702,7 +681,7 @@ def parse_tile_from_dir(
         raise FileNotFoundError(f"Tile CSV {tile_csv} does not exist")
 
     if not is_supertile:
-        tiles, _ = parseTilesCSV(tile_csv)
+        tiles = parseTilesCSV(tile_csv)
         for tile in tiles:
             if tile.name == tile_name:
                 return tile
@@ -734,7 +713,7 @@ def parse_tile_from_dir(
     tile_dic: dict[str, Tile] = {}
     for subtile_name in subtile_names:
         subtile_csv = tile_dir / subtile_name / f"{subtile_name}.csv"
-        tiles, _ = parseTilesCSV(subtile_csv)
+        tiles = parseTilesCSV(subtile_csv)
         tile_dic.update({tile.name: tile for tile in tiles})
 
     supertiles = parseSupertilesCSV(tile_csv, tile_dic)
@@ -806,7 +785,6 @@ def parseFabricCSV(fileName: str) -> Fabric:
     # Lists for tiles
     tileTypes = []
     tileDefs = []
-    common_wire_pair: list[tuple[str, str]] = []
     fabricTiles = []
     tileDic = {}
     unusedTileDic = {}
@@ -828,10 +806,9 @@ def parseFabricCSV(fileName: str) -> Fabric:
             preserveListOrder = fields[1] == "TRUE"
 
     # For backwards compatibility parse tiles in fabric config
-    new_tiles, new_common_wire_pair = parseTilesCSV(fName, preserveListOrder)
+    new_tiles = parseTilesCSV(fName, preserveListOrder)
     tileTypes += [new_tile.name for new_tile in new_tiles]
     tileDefs += new_tiles
-    common_wire_pair += new_common_wire_pair
     tileDic = dict(zip(tileTypes, tileDefs, strict=False))
 
     new_supertiles = parseSupertilesCSV(fName, tileDic)
@@ -868,12 +845,9 @@ def parseFabricCSV(fileName: str) -> Fabric:
                 # we generate the tile right before we parse everything
                 i[1] = str(generateCustomTileConfig(filePath.joinpath(i[1])))
 
-            new_tiles, new_common_wire_pair = parseTilesCSV(
-                filePath.joinpath(i[1]), preserveListOrder
-            )
+            new_tiles = parseTilesCSV(filePath.joinpath(i[1]), preserveListOrder)
             tileTypes += [new_tile.name for new_tile in new_tiles]
             tileDefs += new_tiles
-            common_wire_pair += new_common_wire_pair
             tileDic = dict(zip(tileTypes, tileDefs, strict=False))
         elif i[0].startswith("Supertile"):
             new_supertiles = parseSupertilesCSV(filePath.joinpath(i[1]), tileDic)
@@ -968,14 +942,6 @@ def parseFabricCSV(fileName: str) -> Fabric:
     height = len(fabricTiles)
     width = len(fabricTiles[0])
 
-    # TODO: Fabric.__post_init__ recomputes commonWirePair from the tile ports
-    # (with an exact NULL check, not this substring one). Both go away once the
-    # inter-tile wire is a pin-level edge instead of name pairs.
-    common_wire_pair = list(dict.fromkeys(common_wire_pair))
-    common_wire_pair = [
-        (i, j) for (i, j) in common_wire_pair if "NULL" not in i and "NULL" not in j
-    ]
-
     return Fabric(
         fabric_dir=fName,
         tile=fabricTiles,
@@ -996,5 +962,4 @@ def parseFabricCSV(fileName: str) -> Fabric:
         superTileDic=superTileDic,
         unusedTileDic=unusedTileDic,
         unusedSuperTileDic=unusedSuperTileDic,
-        commonWirePair=common_wire_pair,
     )

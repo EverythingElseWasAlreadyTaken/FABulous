@@ -28,7 +28,7 @@ from fabulous.fabric_generator.gds_generator.flows.fabric_optimisation_flow impo
 )
 from fabulous.fabric_generator.gds_generator.steps.tile_area_opt import OptMode
 from fabulous.fabulous_api import FABulous_API
-from tests.conftest import make_empty_tile, make_fabric_from_grid
+from tests.conftest import jump_declaration, make_empty_tile, make_fabric_from_grid
 
 
 # Shared fixtures
@@ -519,6 +519,7 @@ def _fabric_with_real_ports() -> Fabric:
                 name="N1BEG",
                 io_direction=IO.OUTPUT,
                 side_of_tile=Side.NORTH,
+                declaration=jump_declaration("N1BEG"),
             )
         ],
     )

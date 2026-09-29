@@ -9,8 +9,17 @@ from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from loguru import logger
+
+from fabulous.custom_exception import InvalidFabricDefinition
 from fabulous.fabric_definition.bel import Bel
+from fabulous.fabric_definition.channel import (
+    ChannelDeclaration,
+    RoutingChannel,
+    resolve_channels,
+)
 from fabulous.fabric_definition.define import (
+    IO,
     ConfigBitMode,
     Direction,
     MultiplexerStyle,
@@ -90,8 +99,6 @@ class Fabric:
         A dictionary of super tiles that are not used in the fabric,
         but defined in the fabric.csv.
         The key is the name of the tile and the value is the tile.
-    commonWirePair : list[tuple[str, str]]
-        A list of common wire pairs in the fabric.
     wires : dict[tuple[int, int], list[Wire]]
         The wires leaving each placed tile, by `(x, y)`. Derived in
         `__post_init__`; a stopgap until inter-tile wires are pin-level
@@ -102,6 +109,9 @@ class Fabric:
     super_tile_instances : list[SuperTileInstance]
         The supertile placements, each mapping its `tileMap` positions to the
         tile instances covering them. Derived in `__post_init__`.
+    channels : dict[ChannelDeclaration, RoutingChannel]
+        The routing channel each routing declaration of a placed tile type takes
+        part in. Derived in `__post_init__`.
     """
 
     fabric_dir: Path
@@ -130,11 +140,13 @@ class Fabric:
     superTileDic: dict[str, SuperTile] = field(default_factory=dict)
     unusedTileDic: dict[str, Tile] = field(default_factory=dict)
     unusedSuperTileDic: dict[str, SuperTile] = field(default_factory=dict)
-    commonWirePair: list[tuple[str, str]] = field(default_factory=list)
     wires: dict[tuple[int, int], list[Wire]] = field(default_factory=dict, init=False)
     instances: list[list[TileInstance | None]] = field(default_factory=list, init=False)
     super_tile_instances: list[SuperTileInstance] = field(
         default_factory=list, init=False
+    )
+    channels: dict[ChannelDeclaration, RoutingChannel] = field(
+        default_factory=dict, init=False
     )
 
     def __post_init__(self) -> None:
@@ -216,29 +228,24 @@ class Fabric:
                         "BEL and are only valid inside a supertile's tiles."
                     )
 
-        # TODO: this extends the commonWirePair already computed in parse_csv,
-        # and it is used to resolve NULL-terminated wire ends by name. Replace
-        # both with a pin-level inter-tile wire edge.
-        for row in self.tile:
-            for tile in row:
-                if tile is None:
-                    continue
-                for port in tile.portsInfo:
-                    self.commonWirePair.append(
-                        (port.source_name, port.destination_name)
-                    )
-
-        self.commonWirePair = list(dict.fromkeys(self.commonWirePair))
-        self.commonWirePair = [
-            (i, j) for i, j in self.commonWirePair if i != "NULL" and j != "NULL"
-        ]
+        self.channels = resolve_channels(
+            port.declaration
+            for row in self.tile
+            for tile in row
+            if tile is not None
+            for port in tile.routing_ports
+        )
+        # Reported, not fatal: work on single tiles goes on with a fabric in
+        # progress; everything using the whole fabric refuses it.
+        for problem in self.routing_channel_problems():
+            logger.warning(problem)
 
         for y, row in enumerate(self.tile):
             for x, tile in enumerate(row):
                 if tile is None:
                     continue
                 wires: list[Wire] = []
-                for port in tile.portsInfo:
+                for port in tile.routing_ports:
                     if (
                         abs(port.x_offset) <= 1
                         and abs(port.y_offset) <= 1
@@ -324,12 +331,7 @@ class Fabric:
                             )
                     elif port.has_source and not port.has_destination:
                         source_name = port.source_name
-                        destName = port.source_name
-                        # if sourcename is not in a common pair wire we assume
-                        # the source name is the same as destination name
-                        wire_pair = dict(self.commonWirePair)
-                        if source_name in wire_pair:
-                            destName = wire_pair[source_name]
+                        destName = self.channels[port.declaration].end
 
                         value = min(max(port.x_offset, -1), 1)
                         for i in range(port.wire_count * abs(port.x_offset)):
@@ -408,6 +410,63 @@ class Fabric:
                     claimed.update(tiles.values())
                     placements.append(SuperTileInstance(base_fx, base_fy, st, tiles))
         return placements
+
+    def check_routing_channels(self) -> None:
+        """Refuse a fabric whose routing channels are inconsistent.
+
+        Called by everything that generates or uses the fabric as a whole (fabric
+        RTL, top wrapper, geometry, nextpnr model, bitstream spec, stitching);
+        work on single tiles does not need it.
+
+        Raises
+        ------
+        InvalidFabricDefinition
+            If a routing channel end dangles or is undriven.
+        """
+        if problems := self.routing_channel_problems():
+            raise InvalidFabricDefinition("\n".join(problems))
+
+    def routing_channel_problems(self) -> list[str]:
+        """Report routing channel ends without their partner one hop away.
+
+        A begin port drives the same channel's end port in the next tile along
+        the channel; an end port is driven by the begin port one tile back. The
+        fabric is built even when this does not hold (it logs the problems as
+        warnings), so work on single tiles keeps going; everything using the
+        fabric as a whole refuses it (`check_routing_channels`).
+
+        Returns
+        -------
+        list[str]
+            One message per dangling or undriven channel end, empty if none.
+        """
+        ends = {
+            (instance.x, instance.y, self.channels[p.declaration], p.io_direction): (
+                instance
+            )
+            for row in self.instances
+            for instance in row
+            if instance is not None
+            for p in instance.tile_type.routing_ports
+        }
+        problems = []
+        for (x, y, channel, io), instance in ends.items():
+            dx, dy = channel.step
+            if dx and dy:
+                continue
+            sign = 1 if io == IO.OUTPUT else -1
+            partner_io = IO.INPUT if io == IO.OUTPUT else IO.OUTPUT
+            px, py = x + sign * dx, y + sign * dy
+            if (px, py, channel, partner_io) not in ends:
+                problem = (
+                    "has nothing receiving it" if io == IO.OUTPUT else "is not driven"
+                )
+                problems.append(
+                    f"Routing channel {channel.begin} -> {channel.end} of tile "
+                    f"'{instance.tile_type.name}' at X{x}Y{y} {problem} at "
+                    f"X{px}Y{py}."
+                )
+        return problems
 
     def _matches_super_tile(
         self, superTile: SuperTile, base_fx: int, base_fy: int

@@ -1,5 +1,6 @@
 """Switch matrix geometry definitions."""
 
+from dataclasses import replace
 from pathlib import Path
 
 from fabulous.fabric_definition.define import IO, Side
@@ -128,12 +129,12 @@ class SmGeometry:
                         name=southPort.name,
                         io_direction=southPort.io_direction,
                         side_of_tile=southPort.side_of_tile,
-                        wire_direction=southPort.wire_direction,
-                        source_name=southPort.source_name,
-                        x_offset=0,
-                        y_offset=1,
-                        destination_name=southPort.destination_name,
-                        wire_count=southPort.wire_count * abs(southPort.y_offset),
+                        declaration=replace(
+                            southPort.declaration,
+                            x_offset=0,
+                            y_offset=1,
+                            wire_count=southPort.wire_count * abs(southPort.y_offset),
+                        ),
                     )
                     augmentedSouthPorts.append(augmentedPort)
                 else:
@@ -147,12 +148,12 @@ class SmGeometry:
                         name=northPort.name,
                         io_direction=northPort.io_direction,
                         side_of_tile=northPort.side_of_tile,
-                        wire_direction=northPort.wire_direction,
-                        source_name=northPort.source_name,
-                        x_offset=0,
-                        y_offset=1,
-                        destination_name=northPort.destination_name,
-                        wire_count=northPort.wire_count * abs(northPort.y_offset),
+                        declaration=replace(
+                            northPort.declaration,
+                            x_offset=0,
+                            y_offset=1,
+                            wire_count=northPort.wire_count * abs(northPort.y_offset),
+                        ),
                     )
                     augmentedNorthPorts.append(augmentedPort)
                 else:
@@ -167,12 +168,12 @@ class SmGeometry:
                         name=eastPort.name,
                         io_direction=eastPort.io_direction,
                         side_of_tile=eastPort.side_of_tile,
-                        wire_direction=eastPort.wire_direction,
-                        source_name=eastPort.source_name,
-                        x_offset=1,
-                        y_offset=0,
-                        destination_name=eastPort.destination_name,
-                        wire_count=eastPort.wire_count * abs(eastPort.x_offset),
+                        declaration=replace(
+                            eastPort.declaration,
+                            x_offset=1,
+                            y_offset=0,
+                            wire_count=eastPort.wire_count * abs(eastPort.x_offset),
+                        ),
                     )
                     augmentedEastPorts.append(augmentedPort)
                 else:
@@ -186,12 +187,12 @@ class SmGeometry:
                         name=westPort.name,
                         io_direction=westPort.io_direction,
                         side_of_tile=westPort.side_of_tile,
-                        wire_direction=westPort.wire_direction,
-                        source_name=westPort.source_name,
-                        x_offset=1,
-                        y_offset=0,
-                        destination_name=westPort.destination_name,
-                        wire_count=westPort.wire_count * abs(westPort.x_offset),
+                        declaration=replace(
+                            westPort.declaration,
+                            x_offset=1,
+                            y_offset=0,
+                            wire_count=westPort.wire_count * abs(westPort.x_offset),
+                        ),
                     )
                     augmentedWestPorts.append(augmentedPort)
                 else:

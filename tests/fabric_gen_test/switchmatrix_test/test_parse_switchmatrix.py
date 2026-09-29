@@ -271,8 +271,7 @@ class TestParseSJumpPortLine:
     """
 
     def test_output_form(self) -> None:
-        ports, _, common = parse_port_line("SJUMP,A,0,0,NULL,8")
-        assert common is None
+        ports, _ = parse_port_line("SJUMP,A,0,0,NULL,8")
         assert len(ports) == 1
         (port,) = ports
         assert port.wire_direction == Direction.SJUMP
@@ -281,8 +280,7 @@ class TestParseSJumpPortLine:
         assert (port.x_offset, port.y_offset) == (0, 0)
 
     def test_input_form(self) -> None:
-        (port,), _, common = parse_port_line("SJUMP,NULL,0,0,Q,8")
-        assert common is None
+        (port,), _ = parse_port_line("SJUMP,NULL,0,0,Q,8")
         assert port.io_direction == IO.INPUT
         assert port.name == "Q"
 

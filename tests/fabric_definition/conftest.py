@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from fabulous.fabric_definition.channel import ChannelDeclaration
 from fabulous.fabric_definition.define import IO, Direction, Side
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.port import TilePort
@@ -43,10 +44,12 @@ def make_side_port(side: Side, name: str = "P") -> TilePort:
         name=name,
         io_direction=IO.INPUT,
         side_of_tile=side,
-        wire_direction=Direction.JUMP,
-        source_name=name,
-        x_offset=0,
-        y_offset=0,
-        destination_name=name,
-        wire_count=1,
+        declaration=ChannelDeclaration(
+            Direction.JUMP,
+            0,
+            0,
+            1,
+            begin=None if name == "NULL" else name,
+            end=None if name == "NULL" else name,
+        ),
     )

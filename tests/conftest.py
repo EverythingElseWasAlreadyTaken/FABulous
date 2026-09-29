@@ -14,7 +14,8 @@ from loguru import logger
 import fabulous.fabulous
 import fabulous.fabulous_settings
 from fabulous.fabric_definition.bel import Bel
-from fabulous.fabric_definition.define import IO, HDLType
+from fabulous.fabric_definition.channel import ChannelDeclaration
+from fabulous.fabric_definition.define import IO, Direction, HDLType
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.port import BelConfigPort, BelPort, SJumpPort, TilePort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
@@ -173,6 +174,11 @@ def cocotb_runner(tmp_path: Path, request: pytest.FixtureRequest) -> CocotbRunne
                 shutil.copy(cov_src, cov_dest / f"{test_module_path.stem}.dat")
 
     return _create_runner
+
+
+def jump_declaration(name: str) -> ChannelDeclaration:
+    """Declare a tile-local wire of one bit, for ports whose wire is irrelevant."""
+    return ChannelDeclaration(Direction.JUMP, 0, 0, 1, begin=name, end=name)
 
 
 def sjump_port(name: str, in_out: IO, wire_count: int = 2) -> SJumpPort:

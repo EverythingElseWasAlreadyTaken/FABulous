@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from functools import cached_property, total_ordering
 from typing import TYPE_CHECKING
 
+from fabulous.fabric_definition.channel import ChannelDeclaration
 from fabulous.fabric_definition.define import IO, BelPortKind, Direction, Side
 
 if TYPE_CHECKING:
@@ -254,6 +255,11 @@ class TilePort(Port):
     [north, east, south, west] then by the IO type in the order of
     [output, input, inout].
 
+    The wire the port belongs to is described by its `ChannelDeclaration`,
+    the tile CSV line shared by the ports it declares. The port's `width` is
+    `wire_count` times the Manhattan distance of the offset: a spanning wire
+    occupies one slice per hop it crosses.
+
     Parameters
     ----------
     name : str
@@ -262,61 +268,32 @@ class TilePort(Port):
         The I/O direction (INPUT, OUTPUT, INOUT).
     side_of_tile : Side
         The side of the tile where the port is located.
+    declaration : ChannelDeclaration
+        The tile CSV line declaring the port.
     term : bool
         Indicates if the port is a termination port. Defaults to False.
-    wire_direction : Direction | None
-        The direction the wire runs in. Defaults to None, which resolves to
-        Direction.JUMP.
-    source_name : str
-        The source name of the wire connection. Defaults to "".
-    x_offset : int
-        The X-offset for wire routing. Defaults to 0.
-    y_offset : int
-        The Y-offset for wire routing. Defaults to 0.
-    destination_name : str
-        The destination name of the wire connection. Defaults to "".
-    wire_count : int
-        The number of wires per hop. Defaults to 1. The port's `width` is
-        `wire_count` times the Manhattan distance of the offset: a spanning wire
-        occupies one slice per hop it crosses.
     """
 
     _side_of_tile: Side
     _term: bool
     _tile: Tile | None
-    _wire_direction: Direction
-    _source_name: str
-    _x_offset: int
-    _y_offset: int
-    _destination_name: str
-    _wire_count: int
+    _declaration: ChannelDeclaration
 
     def __init__(
         self,
         name: str,
         io_direction: IO,
         side_of_tile: Side,
+        declaration: ChannelDeclaration,
         term: bool = False,
-        wire_direction: Direction | None = None,
-        source_name: str = "",
-        x_offset: int = 0,
-        y_offset: int = 0,
-        destination_name: str = "",
-        wire_count: int = 1,
     ) -> None:
-        distance = abs(x_offset) + abs(y_offset)
-        super().__init__(name, io_direction, wire_count * max(1, distance))
+        super().__init__(
+            name, io_direction, declaration.wire_count * max(1, declaration.distance)
+        )
         self._side_of_tile = side_of_tile
         self._term = term
         self._tile = None
-        self._wire_direction = (
-            wire_direction if wire_direction is not None else Direction.JUMP
-        )
-        self._source_name = source_name
-        self._x_offset = x_offset
-        self._y_offset = y_offset
-        self._destination_name = destination_name
-        self._wire_count = wire_count
+        self._declaration = declaration
 
     __order = {Side.NORTH: 0, Side.EAST: 1, Side.SOUTH: 2, Side.WEST: 3, Side.ANY: 4}
     __io = {IO.OUTPUT: 0, IO.INPUT: 1, IO.INOUT: 2}
@@ -343,34 +320,41 @@ class TilePort(Port):
         self._tile = tile
 
     @property
+    def declaration(self) -> ChannelDeclaration:
+        """The tile CSV line declaring the port."""
+        return self._declaration
+
+    # The wire properties below read the declaration; consumers move onto the
+    # declaration / channel directly and these go.
+    @property
     def wire_direction(self) -> Direction:
         """The direction the wire runs in."""
-        return self._wire_direction
+        return self._declaration.direction
 
     @property
     def source_name(self) -> str:
         """The name of the wire's driving end, or NULL."""
-        return self._source_name
+        return self._declaration.begin or NULL_PORT_NAME
 
     @property
     def x_offset(self) -> int:
         """The column offset from the driving to the receiving tile."""
-        return self._x_offset
+        return self._declaration.x_offset
 
     @property
     def y_offset(self) -> int:
         """The row offset from the driving to the receiving tile."""
-        return self._y_offset
+        return self._declaration.y_offset
 
     @property
     def destination_name(self) -> str:
         """The name of the wire's receiving end, or NULL."""
-        return self._destination_name
+        return self._declaration.end or NULL_PORT_NAME
 
     @property
     def wire_count(self) -> int:
         """The number of wires per hop."""
-        return self._wire_count
+        return self._declaration.wire_count
 
     def __repr__(self) -> str:
         """Return a string representation of the TilePort."""
@@ -417,7 +401,7 @@ class TilePort(Port):
         A CSV line may write either end as NULL to declare a wire that is
         driven or read nowhere; this asks about the driving end.
         """
-        return self.source_name != NULL_PORT_NAME
+        return self._declaration.begin is not None
 
     @property
     def has_destination(self) -> bool:
@@ -425,12 +409,12 @@ class TilePort(Port):
 
         The mirror image of `has_source`, asking about the receiving end.
         """
-        return self.destination_name != NULL_PORT_NAME
+        return self._declaration.end is not None
 
     @property
     def is_null_terminated(self) -> bool:
         """Whether either end of this port's wire is the NULL placeholder."""
-        return not (self.has_source and self.has_destination)
+        return self._declaration.is_null_terminated
 
     @property
     def _spanned_pins(self) -> tuple[Pin, ...]:
@@ -583,10 +567,14 @@ class SJumpPort(TilePort):
             name=name,
             io_direction=io_direction,
             side_of_tile=Side.ANY,
-            wire_direction=Direction.SJUMP,
-            source_name=name if is_output else NULL_PORT_NAME,
-            destination_name=NULL_PORT_NAME if is_output else name,
-            wire_count=wire_count,
+            declaration=ChannelDeclaration(
+                Direction.SJUMP,
+                0,
+                0,
+                wire_count,
+                begin=name if is_output else None,
+                end=None if is_output else name,
+            ),
         )
 
     @property

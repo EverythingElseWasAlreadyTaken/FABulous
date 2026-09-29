@@ -25,6 +25,7 @@ def generateTopWrapper(writer: CodeGenerator, fabric: Fabric) -> None:
 
     This includes features that are not located inside the fabric such as BRAM.
     """
+    fabric.check_routing_channels()
 
     def split_port(p: str) -> tuple[tuple[int, int], tuple[int, ...], str]:
         """Parse and split a port name into components for sorting and grouping.

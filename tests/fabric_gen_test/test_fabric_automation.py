@@ -11,6 +11,7 @@ from fabulous.fabric_generator.gen_fabric import fabric_automation
 from fabulous.fabric_generator.gen_fabric.fabric_automation import (
     generateSwitchmatrixList,
 )
+from tests.conftest import jump_declaration
 
 
 def test_shared_reset_only_wires_bels_that_have_one(
@@ -42,8 +43,8 @@ def test_shared_reset_only_wires_bels_that_have_one(
         ],
     )
     shared_reset = [
-        TilePort("J_SRST_BEG", IO.OUTPUT, Side.ANY),
-        TilePort("J_SRST_END", IO.INPUT, Side.ANY),
+        TilePort("J_SRST_BEG", IO.OUTPUT, Side.ANY, jump_declaration("J_SRST_BEG")),
+        TilePort("J_SRST_END", IO.INPUT, Side.ANY, jump_declaration("J_SRST_END")),
     ]
     out = tmp_path / "T_switch_matrix.list"
 

@@ -34,7 +34,7 @@ class TestDirectionalPorts:
     def test_two_ports_with_expected_io_and_sides(
         self, kind: str, startSide: Side, endSide: Side
     ) -> None:
-        ports, _, commonWirePair = parse_port_line(f"{kind},N1BEG,0,-1,N1END,4")
+        ports, _ = parse_port_line(f"{kind},N1BEG,0,-1,N1END,4")
 
         assert len(ports) == 2
         output, input_ = ports
@@ -46,12 +46,12 @@ class TestDirectionalPorts:
         assert input_.io_direction is IO.INPUT
         assert input_.name == "N1END"
         assert input_.side_of_tile is endSide
-
-        assert commonWirePair == ("N1BEG", "N1END")
+        # Both ports share the line's declaration.
+        assert output.declaration is input_.declaration
 
     @pytest.mark.parametrize("kind", [c[0] for c in DIRECTIONAL_CASES])
     def test_shared_attributes_carry_through(self, kind: str) -> None:
-        ports, _, _ = parse_port_line(f"{kind},N2BEG,0,-2,N2END,8")
+        ports, _ = parse_port_line(f"{kind},N2BEG,0,-2,N2END,8")
 
         for port in ports:
             assert port.wire_direction is Direction[kind]
@@ -62,20 +62,21 @@ class TestDirectionalPorts:
             assert port.wire_count == 8
 
     @pytest.mark.parametrize(
-        ("line", "name", "io", "pair"),
+        ("line", "name", "io", "ends"),
         [
-            ("SOUTH,S4BEG,0,4,NULL,4", "S4BEG", IO.OUTPUT, ("S4BEG", "NULL")),
-            ("NORTH,NULL,0,-4,N4END,4", "N4END", IO.INPUT, ("NULL", "N4END")),
+            ("SOUTH,S4BEG,0,4,NULL,4", "S4BEG", IO.OUTPUT, ("S4BEG", None)),
+            ("NORTH,NULL,0,-4,N4END,4", "N4END", IO.INPUT, (None, "N4END")),
         ],
     )
     def test_null_end_declares_no_port(
-        self, line: str, name: str, io: IO, pair: tuple[str, str]
+        self, line: str, name: str, io: IO, ends: tuple[str | None, str | None]
     ) -> None:
         """A NULL end is the far side of the wire, not an interface of the tile."""
-        ports, _, commonWirePair = parse_port_line(line)
+        ports, _ = parse_port_line(line)
 
         assert [(p.name, p.io_direction) for p in ports] == [(name, io)]
-        assert commonWirePair == pair
+        (port,) = ports
+        assert (port.declaration.begin, port.declaration.end) == ends
 
     def test_both_ends_null_is_an_error(self) -> None:
         """A line with no named end declares neither a port nor a wire."""
@@ -87,10 +88,9 @@ class TestJumpPorts:
     """JUMP lines stay within a tile: no tile ports, one jump wire."""
 
     def test_jump_wire_with_switch_matrix_ports(self) -> None:
-        ports, jump, commonWirePair = parse_port_line("JUMP,J_SR_BEG,0,0,J_SR_END,2")
+        ports, jump = parse_port_line("JUMP,J_SR_BEG,0,0,J_SR_END,2")
 
         assert ports == []
-        assert commonWirePair is None
         assert jump is not None
         assert jump.source is not None
         assert jump.destination is not None
@@ -100,7 +100,7 @@ class TestJumpPorts:
         assert [p.name() for p in jump.destination.pins] == ["J_SR_END0", "J_SR_END1"]
 
     def test_null_source_declares_a_constant(self) -> None:
-        _, jump, _ = parse_port_line("JUMP,NULL,0,0,GND,1")
+        _, jump = parse_port_line("JUMP,NULL,0,0,GND,1")
 
         assert jump is not None
         assert jump.source is None
@@ -154,7 +154,7 @@ class TestPortNameTrailingDigit:
         ],
     )
     def test_valid_names_do_not_raise(self, line: str) -> None:
-        ports, jump, _ = parse_port_line(line)
+        ports, jump = parse_port_line(line)
         assert ports or jump
 
 

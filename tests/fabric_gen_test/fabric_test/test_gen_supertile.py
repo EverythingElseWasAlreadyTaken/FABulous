@@ -31,6 +31,7 @@ from pathlib import Path
 import pytest
 
 from fabulous.fabric_definition.bel import Bel
+from fabulous.fabric_definition.channel import ChannelDeclaration
 from fabulous.fabric_definition.define import (
     IO,
     USER_CLK_PREDECESSOR,
@@ -379,12 +380,14 @@ class TestInterTileRouting:
                     name="E_out",
                     io_direction=IO.OUTPUT,
                     side_of_tile=Side.EAST,
-                    wire_direction=Direction.EAST,
-                    source_name="E_out",
-                    x_offset=1,
-                    y_offset=0,
-                    destination_name="E_out",
-                    wire_count=2,
+                    declaration=ChannelDeclaration(
+                        Direction.EAST,
+                        1,
+                        0,
+                        2,
+                        begin="E_out",
+                        end="E_out",
+                    ),
                 )
             ],
             bels=[],
@@ -399,12 +402,14 @@ class TestInterTileRouting:
                     name="E_in",
                     io_direction=IO.INPUT,
                     side_of_tile=Side.WEST,
-                    wire_direction=Direction.EAST,
-                    source_name="E_in",
-                    x_offset=1,
-                    y_offset=0,
-                    destination_name="E_in",
-                    wire_count=2,
+                    declaration=ChannelDeclaration(
+                        Direction.EAST,
+                        1,
+                        0,
+                        2,
+                        begin="E_in",
+                        end="E_in",
+                    ),
                 )
             ],
             bels=[],

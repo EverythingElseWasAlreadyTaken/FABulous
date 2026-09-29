@@ -47,6 +47,7 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
     generation of top-level I/O ports, wiring between adjacent tiles, and the
     configuration infrastructure (either Frame-based or FlipFlop chain).
     """
+    fabric.check_routing_channels()
     # we first scan all tiles if those have IOs that have to go to top
     # the order of this scan is later maintained when instantiating the actual tiles
     # header

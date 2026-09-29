@@ -232,6 +232,7 @@ def genNextpnrModel(
     InvalidState
         If a wire in a tile points to an invalid tile outside the fabric bounds.
     """
+    fabric.check_routing_channels()
     pipStr = []
     belStr = []
     belv2Str = []

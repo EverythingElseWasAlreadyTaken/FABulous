@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from fabulous.fabric_definition.bel import Bel
+from fabulous.fabric_definition.channel import ChannelDeclaration
 from fabulous.fabric_definition.define import IO, BelPortKind, Direction, Side
 from fabulous.fabric_definition.port import (
     BelPort,
@@ -14,7 +15,7 @@ from fabulous.fabric_definition.port import (
     SwitchMatrixPort,
     TilePort,
 )
-from tests.conftest import sjump_port
+from tests.conftest import jump_declaration, sjump_port
 
 
 class TestPort:
@@ -245,33 +246,33 @@ class TestTilePort:
 
     def test_construct_with_side(self) -> None:
         """A TilePort exposes its side of the tile."""
-        port = TilePort(name="N1", io_direction=IO.OUTPUT, side_of_tile=Side.NORTH)
+        port = TilePort("N1", IO.OUTPUT, Side.NORTH, jump_declaration("N1"))
         assert port.side_of_tile == Side.NORTH
 
     def test_ordering_by_side(self) -> None:
         """Ports are ordered by tile side (north before east)."""
-        north = TilePort(name="n", io_direction=IO.OUTPUT, side_of_tile=Side.NORTH)
-        east = TilePort(name="e", io_direction=IO.INPUT, side_of_tile=Side.EAST)
+        north = TilePort("n", IO.OUTPUT, Side.NORTH, jump_declaration("n"))
+        east = TilePort("e", IO.INPUT, Side.EAST, jump_declaration("e"))
         assert north < east
         assert east > north
 
     def test_ordering_by_io_within_side(self) -> None:
         """Within a side, outputs are ordered before inputs."""
-        out = TilePort(name="o", io_direction=IO.OUTPUT, side_of_tile=Side.NORTH)
-        inp = TilePort(name="i", io_direction=IO.INPUT, side_of_tile=Side.NORTH)
+        out = TilePort("o", IO.OUTPUT, Side.NORTH, jump_declaration("o"))
+        inp = TilePort("i", IO.INPUT, Side.NORTH, jump_declaration("i"))
         assert out < inp
         assert out <= inp
         assert inp >= out
 
     def test_comparison_with_non_tileport_raises(self) -> None:
         """Ordering is only defined against another TilePort."""
-        port = TilePort(name="n", io_direction=IO.OUTPUT, side_of_tile=Side.NORTH)
+        port = TilePort("n", IO.OUTPUT, Side.NORTH, jump_declaration("n"))
         with pytest.raises(TypeError, match="Cannot compare"):
             port < 1  # noqa: B015
 
     def test_tile_back_reference_defaults_to_none(self) -> None:
         """An unattached port has no owning tile."""
-        port = TilePort(name="n", io_direction=IO.OUTPUT, side_of_tile=Side.NORTH)
+        port = TilePort("n", IO.OUTPUT, Side.NORTH, jump_declaration("n"))
         assert port.tile is None
 
 
@@ -284,12 +285,14 @@ def make_wire_port(
         name=source if source != "NULL" else destination,
         io_direction=IO.OUTPUT,
         side_of_tile=Side.NORTH,
-        wire_direction=direction,
-        source_name=source,
-        x_offset=x_offset,
-        y_offset=y_offset,
-        destination_name=destination,
-        wire_count=wire_count,
+        declaration=ChannelDeclaration(
+            direction,
+            x_offset,
+            y_offset,
+            wire_count,
+            begin=None if source == "NULL" else source,
+            end=None if destination == "NULL" else destination,
+        ),
     )
 
 
