@@ -107,6 +107,11 @@ class Bel:
             raise ValueError(f"Unknown file type {self.src.suffix} for BEL {self.src}")
 
     @property
+    def instance_name(self) -> str:
+        """The instance name of the BEL in the tile's RTL."""
+        return f"Inst_{self.prefix}{self.name}"
+
+    @property
     def configBit(self) -> int:
         """The number of configuration bits of the BEL."""
         return 0 if self.config_port is None else self.config_port.width

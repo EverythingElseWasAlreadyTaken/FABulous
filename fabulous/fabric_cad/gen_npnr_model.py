@@ -10,6 +10,7 @@ placement and routing for user designs.
 """
 
 import string
+from collections.abc import Callable
 from pathlib import Path
 
 from fabulous.fabric_cad.timing_model.FABulous_timing_model_interface import (
@@ -18,6 +19,7 @@ from fabulous.fabric_cad.timing_model.FABulous_timing_model_interface import (
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import IO, BelPortKind
 from fabulous.fabric_definition.fabric import Fabric
+from fabulous.fabric_definition.port import Pin
 
 # Dummy BEL timing values (ns), mirroring nextpnr's historical hardcoded
 # constants (fabulous.cc, seed_default_estimates).
@@ -116,7 +118,7 @@ IO_BEL_TYPES = (
 
 
 def belLines(
-    bel: Bel, letter: str, x: int, y: int
+    bel: Bel, letter: str, x: int, y: int, wire: Callable[[Pin], str] = Pin.name
 ) -> tuple[str, list[str], list[str], list[str]]:
     """Build a BEL's legacy v1 line, its v2/v3 blocks, and any pin constraint.
 
@@ -135,6 +137,8 @@ def belLines(
         Tile X coordinate the BEL belongs to.
     y : int
         Tile Y coordinate the BEL belongs to.
+    wire : Callable[[Pin], str], optional
+        The name of the wire a BEL pin sits on, by default its flat name.
 
     Returns
     -------
@@ -145,8 +149,14 @@ def belLines(
     cType = bel.name
     if bel.name in ("LUT4c_frame_config", "LUT4c_frame_config_dffesr"):
         cType = "FABULOUS_LC"
-    pin_inputs = bel.pin_names(BelPortKind.INTERNAL, IO.INPUT)
-    pin_outputs = bel.pin_names(BelPortKind.INTERNAL, IO.OUTPUT)
+    pin_inputs, pin_outputs = (
+        [
+            wire(pin)
+            for port in bel.get_ports(BelPortKind.INTERNAL, io)
+            for pin in port.pins
+        ]
+        for io in (IO.INPUT, IO.OUTPUT)
+    )
     v1_line = (
         f"X{x}Y{y},X{x},Y{y},{letter},{cType},{','.join(pin_inputs + pin_outputs)}"
     )
@@ -250,23 +260,27 @@ def genNextpnrModel(
             if tile is None:
                 continue
             pipStr.append(f"#Tile-internal pips on tile X{x}Y{y}:")
-            for source, sinkList in tile.switch_matrix.named_connections.items():
-                for sink in sinkList:
+            for sink, sources in tile.switch_matrix.connections.items():
+                for source in sources:
                     delay: float = DUMMY_PIP_DELAY
                     if delay_model is not None:
-                        delay = delay_model.pip_delay(tile.name, sink, source)
-                    pipStr.append(
-                        f"X{x}Y{y},{sink},X{x}Y{y},{source},{delay},{sink}.{source}"
-                    )
+                        delay = delay_model.pip_delay(
+                            tile.name, source.name(), sink.name()
+                        )
+                    src, dst = source.full_name(), sink.full_name()
+                    pipStr.append(f"X{x}Y{y},{src},X{x}Y{y},{dst},{delay},{src}.{dst}")
 
             pipStr.append(f"#Tile-external pips on tile X{x}Y{y}:")
             for connection in fabric.fixed_connections(fabric.instances[y][x]):
                 src_at, src_pin = connection.source
                 dst_at, dst_pin = connection.sink
-                src, dst = src_pin.name(), dst_pin.name()
+                src = src_pin.full_name()
+                dst = dst_pin.full_name()
                 delay: float = DUMMY_PIP_DELAY
                 if delay_model is not None:
-                    delay = delay_model.pip_delay(tile.name, src, dst)
+                    delay = delay_model.pip_delay(
+                        tile.name, src_pin.name(), dst_pin.name()
+                    )
                 pipStr.append(
                     f"X{src_at.x}Y{src_at.y},{src},X{dst_at.x}Y{dst_at.y},{dst},"
                     f"{delay},{src}.{dst}"
@@ -279,7 +293,7 @@ def genNextpnrModel(
             for i, bel in enumerate(tile.bels):
                 letter = string.ascii_uppercase[i]
                 v1_line, v2_lines, v3_lines, constrain_lines = belLines(
-                    bel, letter, x, y
+                    bel, letter, x, y, Pin.full_name
                 )
                 belStr.append(v1_line)
                 belv2Str.extend(v2_lines)

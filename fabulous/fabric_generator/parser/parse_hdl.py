@@ -8,7 +8,12 @@ from fabulous.custom_exception import (
     InvalidBelDefinition,
 )
 from fabulous.fabric_definition.bel import Bel
-from fabulous.fabric_definition.define import IO, BelPortKind, FABulousAttribute
+from fabulous.fabric_definition.define import (
+    HIERARCHY_SEPARATOR,
+    IO,
+    BelPortKind,
+    FABulousAttribute,
+)
 from fabulous.fabric_definition.port import BelConfigPort, BelPort
 from fabulous.fabric_definition.yosys_obj import YosysJson, YosysModule
 
@@ -234,6 +239,12 @@ def parseBelFile(
     # Passed attributes dont show in port list, checks for attributes in netnames.
     # (If passed attributes missing, may need to expand to check other lists
     # e.g "memories".)
+    for name in (belPrefix, *filtered_ports):
+        if HIERARCHY_SEPARATOR in name:
+            raise InvalidBelDefinition(
+                f"BEL {filename}: '{name}' contains '{HIERARCHY_SEPARATOR}', which "
+                "separates an instance from its pin in the fabric model's names."
+            )
     for portName, (direction, bits) in filtered_ports.items():
         attributes = module_info.netnames[portName].attributes
         if (

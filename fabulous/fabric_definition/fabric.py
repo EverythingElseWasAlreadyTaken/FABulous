@@ -266,11 +266,9 @@ class Fabric:
 
         These are the tile type's own `fixed_connections`, placed at the
         instance, and the routing channel hops from each of its begin ports to
-        the same channel's end port one tile along. A channel line naming both
-        ends and spanning several tiles shifts the bits on the hop: the switch
-        matrix's first `wire_count` bits land on the neighbour's last ones, all
-        other bits move down by `wire_count`. Every other hop is one to one.
-        Needs consistent routing channels (`check_routing_channels`).
+        the same channel's end port one tile along. A hop keeps the bit index;
+        the staging is inside the tiles. Needs consistent routing channels
+        (`check_routing_channels`).
 
         Parameters
         ----------
@@ -298,16 +296,15 @@ class Fabric:
                 for p in target.tile_type.portsInfo
                 if p.is_input and self.channels[p.declaration] is channel
             )
-            count, span = declaration.wire_count, declaration.distance
             # A start tap drives every slice it spans; with no span, none.
-            bits = range(count * span) if declaration.end is None else range(out.width)
-            for i in bits:
-                j = i
-                if declaration.end is not None and span >= 2:
-                    j = i + count * (span - 1) if i < count else i - count
-                connections.append(
-                    FixedConnection((instance, out[i]), (target, end[j]), declaration)
-                )
+            if declaration.end is None:
+                bits = range(declaration.wire_count * declaration.distance)
+            else:
+                bits = range(out.width)
+            connections += [
+                FixedConnection((instance, out[i]), (target, end[i]), declaration)
+                for i in bits
+            ]
         return connections
 
     def check_routing_channels(self) -> None:

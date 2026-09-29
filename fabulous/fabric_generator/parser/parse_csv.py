@@ -15,6 +15,7 @@ from fabulous.custom_exception import (
     InvalidTileDefinition,
 )
 from fabulous.fabric_definition.define import (
+    HIERARCHY_SEPARATOR,
     IO,
     ConfigBitMode,
     Direction,
@@ -105,6 +106,11 @@ def parse_port_line(
     # The trailing digits are read back as that index. A name that ends in a
     # digit is ambiguous once expanded.
     for wire_name in (source_name, destination_name):
+        if HIERARCHY_SEPARATOR in wire_name:
+            raise InvalidPortType(
+                f"Wire name '{wire_name}' contains '{HIERARCHY_SEPARATOR}', which "
+                "separates an instance from its pin in the fabric model's names."
+            )
         if wire_name != NULL_PORT_NAME and wire_name[-1:].isdigit():
             raise InvalidPortType(
                 f"Wire name '{wire_name}' ends in a digit, which is ambiguous: "

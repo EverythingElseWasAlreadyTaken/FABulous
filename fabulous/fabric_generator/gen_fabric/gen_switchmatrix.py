@@ -185,18 +185,10 @@ def genTileSwitchMatrix(
         writer.addParameterEnd(indentLevel=1)
     writer.addPortStart(indentLevel=1)
 
-    # The module's ports are the matrix's own ports. A source-less jump names a
-    # constant (declared in the body), not a port, and neither is a literal
-    # constant; the jump ports that remain are the matrix ports of the wires.
+    # The module's ports are the matrix's own ports; constants are declared in
+    # the body. The ports without an origin that remain are the jump wires'.
     sm_ports = tile.switch_matrix.ports
-    jump_ports = {
-        end
-        for wire in tile.jump_wires
-        if wire.source is not None
-        for end in (wire.source, wire.destination)
-        if end is not None
-    }
-    jump = [p for p in sm_ports if p in jump_ports]
+    jump = [p for p in sm_ports if p.origin is None and not p.is_constant]
     for ports in (
         _ports_from(sm_ports, TilePort, IO.INPUT),
         _ports_from(sm_ports, BelPort, IO.INPUT),

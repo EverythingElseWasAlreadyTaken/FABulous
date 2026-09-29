@@ -3,6 +3,7 @@
 import pickle
 from collections.abc import Callable
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 
@@ -13,10 +14,13 @@ from fabulous.fabric_definition.channel import (
     RoutingChannel,
     resolve_channels,
 )
-from fabulous.fabric_definition.define import Direction
+from fabulous.fabric_definition.define import IO, Direction
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.instance import TileInstance
+from fabulous.fabric_definition.switch_matrix import SwitchMatrix, switch_matrix_ports
+from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.parser.parse_csv import parse_port_line
+from tests.conftest import make_muladd_bel
 from tests.fabric_definition.conftest import make_empty_tile
 
 N = Direction.NORTH
@@ -110,10 +114,10 @@ class TestRoutingChannelProblems:
         with pytest.raises(InvalidFabricDefinition, match="has nothing receiving"):
             generateBitstreamSpec(fabric)
 
-    def test_spanning_channel_shifts_on_the_hop(
+    def test_spanning_channel_stages_inside_the_tile(
         self, make_fabric: Callable[..., Fabric]
     ) -> None:
-        """A two-tile line passes bit 1 through and shifts the hop by one."""
+        """A two-tile line shifts inside the tile; the hop keeps the index."""
         lines = {
             "TOP": "NORTH,NULL,0,-2,B,1",
             "MID": "NORTH,A,0,-2,B,1",
@@ -130,12 +134,68 @@ class TestRoutingChannelProblems:
             }
 
         assert named(fabric.instances[1][0]) == {
-            (1, "B1", 1, "A1"),  # pass-through inside the tile
-            (1, "A0", 0, "B1"),  # the matrix bit lands on the far slice
-            (1, "A1", 0, "B0"),
+            (1, "B1", 1, "A0"),  # staging: END[i + wire_count] -> BEG[i]
+            (1, "A0", 0, "B0"),  # hops keep the bit index
+            (1, "A1", 0, "B1"),
         }
-        # A start tap drives every slice one to one.
         assert named(fabric.instances[2][0]) == {(2, "A0", 1, "B0"), (2, "A1", 1, "B1")}
+
+    def test_switch_matrix_boundary(self) -> None:
+        """Matrix pins are wired to the tile port's matrix-facing bits."""
+        ports, _ = parse_port_line("NORTH,A,0,-2,B,1")
+        tile = Tile(
+            name="MID",
+            ports=ports,
+            bels=[],
+            tileDir=Path(),
+            switch_matrix=SwitchMatrix(
+                Path(), switch_matrix_ports(ports, []), {}, "MID"
+            ),
+            gen_ios=[],
+            pinOrderConfig={},
+        )
+
+        assert {
+            (c.source.full_name(), c.sink.full_name()) for c in tile.fixed_connections
+        } == {
+            ("B1", "A0"),  # staging
+            ("Inst_MID_switch_matrix__A0", "A1"),  # the matrix drives the last slice
+            ("B0", "Inst_MID_switch_matrix__B0"),  # and reads the first one
+        }
+
+    def test_wire_names_follow_the_rtl_hierarchy(self) -> None:
+        """Matrix and BEL pins carry their instance; constants and tile pins not."""
+        ports, _ = parse_port_line("NORTH,A,0,-1,B,1")
+        jumps = [
+            parse_port_line("JUMP,J_BEG,0,0,J_END,1")[1],
+            parse_port_line("JUMP,NULL,0,0,GND,1")[1],
+        ]
+        bel = make_muladd_bel([("SUPER_I0", IO.INPUT)], prefix="LA_")
+        tile = Tile(
+            name="T",
+            ports=ports,
+            bels=[bel],
+            tileDir=Path(),
+            switch_matrix=SwitchMatrix(
+                Path(), switch_matrix_ports(ports, [bel], jumps), {}, "T"
+            ),
+            gen_ios=[],
+            pinOrderConfig={},
+            jump_wires=jumps,
+        )
+
+        names = {p.full_name() for port in tile.switch_matrix.ports for p in port}
+        assert names == {
+            "Inst_T_switch_matrix__A0",
+            "Inst_T_switch_matrix__B0",
+            "Inst_T_switch_matrix__SUPER_I0",
+            "Inst_T_switch_matrix__J_BEG0",
+            "Inst_T_switch_matrix__J_END0",
+            # constants, also the source-less jump's GND0: no module ports
+            *("GND", "GND0", "VCC", "VCC0", "VDD", "VDD0"),
+        }
+        assert bel.ports[0][0].full_name() == "Inst_LA_MULADD__SUPER_I0"
+        assert ports[0][0].full_name() == "A0"
 
     def test_fabric_loads_and_warns(
         self,

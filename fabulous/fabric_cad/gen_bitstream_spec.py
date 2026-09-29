@@ -171,8 +171,10 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
                             ] = {encodeDict[curBitOffset + v]: keyDict[entry][v]}
                         curBitOffset += len(keyDict[entry])
 
-            result = tile.switch_matrix.named_connections
-            for source, sinkList in result.items():
+            # A pip is named by its wires, as in the nextpnr model.
+            for mux_out, mux_ins in tile.switch_matrix.connections.items():
+                source = mux_out.full_name()
+                sinkList = [pin.full_name() for pin in mux_ins]
                 controlWidth = 0
                 for i, sink in enumerate(reversed(sinkList)):
                     controlWidth = (len(sinkList) - 1).bit_length()
@@ -196,7 +198,8 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
             # And now we add empty config bit mappings for immutable connections
             # (i.e. wires), as nextpnr sees these the same as normal pips
             for connection in fabric.fixed_connections(fabric.instances[y][x]):
-                pip = f"{connection.source[1].name()}.{connection.sink[1].name()}"
+                (_, src), (_, dst) = connection.source, connection.sink
+                pip = f"{src.full_name()}.{dst.full_name()}"
                 curTileMap[pip] = {}
                 curTileMapNoMask[pip] = {}
 

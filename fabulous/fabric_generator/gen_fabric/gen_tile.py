@@ -472,7 +472,7 @@ def generateTile(
 
         writer.addInstantiation(
             compName=bel.name,
-            compInsName=f"Inst_{bel.prefix}{bel.name}",
+            compInsName=bel.instance_name,
             portsPairs=ports_pairs,
         )
 
@@ -569,8 +569,8 @@ def generateTile(
         )
 
     writer.addInstantiation(
-        compName=f"{tile.name}_switch_matrix",
-        compInsName=f"Inst_{tile.name}_switch_matrix",
+        compName=tile.switch_matrix.module_name,
+        compInsName=tile.switch_matrix.instance_name,
         portsPairs=ports_pairs,
     )
 

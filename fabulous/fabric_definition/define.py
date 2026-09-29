@@ -9,6 +9,14 @@ from enum import Enum, StrEnum
 from functools import total_ordering
 from typing import NamedTuple
 
+HIERARCHY_SEPARATOR = "__"
+"""Joins an RTL instance name and a pin in a model wire name.
+
+`.` is taken: FASM and the nextpnr BEL pins split on it. The pin part (a wire
+name of the tile CSV, a BEL port name or prefix) must not contain it, which the
+parsers check, so a name splits back uniquely at its last separator.
+"""
+
 
 class IO(Enum):
     """Enumeration for I/O port directions.

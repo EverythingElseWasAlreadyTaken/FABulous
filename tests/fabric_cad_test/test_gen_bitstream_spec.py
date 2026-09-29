@@ -305,7 +305,7 @@ def _build_fabric(
         bels=[bel],
         tileDir=tile_dir / f"{_TILE_NAME}.csv",
         switch_matrix=SwitchMatrix.from_file(
-            matrix_path, _TILE_NAME, switch_matrix_ports([], [bel])
+            matrix_path, _TILE_NAME, switch_matrix_ports([], [bel], wires)
         ),
         gen_ios=[],
         jump_wires=wires,
@@ -363,10 +363,12 @@ def test_bitstream_spec_assigns_bit_offsets_in_insertion_order(
     # overwrite, landing on offset 2 -> physical position 29.
     assert tile_spec["A.F_B"] == {29: "1"}
     assert tile_spec["A.F_C"] == {28: "1"}
-    assert tile_spec["D0.S0"] == {27: "0"}
-    assert tile_spec["D1.S0"] == {27: "1"}
-    assert tile_spec["D0.S1"] == {26: "0"}
-    assert tile_spec["D1.S1"] == {26: "1"}
+    # Switch matrix pins are named by the matrix instance.
+    sm = "Inst_TESTTILE_switch_matrix__"
+    assert tile_spec[f"{sm}D0.{sm}S0"] == {27: "0"}
+    assert tile_spec[f"{sm}D1.{sm}S0"] == {27: "1"}
+    assert tile_spec[f"{sm}D0.{sm}S1"] == {26: "0"}
+    assert tile_spec[f"{sm}D1.{sm}S1"] == {26: "1"}
     # Immutable wires emit empty bit maps.
-    assert tile_spec["W_A0.W_B0"] == {}
-    assert tile_spec["W_C0.W_D0"] == {}
+    assert tile_spec[f"{sm}W_A0.{sm}W_B0"] == {}
+    assert tile_spec[f"{sm}W_C0.{sm}W_D0"] == {}

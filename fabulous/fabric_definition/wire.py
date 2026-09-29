@@ -63,7 +63,9 @@ class JumpWire:
             source = SwitchMatrixPort(source_name, IO.OUTPUT, wire_count)
         destination = None
         if destination_name != NULL_PORT_NAME:
-            destination = SwitchMatrixPort(destination_name, IO.INPUT, wire_count)
+            destination = SwitchMatrixPort(
+                destination_name, IO.INPUT, wire_count, constant=source is None
+            )
         return cls(source, destination)
 
     @property

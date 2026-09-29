@@ -83,6 +83,11 @@ class TestDirectionalPorts:
         with pytest.raises(InvalidPortType, match="both NULL"):
             parse_port_line("SOUTH,NULL,0,4,NULL,4")
 
+    def test_hierarchy_separator_in_a_name_is_an_error(self) -> None:
+        """`__` joins instance and pin in model names, so a wire cannot use it."""
+        with pytest.raises(InvalidPortType, match="contains '__'"):
+            parse_port_line("NORTH,A__B,0,-1,C,1")
+
     @pytest.mark.parametrize("offsets", ["1,-1", "2,-1"])
     def test_diagonal_line_is_an_error(self, offsets: str) -> None:
         """Routing runs in one direction; both offsets set is rejected."""

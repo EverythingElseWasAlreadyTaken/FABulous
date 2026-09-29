@@ -18,11 +18,18 @@ from dataclasses import dataclass
 from functools import cached_property, total_ordering
 from typing import TYPE_CHECKING
 
-from fabulous.fabric_definition.define import IO, BelPortKind, Direction, Side
+from fabulous.fabric_definition.define import (
+    HIERARCHY_SEPARATOR,
+    IO,
+    BelPortKind,
+    Direction,
+    Side,
+)
 
 if TYPE_CHECKING:
     from fabulous.fabric_definition.bel import Bel
     from fabulous.fabric_definition.channel import ChannelDeclaration
+    from fabulous.fabric_definition.switch_matrix import SwitchMatrix
     from fabulous.fabric_definition.tile import Tile
 
 NULL_PORT_NAME = "NULL"
@@ -65,6 +72,16 @@ class Pin:
             The wire name.
         """
         return self.port.pin_name(self.index, indexed, prefix)
+
+    def full_name(self) -> str:
+        """Return the model name of this pin, unique within its tile.
+
+        Returns
+        -------
+        str
+            The name, with the RTL instance of the pin's port if it has one.
+        """
+        return self.port.full_name(self.index)
 
 
 class Port:
@@ -202,6 +219,24 @@ class Port:
         if indexed:
             return f"{prefix}{self.name}[{index}]"
         return f"{prefix}{self.name}{index}"
+
+    def full_name(self, index: int) -> str:
+        """Return the model name of bit `index`, unique within its tile.
+
+        A port of the tile itself keeps its flat RTL name; ports of instances
+        inside the tile prefix it with the instance (see `HIERARCHY_SEPARATOR`).
+
+        Parameters
+        ----------
+        index : int
+            The bit index.
+
+        Returns
+        -------
+        str
+            The name.
+        """
+        return self.pin_name(index)
 
     @cached_property
     def pins(self) -> tuple[Pin, ...]:
@@ -683,6 +718,30 @@ class BelPort(Port):
         """
         return [pin.name(indexed=True) for pin in self.pins]
 
+    def full_name(self, index: int) -> str:
+        """Return the model name of bit `index`: the BEL instance and the pin.
+
+        Parameters
+        ----------
+        index : int
+            The bit index.
+
+        Returns
+        -------
+        str
+            `Inst_LA_LUT4c_frame_config__I0`: the BEL's instance, then the
+            pin's flat name without the BEL prefix.
+
+        Raises
+        ------
+        ValueError
+            If the port belongs to no BEL.
+        """
+        if self._bel is None:
+            raise ValueError(f"{self} belongs to no BEL, so it has no instance")
+        name = self.pin_name(index).removeprefix(self.prefix)
+        return f"{self._bel.instance_name}{HIERARCHY_SEPARATOR}{name}"
+
     def serialize(self) -> dict:
         """Serialize the BEL port to a dictionary."""
         return super().serialize() | {
@@ -791,11 +850,17 @@ class SwitchMatrixPort(Port):
     literal : bool
         Whether the single pin is named exactly as the port (a constant),
         instead of `{name}{index}`. Defaults to False.
+    constant : bool
+        Whether the port is a constant source declared in the matrix body
+        rather than a port of the matrix module. A `literal` port always is.
+        Defaults to False.
     """
 
     _origin: TilePort | SJumpPort | BelPort | None
     _prefix: str
     _literal: bool
+    _constant: bool
+    _matrix: SwitchMatrix | None
 
     def __init__(
         self,
@@ -805,11 +870,14 @@ class SwitchMatrixPort(Port):
         origin: TilePort | SJumpPort | BelPort | None = None,
         prefix: str = "",
         literal: bool = False,
+        constant: bool = False,
     ) -> None:
         super().__init__(name, io_direction, width)
         self._origin = origin
         self._prefix = prefix
         self._literal = literal
+        self._constant = constant or literal
+        self._matrix = None
 
     @classmethod
     def from_tile_port(
@@ -854,6 +922,57 @@ class SwitchMatrixPort(Port):
     def origin(self) -> TilePort | SJumpPort | BelPort | None:
         """The tile or BEL port this port wires to, or None for a constant."""
         return self._origin
+
+    @property
+    def is_constant(self) -> bool:
+        """Whether the port is a constant source, not a matrix module port."""
+        return self._constant
+
+    @property
+    def matrix(self) -> SwitchMatrix | None:
+        """The switch matrix this port belongs to, or None while unattached."""
+        return self._matrix
+
+    @matrix.setter
+    def matrix(self, matrix: SwitchMatrix) -> None:
+        # A matrix may be rebuilt from the same ports (reading a file resolves
+        # names against a first, empty matrix), but a port never moves on to
+        # another tile's matrix.
+        if self._matrix is not None and self._matrix.name != matrix.name:
+            raise ValueError(
+                f"{self} already belongs to the switch matrix of {self._matrix.name}"
+            )
+        self._matrix = matrix
+
+    def full_name(self, index: int) -> str:
+        """Return the model name of bit `index`.
+
+        A module port of the matrix is named by the matrix instance and its
+        pin (`Inst_LUT4AB_switch_matrix__N4BEG0`); a constant is no module port
+        and keeps its bare name, which nextpnr knows (`GND0`, `VCC0`).
+
+        Parameters
+        ----------
+        index : int
+            The bit index.
+
+        Returns
+        -------
+        str
+            The name.
+
+        Raises
+        ------
+        ValueError
+            If a module port belongs to no matrix.
+        """
+        if self._constant:
+            return self.pin_name(index)
+        if self._matrix is None:
+            raise ValueError(f"{self} belongs to no switch matrix, so no instance")
+        return (
+            f"{self._matrix.instance_name}{HIERARCHY_SEPARATOR}{self.pin_name(index)}"
+        )
 
     def pin_name(self, index: int, indexed: bool = False, prefix: str = "") -> str:
         """Return the HDL wire name of bit `index`.
