@@ -140,16 +140,10 @@ def parse_port_line(
         )
         # Output port (source side)
         if declaration.begin is not None:
-            ports.append(
-                TilePort(declaration.begin, IO.OUTPUT, Side[port_type], declaration)
-            )
+            ports.append(TilePort(declaration, IO.OUTPUT))
         # Input port (destination side)
         if declaration.end is not None:
-            ports.append(
-                TilePort(
-                    declaration.end, IO.INPUT, Side[port_type].opposite, declaration
-                )
-            )
+            ports.append(TilePort(declaration, IO.INPUT))
 
     elif wire_direction is Direction.JUMP:
         jump_wire = JumpWire.create(source_name, destination_name, wire_count)

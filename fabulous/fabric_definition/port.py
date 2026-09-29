@@ -248,50 +248,36 @@ class Port:
 
 @total_ordering
 class TilePort(Port):
-    """TilePort represents a port on a tile with a side and termination status.
+    """TilePort represents a port on a tile, as a part of a routing channel.
 
     It is an immutable and comparable class. When sorting a list of TilePort instances,
     the order is determined first by the side of the tile in order of
     [north, east, south, west] then by the IO type in the order of
     [output, input, inout].
 
-    The wire the port belongs to is described by its `ChannelDeclaration`,
-    the tile CSV line shared by the ports it declares. The port's `width` is
-    `wire_count` times the Manhattan distance of the offset: a spanning wire
-    occupies one slice per hop it crosses.
+    The port is fully described by its `ChannelDeclaration`, the tile CSV line
+    shared by the ports it declares, and which end of it the port is: the
+    output port is the line's begin, on the side the wire runs to; the input
+    port is its end, on the opposite side. The port's `width` is `wire_count`
+    times the Manhattan distance of the offset: a spanning wire occupies one
+    slice per hop it crosses.
 
     Parameters
     ----------
-    name : str
-        The name of the port.
-    io_direction : IO
-        The I/O direction (INPUT, OUTPUT, INOUT).
-    side_of_tile : Side
-        The side of the tile where the port is located.
     declaration : ChannelDeclaration
         The tile CSV line declaring the port.
-    term : bool
-        Indicates if the port is a termination port. Defaults to False.
+    io_direction : IO
+        OUTPUT for the line's begin, INPUT for its end.
     """
 
-    _side_of_tile: Side
-    _term: bool
     _tile: Tile | None
     _declaration: ChannelDeclaration
 
-    def __init__(
-        self,
-        name: str,
-        io_direction: IO,
-        side_of_tile: Side,
-        declaration: ChannelDeclaration,
-        term: bool = False,
-    ) -> None:
+    def __init__(self, declaration: ChannelDeclaration, io_direction: IO) -> None:
+        name = declaration.begin if io_direction == IO.OUTPUT else declaration.end
         super().__init__(
             name, io_direction, declaration.wire_count * max(1, declaration.distance)
         )
-        self._side_of_tile = side_of_tile
-        self._term = term
         self._tile = None
         self._declaration = declaration
 
@@ -301,12 +287,8 @@ class TilePort(Port):
     @property
     def side_of_tile(self) -> Side:
         """The side of the tile where the port is located."""
-        return self._side_of_tile
-
-    @property
-    def term(self) -> bool:
-        """Whether the port is a termination port."""
-        return self._term
+        side = Side[self._declaration.direction.name]
+        return side if self.io_direction == IO.OUTPUT else side.opposite
 
     @property
     def tile(self) -> Tile | None:
@@ -384,7 +366,6 @@ class TilePort(Port):
         """Serialize the tile port to a dictionary."""
         return super().serialize() | {
             "side_of_tile": self.side_of_tile.value,
-            "term": self.term,
             "tile": self.tile.name if self.tile is not None else None,
             "wire_direction": self.wire_direction.value,
             "source_name": self.source_name,
@@ -564,10 +545,7 @@ class SJumpPort(TilePort):
     def __init__(self, name: str, io_direction: IO, wire_count: int) -> None:
         is_output = io_direction == IO.OUTPUT
         super().__init__(
-            name=name,
-            io_direction=io_direction,
-            side_of_tile=Side.ANY,
-            declaration=ChannelDeclaration(
+            ChannelDeclaration(
                 Direction.SJUMP,
                 0,
                 0,
@@ -575,7 +553,13 @@ class SJumpPort(TilePort):
                 begin=name if is_output else None,
                 end=None if is_output else name,
             ),
+            io_direction,
         )
+
+    @property
+    def side_of_tile(self) -> Side:
+        """An SJUMP port faces the supertile matrix, on no side of the tile."""
+        return Side.ANY
 
     @property
     def sm_pins(self) -> tuple[Pin, ...]:

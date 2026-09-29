@@ -126,15 +126,13 @@ class SmGeometry:
             for southPort in self.southPorts:
                 if abs(southPort.y_offset) > 1:
                     augmentedPort = TilePort(
-                        name=southPort.name,
-                        io_direction=southPort.io_direction,
-                        side_of_tile=southPort.side_of_tile,
-                        declaration=replace(
+                        replace(
                             southPort.declaration,
                             x_offset=0,
                             y_offset=1,
                             wire_count=southPort.wire_count * abs(southPort.y_offset),
                         ),
+                        southPort.io_direction,
                     )
                     augmentedSouthPorts.append(augmentedPort)
                 else:
@@ -145,15 +143,13 @@ class SmGeometry:
             for northPort in self.northPorts:
                 if abs(northPort.y_offset) > 1:
                     augmentedPort = TilePort(
-                        name=northPort.name,
-                        io_direction=northPort.io_direction,
-                        side_of_tile=northPort.side_of_tile,
-                        declaration=replace(
+                        replace(
                             northPort.declaration,
                             x_offset=0,
                             y_offset=1,
                             wire_count=northPort.wire_count * abs(northPort.y_offset),
                         ),
+                        northPort.io_direction,
                     )
                     augmentedNorthPorts.append(augmentedPort)
                 else:
@@ -165,15 +161,13 @@ class SmGeometry:
             for eastPort in self.eastPorts:
                 if abs(eastPort.x_offset) > 1:
                     augmentedPort = TilePort(
-                        name=eastPort.name,
-                        io_direction=eastPort.io_direction,
-                        side_of_tile=eastPort.side_of_tile,
-                        declaration=replace(
+                        replace(
                             eastPort.declaration,
                             x_offset=1,
                             y_offset=0,
                             wire_count=eastPort.wire_count * abs(eastPort.x_offset),
                         ),
+                        eastPort.io_direction,
                     )
                     augmentedEastPorts.append(augmentedPort)
                 else:
@@ -184,15 +178,13 @@ class SmGeometry:
             for westPort in self.westPorts:
                 if abs(westPort.x_offset) > 1:
                     augmentedPort = TilePort(
-                        name=westPort.name,
-                        io_direction=westPort.io_direction,
-                        side_of_tile=westPort.side_of_tile,
-                        declaration=replace(
+                        replace(
                             westPort.declaration,
                             x_offset=1,
                             y_offset=0,
                             wire_count=westPort.wire_count * abs(westPort.x_offset),
                         ),
+                        westPort.io_direction,
                     )
                     augmentedWestPorts.append(augmentedPort)
                 else:

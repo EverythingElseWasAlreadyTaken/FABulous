@@ -377,9 +377,7 @@ class TestInterTileRouting:
             name="Left",
             ports=[
                 TilePort(
-                    name="E_out",
                     io_direction=IO.OUTPUT,
-                    side_of_tile=Side.EAST,
                     declaration=ChannelDeclaration(
                         Direction.EAST,
                         1,
@@ -399,9 +397,7 @@ class TestInterTileRouting:
             name="Right",
             ports=[
                 TilePort(
-                    name="E_in",
                     io_direction=IO.INPUT,
-                    side_of_tile=Side.WEST,
                     declaration=ChannelDeclaration(
                         Direction.EAST,
                         1,

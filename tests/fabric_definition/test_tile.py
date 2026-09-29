@@ -34,35 +34,10 @@ def _directional_ports(
     y_offset: int = -1,
 ) -> list[TilePort]:
     """Mirror parse_port_line: one OUTPUT port on `side`, one INPUT on opposite."""
-    side = Side[direction]
-    return [
-        TilePort(
-            name=src,
-            io_direction=IO.OUTPUT,
-            side_of_tile=side,
-            declaration=ChannelDeclaration(
-                Direction[direction],
-                x_offset,
-                y_offset,
-                wires,
-                begin=src,
-                end=dst,
-            ),
-        ),
-        TilePort(
-            name=dst,
-            io_direction=IO.INPUT,
-            side_of_tile=side.opposite,
-            declaration=ChannelDeclaration(
-                Direction[direction],
-                x_offset,
-                y_offset,
-                wires,
-                begin=src,
-                end=dst,
-            ),
-        ),
-    ]
+    declaration = ChannelDeclaration(
+        Direction[direction], x_offset, y_offset, wires, begin=src, end=dst
+    )
+    return [TilePort(declaration, IO.OUTPUT), TilePort(declaration, IO.INPUT)]
 
 
 class TestGetPortCount:
@@ -94,22 +69,11 @@ class TestGetPortCount:
         assert tile.get_port_count(Side.SOUTH) == 8  # 4 N1END + 4 S1BEG
 
     def test_null_ports_excluded(self) -> None:
-        # GND/VCC-like ports with NULL source count only the non-NULL side.
-        port = TilePort(
-            name="VCC",
-            io_direction=IO.INPUT,
-            side_of_tile=Side.ANY,
-            declaration=ChannelDeclaration(
-                Direction.JUMP,
-                0,
-                0,
-                1,
-                begin=None,
-                end="VCC",
-            ),
-        )
-        tile = _mk_tile([port])
-        assert tile.get_port_count(Side.ANY) == 1
+        # A terminator line with a NULL source has only its input port.
+        declaration = ChannelDeclaration(Direction.NORTH, 0, -1, 4, None, "N1END")
+        tile = _mk_tile([TilePort(declaration, IO.INPUT)])
+        assert tile.get_port_count(Side.SOUTH) == 4
+        assert tile.get_port_count(Side.NORTH) == 0
 
 
 class TestGetMinDieArea:

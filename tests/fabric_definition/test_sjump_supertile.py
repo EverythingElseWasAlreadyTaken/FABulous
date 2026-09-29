@@ -14,7 +14,7 @@ import pytest
 from fabulous.fabric_cad.gen_bitstream_spec import generateBitstreamSpec
 from fabulous.fabric_cad.gen_npnr_model import genNextpnrModel
 from fabulous.fabric_definition.channel import ChannelDeclaration
-from fabulous.fabric_definition.define import IO, Direction, Side
+from fabulous.fabric_definition.define import IO, Direction
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.port import TilePort
 from fabulous.fabric_definition.supertile import SuperTile
@@ -75,23 +75,8 @@ class TestTileGetSJumpPorts:
     def test_returns_only_sjump_ports(self) -> None:
         sjump_out = sjump_port("A", IO.OUTPUT)
         sjump_in = sjump_port("Q", IO.INPUT)
-        jump = TilePort(
-            name="J",
-            io_direction=IO.OUTPUT,
-            side_of_tile=Side.NORTH,
-            declaration=ChannelDeclaration(
-                Direction.JUMP,
-                0,
-                0,
-                1,
-                begin="J",
-                end="J",
-            ),
-        )
         normal = TilePort(
-            name="N1BEG",
             io_direction=IO.OUTPUT,
-            side_of_tile=Side.NORTH,
             declaration=ChannelDeclaration(
                 Direction.NORTH,
                 0,
@@ -101,7 +86,7 @@ class TestTileGetSJumpPorts:
                 end="N1END",
             ),
         )
-        tile = _tile("DSP_bot", [sjump_out, jump, normal, sjump_in])
+        tile = _tile("DSP_bot", [sjump_out, normal, sjump_in])
 
         assert tile.get_sjump_ports() == [sjump_out, sjump_in]
 

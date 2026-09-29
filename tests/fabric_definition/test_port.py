@@ -15,7 +15,7 @@ from fabulous.fabric_definition.port import (
     SwitchMatrixPort,
     TilePort,
 )
-from tests.conftest import jump_declaration, sjump_port
+from tests.conftest import sjump_port
 
 
 class TestPort:
@@ -244,56 +244,64 @@ class TestBelPort:
 class TestTilePort:
     """Tests for TilePort ordering and construction."""
 
-    def test_construct_with_side(self) -> None:
-        """A TilePort exposes its side of the tile."""
-        port = TilePort("N1", IO.OUTPUT, Side.NORTH, jump_declaration("N1"))
-        assert port.side_of_tile == Side.NORTH
+    @pytest.mark.parametrize(
+        ("io", "name", "side"),
+        [(IO.OUTPUT, "N1BEG", Side.NORTH), (IO.INPUT, "N1END", Side.SOUTH)],
+    )
+    def test_name_and_side_follow_the_declaration(
+        self, io: IO, name: str, side: Side
+    ) -> None:
+        """The output is the line's begin on its side; the input the end opposite."""
+        port = TilePort(_north("N1BEG", "N1END"), io)
+        assert (port.name, port.side_of_tile) == (name, side)
 
     def test_ordering_by_side(self) -> None:
         """Ports are ordered by tile side (north before east)."""
-        north = TilePort("n", IO.OUTPUT, Side.NORTH, jump_declaration("n"))
-        east = TilePort("e", IO.INPUT, Side.EAST, jump_declaration("e"))
+        north = TilePort(_north("n", "x"), IO.OUTPUT)
+        east = TilePort(
+            ChannelDeclaration(Direction.WEST, -1, 0, 1, "x", "e"), IO.INPUT
+        )
         assert north < east
         assert east > north
 
     def test_ordering_by_io_within_side(self) -> None:
         """Within a side, outputs are ordered before inputs."""
-        out = TilePort("o", IO.OUTPUT, Side.NORTH, jump_declaration("o"))
-        inp = TilePort("i", IO.INPUT, Side.NORTH, jump_declaration("i"))
+        out = TilePort(_north("o", "x"), IO.OUTPUT)
+        inp = TilePort(ChannelDeclaration(Direction.SOUTH, 0, 1, 1, "x", "i"), IO.INPUT)
         assert out < inp
         assert out <= inp
         assert inp >= out
 
     def test_comparison_with_non_tileport_raises(self) -> None:
         """Ordering is only defined against another TilePort."""
-        port = TilePort("n", IO.OUTPUT, Side.NORTH, jump_declaration("n"))
+        port = TilePort(_north("n", "x"), IO.OUTPUT)
         with pytest.raises(TypeError, match="Cannot compare"):
             port < 1  # noqa: B015
 
     def test_tile_back_reference_defaults_to_none(self) -> None:
         """An unattached port has no owning tile."""
-        port = TilePort("n", IO.OUTPUT, Side.NORTH, jump_declaration("n"))
+        port = TilePort(_north("n", "x"), IO.OUTPUT)
         assert port.tile is None
+
+
+def _north(begin: str, end: str) -> ChannelDeclaration:
+    return ChannelDeclaration(Direction.NORTH, 0, -1, 1, begin, end)
 
 
 def make_wire_port(
     x_offset: int, y_offset: int, wire_count: int, source: str, destination: str
 ) -> TilePort:
-    """Build the OUTPUT side of a CSV wire line for the pin-slice tests."""
+    """Build the named end of a CSV wire line (the source, where there is one)."""
     direction = Direction.NORTH if x_offset or y_offset else Direction.JUMP
-    return TilePort(
-        name=source if source != "NULL" else destination,
-        io_direction=IO.OUTPUT,
-        side_of_tile=Side.NORTH,
-        declaration=ChannelDeclaration(
-            direction,
-            x_offset,
-            y_offset,
-            wire_count,
-            begin=None if source == "NULL" else source,
-            end=None if destination == "NULL" else destination,
-        ),
+    declaration = ChannelDeclaration(
+        direction,
+        x_offset,
+        y_offset,
+        wire_count,
+        begin=None if source == "NULL" else source,
+        end=None if destination == "NULL" else destination,
     )
+    return TilePort(declaration, IO.OUTPUT if declaration.begin else IO.INPUT)
 
 
 class TestTilePortPins:

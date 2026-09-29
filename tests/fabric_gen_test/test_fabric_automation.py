@@ -5,7 +5,7 @@ from pathlib import Path
 from pytest_mock import MockerFixture
 
 from fabulous.fabric_definition.bel import Bel
-from fabulous.fabric_definition.define import IO, Side
+from fabulous.fabric_definition.define import IO
 from fabulous.fabric_definition.port import BelPort, TilePort
 from fabulous.fabric_generator.gen_fabric import fabric_automation
 from fabulous.fabric_generator.gen_fabric.fabric_automation import (
@@ -43,8 +43,8 @@ def test_shared_reset_only_wires_bels_that_have_one(
         ],
     )
     shared_reset = [
-        TilePort("J_SRST_BEG", IO.OUTPUT, Side.ANY, jump_declaration("J_SRST_BEG")),
-        TilePort("J_SRST_END", IO.INPUT, Side.ANY, jump_declaration("J_SRST_END")),
+        TilePort(jump_declaration("J_SRST_BEG"), IO.OUTPUT),
+        TilePort(jump_declaration("J_SRST_END"), IO.INPUT),
     ]
     out = tmp_path / "T_switch_matrix.list"
 

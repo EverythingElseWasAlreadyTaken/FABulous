@@ -18,7 +18,8 @@ from unittest.mock import MagicMock
 import pytest
 from pytest_mock import MockerFixture
 
-from fabulous.fabric_definition.define import IO, HDLType, Side
+from fabulous.fabric_definition.channel import ChannelDeclaration
+from fabulous.fabric_definition.define import IO, Direction, HDLType
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.port import TilePort
 from fabulous.fabric_generator.gds_generator.flows.fabric_optimisation_flow import (
@@ -28,7 +29,7 @@ from fabulous.fabric_generator.gds_generator.flows.fabric_optimisation_flow impo
 )
 from fabulous.fabric_generator.gds_generator.steps.tile_area_opt import OptMode
 from fabulous.fabulous_api import FABulous_API
-from tests.conftest import jump_declaration, make_empty_tile, make_fabric_from_grid
+from tests.conftest import make_empty_tile, make_fabric_from_grid
 
 
 # Shared fixtures
@@ -516,10 +517,8 @@ def _fabric_with_real_ports() -> Fabric:
         "LUT4AB",
         ports=[
             TilePort(
-                name="N1BEG",
-                io_direction=IO.OUTPUT,
-                side_of_tile=Side.NORTH,
-                declaration=jump_declaration("N1BEG"),
+                ChannelDeclaration(Direction.NORTH, 0, -1, 4, "N1BEG", "N1END"),
+                IO.OUTPUT,
             )
         ],
     )

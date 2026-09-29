@@ -39,17 +39,6 @@ def make_fabric() -> Callable[..., Fabric]:
 
 
 def make_side_port(side: Side, name: str = "P") -> TilePort:
-    """Construct a TilePort physically located on the given side."""
-    return TilePort(
-        name=name,
-        io_direction=IO.INPUT,
-        side_of_tile=side,
-        declaration=ChannelDeclaration(
-            Direction.JUMP,
-            0,
-            0,
-            1,
-            begin=None if name == "NULL" else name,
-            end=None if name == "NULL" else name,
-        ),
-    )
+    """Construct an INPUT TilePort physically located on the given side."""
+    direction = Direction[side.opposite.name]
+    return TilePort(ChannelDeclaration(direction, 0, 0, 1, None, name), IO.INPUT)
