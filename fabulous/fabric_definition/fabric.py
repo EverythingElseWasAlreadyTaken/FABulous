@@ -18,17 +18,16 @@ from fabulous.fabric_definition.channel import (
     RoutingChannel,
     resolve_channels,
 )
+from fabulous.fabric_definition.connection import FixedConnection, InstancePin
 from fabulous.fabric_definition.define import (
     IO,
     ConfigBitMode,
-    Direction,
     MultiplexerStyle,
     Side,
 )
 from fabulous.fabric_definition.instance import SuperTileInstance, TileInstance
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
-from fabulous.fabric_definition.wire import Wire
 
 
 @dataclass
@@ -99,10 +98,6 @@ class Fabric:
         A dictionary of super tiles that are not used in the fabric,
         but defined in the fabric.csv.
         The key is the name of the tile and the value is the tile.
-    wires : dict[tuple[int, int], list[Wire]]
-        The wires leaving each placed tile, by `(x, y)`. Derived in
-        `__post_init__`; a stopgap until inter-tile wires are pin-level
-        connections.
     instances : list[list[TileInstance | None]]
         The placement of a tile type at each grid cell (None for an empty
         cell), mirroring `tile`. Derived in `__post_init__`.
@@ -140,7 +135,6 @@ class Fabric:
     superTileDic: dict[str, SuperTile] = field(default_factory=dict)
     unusedTileDic: dict[str, Tile] = field(default_factory=dict)
     unusedSuperTileDic: dict[str, SuperTile] = field(default_factory=dict)
-    wires: dict[tuple[int, int], list[Wire]] = field(default_factory=dict, init=False)
     instances: list[list[TileInstance | None]] = field(default_factory=list, init=False)
     super_tile_instances: list[SuperTileInstance] = field(
         default_factory=list, init=False
@@ -150,14 +144,7 @@ class Fabric:
     )
 
     def __post_init__(self) -> None:
-        """Generate and get all the wire pairs in the fabric.
-
-        The wire pair are used during model generation when some of the signals have
-        source or destination of "NULL".
-
-        The wires are used during model generation to work with wire that going cross
-        tile.
-        """
+        """Check the fabric parameters, place the tiles and resolve the channels."""
         if self.numberOfRows > 32:
             raise ValueError(
                 "Due to bitstream limitations, "
@@ -240,145 +227,6 @@ class Fabric:
         for problem in self.routing_channel_problems():
             logger.warning(problem)
 
-        for y, row in enumerate(self.tile):
-            for x, tile in enumerate(row):
-                if tile is None:
-                    continue
-                wires: list[Wire] = []
-                for port in tile.portsInfo:
-                    if (
-                        abs(port.x_offset) <= 1
-                        and abs(port.y_offset) <= 1
-                        and not port.is_null_terminated
-                    ):
-                        for i in range(port.wire_count):
-                            wires.append(
-                                Wire(
-                                    direction=port.wire_direction,
-                                    source=f"{port.source_name}{i}",
-                                    x_offset=port.x_offset,
-                                    y_offset=port.y_offset,
-                                    destination=f"{port.destination_name}{i}",
-                                    sourceTile="",
-                                    destinationTile="",
-                                )
-                            )
-                    elif not port.is_null_terminated:
-                        # clamp the x_offset to 1 or -1
-                        value = min(max(port.x_offset, -1), 1)
-                        cascadedI = 0
-                        for i in range(port.wire_count * abs(port.x_offset)):
-                            if i < port.wire_count:
-                                cascadedI = i + port.wire_count * (
-                                    abs(port.x_offset) - 1
-                                )
-                            else:
-                                cascadedI = i - port.wire_count
-                                wires.append(
-                                    Wire(
-                                        direction=Direction.JUMP,
-                                        source=f"{port.destination_name}{i}",
-                                        x_offset=0,
-                                        y_offset=0,
-                                        destination=f"{port.source_name}{i}",
-                                        sourceTile=f"X{x}Y{y}",
-                                        destinationTile=f"X{x}Y{y}",
-                                    )
-                                )
-                            wires.append(
-                                Wire(
-                                    direction=port.wire_direction,
-                                    source=f"{port.source_name}{i}",
-                                    x_offset=value,
-                                    y_offset=port.y_offset,
-                                    destination=f"{port.destination_name}{cascadedI}",
-                                    sourceTile=f"X{x}Y{y}",
-                                    destinationTile=f"X{x + value}Y{y + port.y_offset}",
-                                )
-                            )
-
-                        # clamp the y_offset to 1 or -1
-                        value = min(max(port.y_offset, -1), 1)
-                        cascadedI = 0
-                        for i in range(port.wire_count * abs(port.y_offset)):
-                            if i < port.wire_count:
-                                cascadedI = i + port.wire_count * (
-                                    abs(port.y_offset) - 1
-                                )
-                            else:
-                                cascadedI = i - port.wire_count
-                                wires.append(
-                                    Wire(
-                                        direction=Direction.JUMP,
-                                        source=f"{port.destination_name}{i}",
-                                        x_offset=0,
-                                        y_offset=0,
-                                        destination=f"{port.source_name}{i}",
-                                        sourceTile=f"X{x}Y{y}",
-                                        destinationTile=f"X{x}Y{y}",
-                                    )
-                                )
-                            wires.append(
-                                Wire(
-                                    direction=port.wire_direction,
-                                    source=f"{port.source_name}{i}",
-                                    x_offset=port.x_offset,
-                                    y_offset=value,
-                                    destination=f"{port.destination_name}{cascadedI}",
-                                    sourceTile=f"X{x}Y{y}",
-                                    destinationTile=f"X{x + port.x_offset}Y{y + value}",
-                                )
-                            )
-                    elif port.has_source and not port.has_destination:
-                        source_name = port.source_name
-                        destName = self.channels[port.declaration].end
-
-                        value = min(max(port.x_offset, -1), 1)
-                        for i in range(port.wire_count * abs(port.x_offset)):
-                            wires.append(
-                                Wire(
-                                    direction=port.wire_direction,
-                                    source=f"{source_name}{i}",
-                                    x_offset=value,
-                                    y_offset=port.y_offset,
-                                    destination=f"{destName}{i}",
-                                    sourceTile=f"X{x}Y{y}",
-                                    destinationTile=f"X{x + value}Y{y + port.y_offset}",
-                                )
-                            )
-
-                        value = min(max(port.y_offset, -1), 1)
-                        for i in range(port.wire_count * abs(port.y_offset)):
-                            wires.append(
-                                Wire(
-                                    direction=port.wire_direction,
-                                    source=f"{source_name}{i}",
-                                    x_offset=port.x_offset,
-                                    y_offset=value,
-                                    destination=f"{destName}{i}",
-                                    sourceTile=f"X{x}Y{y}",
-                                    destinationTile=f"X{x + port.x_offset}Y{y + value}",
-                                )
-                            )
-                for jump in tile.jump_wires:
-                    if jump.source is None or jump.destination is None:
-                        continue
-                    for src, dst in zip(
-                        jump.source.pins, jump.destination.pins, strict=True
-                    ):
-                        wires.append(
-                            Wire(
-                                direction=Direction.JUMP,
-                                source=src.name(),
-                                x_offset=0,
-                                y_offset=0,
-                                destination=dst.name(),
-                                sourceTile="",
-                                destinationTile="",
-                            )
-                        )
-                self.wires[(x, y)] = list(dict.fromkeys(wires))
-
     def _place_super_tiles(self) -> list[SuperTileInstance]:
         """Find every placement of a supertile's arrangement in the grid.
 
@@ -410,6 +258,57 @@ class Fabric:
                     claimed.update(tiles.values())
                     placements.append(SuperTileInstance(base_fx, base_fy, st, tiles))
         return placements
+
+    def fixed_connections(
+        self, instance: TileInstance
+    ) -> list[FixedConnection[InstancePin]]:
+        """Return the hard wires starting at a placed tile.
+
+        These are the tile type's own `fixed_connections`, placed at the
+        instance, and the routing channel hops from each of its begin ports to
+        the same channel's end port one tile along. A channel line naming both
+        ends and spanning several tiles shifts the bits on the hop: the switch
+        matrix's first `wire_count` bits land on the neighbour's last ones, all
+        other bits move down by `wire_count`. Every other hop is one to one.
+        Needs consistent routing channels (`check_routing_channels`).
+
+        Parameters
+        ----------
+        instance : TileInstance
+            The placed tile.
+
+        Returns
+        -------
+        list[FixedConnection[InstancePin]]
+            The connections, the tile's own first, then the hops.
+        """
+        connections = [
+            FixedConnection((instance, c.source), (instance, c.sink), c.declaration)
+            for c in instance.tile_type.fixed_connections
+        ]
+        for out in instance.tile_type.portsInfo:
+            if not out.is_output:
+                continue
+            declaration = out.declaration
+            channel = self.channels[declaration]
+            dx, dy = channel.step
+            target = self.instances[instance.y + dy][instance.x + dx]
+            end = next(
+                p
+                for p in target.tile_type.portsInfo
+                if p.is_input and self.channels[p.declaration] is channel
+            )
+            count, span = declaration.wire_count, declaration.distance
+            # A start tap drives every slice it spans; with no span, none.
+            bits = range(count * span) if declaration.end is None else range(out.width)
+            for i in bits:
+                j = i
+                if declaration.end is not None and span >= 2:
+                    j = i + count * (span - 1) if i < count else i - count
+                connections.append(
+                    FixedConnection((instance, out[i]), (target, end[j]), declaration)
+                )
+        return connections
 
     def check_routing_channels(self) -> None:
         """Refuse a fabric whose routing channels are inconsistent.
@@ -452,8 +351,6 @@ class Fabric:
         problems = []
         for (x, y, channel, io), instance in ends.items():
             dx, dy = channel.step
-            if dx and dy:
-                continue
             sign = 1 if io == IO.OUTPUT else -1
             partner_io = IO.INPUT if io == IO.OUTPUT else IO.OUTPUT
             px, py = x + sign * dx, y + sign * dy

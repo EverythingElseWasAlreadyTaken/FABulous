@@ -83,6 +83,12 @@ class TestDirectionalPorts:
         with pytest.raises(InvalidPortType, match="both NULL"):
             parse_port_line("SOUTH,NULL,0,4,NULL,4")
 
+    @pytest.mark.parametrize("offsets", ["1,-1", "2,-1"])
+    def test_diagonal_line_is_an_error(self, offsets: str) -> None:
+        """Routing runs in one direction; both offsets set is rejected."""
+        with pytest.raises(InvalidPortType, match="X or Y offset must be 0"):
+            parse_port_line(f"NORTH,A,{offsets},B,1")
+
 
 class TestJumpPorts:
     """JUMP lines stay within a tile: no tile ports, one jump wire."""

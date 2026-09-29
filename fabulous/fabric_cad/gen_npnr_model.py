@@ -12,7 +12,6 @@ placement and routing for user designs.
 import string
 from pathlib import Path
 
-from fabulous.custom_exception import InvalidState
 from fabulous.fabric_cad.timing_model.FABulous_timing_model_interface import (
     FABulousTimingModelInterface,
 )
@@ -226,11 +225,6 @@ def genNextpnrModel(
         - belv2Str: A string with new style BEL definitions.
         - belv3Str: A string with new style BEL definitions including timing.
         - constrainStr: A string with constraint definitions.
-
-    Raises
-    ------
-    InvalidState
-        If a wire in a tile points to an invalid tile outside the fabric bounds.
     """
     fabric.check_routing_channels()
     pipStr = []
@@ -266,30 +260,16 @@ def genNextpnrModel(
                     )
 
             pipStr.append(f"#Tile-external pips on tile X{x}Y{y}:")
-            for wire in fabric.wires[(x, y)]:
-                xDst = x + wire.x_offset
-                yDst = y + wire.y_offset
-                if (not (0 <= xDst <= fabric.numberOfColumns)) or (
-                    not (0 <= yDst <= fabric.numberOfRows)
-                ):
-                    raise InvalidState(
-                        f"Wire {wire} in tile X{x}Y{y} points to an invalid tile "
-                        f"X{xDst}Y{yDst}. "
-                        "Please check your tile CSV file for unmatching wires/offsets!"
-                    )
-
+            for connection in fabric.fixed_connections(fabric.instances[y][x]):
+                src_at, src_pin = connection.source
+                dst_at, dst_pin = connection.sink
+                src, dst = src_pin.name(), dst_pin.name()
                 delay: float = DUMMY_PIP_DELAY
                 if delay_model is not None:
-                    delay = delay_model.pip_delay(
-                        tile.name,
-                        wire.source,
-                        wire.destination,
-                    )
+                    delay = delay_model.pip_delay(tile.name, src, dst)
                 pipStr.append(
-                    f"X{x}Y{y},{wire.source},"
-                    f"X{x + wire.x_offset}Y{y + wire.y_offset},{wire.destination},"
-                    f"{delay},"
-                    f"{wire.source}.{wire.destination}"
+                    f"X{src_at.x}Y{src_at.y},{src},X{dst_at.x}Y{dst_at.y},{dst},"
+                    f"{delay},{src}.{dst}"
                 )
 
             # BEL definitions: legacy v1, and new-style v2 / v3 (with timing arcs).

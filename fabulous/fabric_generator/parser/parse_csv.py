@@ -122,6 +122,11 @@ def parse_port_line(
         Direction.SOUTH,
         Direction.WEST,
     ):
+        if x_offset and y_offset:
+            raise InvalidPortType(
+                f"Invalid port line '{line.strip()}': routing runs in one "
+                f"direction, so X or Y offset must be 0 (got {x_offset},{y_offset})."
+            )
         # A NULL end is the far side of the routing relation, not an interface
         # of this tile, so the line declares one port per *named* end.
         if source_name == NULL_PORT_NAME and destination_name == NULL_PORT_NAME:

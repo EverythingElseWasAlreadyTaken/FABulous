@@ -195,9 +195,10 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
 
             # And now we add empty config bit mappings for immutable connections
             # (i.e. wires), as nextpnr sees these the same as normal pips
-            for wire in fabric.wires[(x, y)]:
-                curTileMap[f"{wire.source}.{wire.destination}"] = {}
-                curTileMapNoMask[f"{wire.source}.{wire.destination}"] = {}
+            for connection in fabric.fixed_connections(fabric.instances[y][x]):
+                pip = f"{connection.source[1].name()}.{connection.sink[1].name()}"
+                curTileMap[pip] = {}
+                curTileMapNoMask[pip] = {}
 
             specData["TileSpecs"][f"X{x}Y{y}"] = curTileMap
             specData["TileSpecs_No_Mask"][f"X{x}Y{y}"] = curTileMapNoMask

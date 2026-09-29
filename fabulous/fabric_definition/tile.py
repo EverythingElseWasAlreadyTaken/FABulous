@@ -2,13 +2,15 @@
 
 from dataclasses import dataclass, field
 from decimal import Decimal
+from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fabulous.fabric_definition.bel import Bel
+from fabulous.fabric_definition.connection import FixedConnection
 from fabulous.fabric_definition.define import IO, Direction, PinSortMode, Side
 from fabulous.fabric_definition.gen_io import Gen_IO
-from fabulous.fabric_definition.port import SJumpPort, TilePort
+from fabulous.fabric_definition.port import Pin, SJumpPort, TilePort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.wire import JumpWire
 
@@ -169,6 +171,37 @@ class Tile:
     def withUserCLK(self) -> bool:
         """Whether any BEL of the tile uses the user clock."""
         return any(bel.withUserCLK for bel in self.bels)
+
+    @cached_property
+    def fixed_connections(self) -> list[FixedConnection[Pin]]:
+        """The hard wires inside the tile.
+
+        A routing channel line naming both ends passes the bits it does not
+        hand to the switch matrix straight through the tile: `N4END[i]` drives
+        `N4BEG[i]` for every bit past the first `wire_count`. A jump wire loops
+        a matrix output back into a matrix input.
+
+        Returns
+        -------
+        list[FixedConnection[Pin]]
+            The connections, channel pass-throughs first, then jump wires.
+        """
+        ports = {(p.declaration, p.io_direction): p for p in self.portsInfo}
+        connections = []
+        for (declaration, io), out in ports.items():
+            if io != IO.OUTPUT or declaration.end is None or declaration.distance < 2:
+                continue
+            into = ports[(declaration, IO.INPUT)]
+            connections += [
+                FixedConnection(into[i], out[i], declaration)
+                for i in range(declaration.wire_count, out.width)
+            ]
+        for jump in self.jump_wires:
+            if jump.source is None or jump.destination is None:
+                continue
+            pairs = zip(jump.source.pins, jump.destination.pins, strict=True)
+            connections += [FixedConnection(src, dst, jump) for src, dst in pairs]
+        return connections
 
     def getWestSidePorts(self) -> list[TilePort]:
         """Get all ports physically located on the west side of the tile.
