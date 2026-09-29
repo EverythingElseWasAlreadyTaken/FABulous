@@ -41,6 +41,7 @@ def generateUserDesignTopWrapper(
     FileNotFoundError
         User design file is not a file or does not exist
     """
+    fabric.check_routing_channels()
     top_wrapper: list[str] = [""]
 
     if output.suffix not in [".v", ".sv"]:

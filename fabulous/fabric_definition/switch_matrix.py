@@ -25,12 +25,12 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from fabulous.fabric_definition.bel import Bel
-    from fabulous.fabric_definition.port import TilePort
+    from fabulous.fabric_definition.port import SJumpPort, TilePort
     from fabulous.fabric_definition.wire import JumpWire
 
 
 def switch_matrix_ports(
-    ports: Iterable[TilePort],
+    ports: Iterable[TilePort | SJumpPort],
     bels: Iterable[Bel],
     jump_wires: Iterable[JumpWire] = (),
     prefix: str = "",
@@ -45,8 +45,8 @@ def switch_matrix_ports(
 
     Parameters
     ----------
-    ports : Iterable[TilePort]
-        The tile's ports (`tile.portsInfo`).
+    ports : Iterable[TilePort | SJumpPort]
+        The tile's routing ports, then its SJUMP ports.
     bels : Iterable[Bel]
         The tile's BELs (`tile.bels`).
     jump_wires : Iterable[JumpWire], optional

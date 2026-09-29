@@ -338,7 +338,7 @@ class TestSuperTileSwitchMatrixConstants:
         create_switchmatrix_list(mat, connections)
         bot = make_empty_tile(
             "DSP_bot",
-            [sjump_port("x", IO.OUTPUT, wire_count=1)],
+            sjump_ports=[sjump_port("x", IO.OUTPUT, wire_count=1)],
             tileDir=tmp_path,
             matrixDir=tmp_path / "DSP_bot_switch_matrix.list",
             pinOrderConfig={},
@@ -396,7 +396,7 @@ class TestUnconnectedPortDiagnostic:
     """
 
     def test_null_terminated_spanning_wire_explains_expansion(self) -> None:
-        ports, _, _ = parse_port_line("SOUTH,X1_Y1_2_X1_Y4_port,0,3,NULL,16")
+        ports, _ = parse_port_line("SOUTH,X1_Y1_2_X1_Y4_port,0,3,NULL,16")
 
         hint = _unconnected_port_diagnostic(ports, "X1_Y1_2_X1_Y4_port16")
 
@@ -407,17 +407,17 @@ class TestUnconnectedPortDiagnostic:
         assert "both ends" in hint
 
     def test_both_ends_named_wire_gives_no_hint(self) -> None:
-        ports, _, _ = parse_port_line("NORTH,N4BEG,0,-4,N4END,4")
+        ports, _ = parse_port_line("NORTH,N4BEG,0,-4,N4END,4")
 
         assert _unconnected_port_diagnostic(ports, "N4BEG0") == ""
 
     def test_null_terminated_single_distance_gives_no_hint(self) -> None:
-        ports, _, _ = parse_port_line("NORTH,NULL,0,-1,N1END,4")
+        ports, _ = parse_port_line("NORTH,NULL,0,-1,N1END,4")
 
         assert _unconnected_port_diagnostic(ports, "N1END0") == ""
 
     def test_unknown_port_name_gives_no_hint(self) -> None:
-        ports, _, _ = parse_port_line("SOUTH,X1_Y1_2_X1_Y4_port,0,3,NULL,16")
+        ports, _ = parse_port_line("SOUTH,X1_Y1_2_X1_Y4_port,0,3,NULL,16")
 
         assert _unconnected_port_diagnostic(ports, "not_a_real_wire0") == ""
 
@@ -439,13 +439,16 @@ class TestSwitchMatrixModulePorts:
         create_switchmatrix_list(tile_mat, [("x0{2}", "[r0|GND0]"), ("x1", "r0")])
         bot = make_empty_tile(
             "DSP_bot",
-            [sjump_port("r", IO.INPUT, wire_count=1), sjump_port("x", IO.OUTPUT)],
+            sjump_ports=[
+                sjump_port("r", IO.INPUT, wire_count=1),
+                sjump_port("x", IO.OUTPUT),
+            ],
             tileDir=tmp_path,
             matrixDir=tile_mat,
             pinOrderConfig={},
         )
         bot.switch_matrix = SwitchMatrix.from_file(
-            tile_mat, "DSP_bot", switch_matrix_ports(bot.portsInfo, bot.bels)
+            tile_mat, "DSP_bot", switch_matrix_ports(bot.sjump_ports, bot.bels)
         )
         writer = code_generator_factory(".v", "DSP_bot_switch_matrix")
         genTileSwitchMatrix(writer, bot, False)

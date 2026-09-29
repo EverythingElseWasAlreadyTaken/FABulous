@@ -14,11 +14,13 @@ from loguru import logger
 import fabulous.fabulous
 import fabulous.fabulous_settings
 from fabulous.fabric_definition.bel import Bel
+from fabulous.fabric_definition.channel import ChannelDeclaration
 from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.define import (
     FRAME_BITS_PER_ROW,
     IO,
     MAX_FRAMES_PER_COL,
+    Direction,
     HDLType,
 )
 from fabulous.fabric_definition.fabric import Fabric
@@ -181,6 +183,11 @@ def cocotb_runner(tmp_path: Path, request: pytest.FixtureRequest) -> CocotbRunne
     return _create_runner
 
 
+def jump_declaration(name: str) -> ChannelDeclaration:
+    """Declare a tile-local wire of one bit, for ports whose wire is irrelevant."""
+    return ChannelDeclaration(Direction.JUMP, 0, 0, 1, begin=name, end=name)
+
+
 def sjump_port(name: str, in_out: IO, wire_count: int = 2) -> SJumpPort:
     """Build an SJUMP port, as the tile CSV parser does.
 
@@ -194,6 +201,7 @@ def make_empty_tile(
     name: str,
     ports: list[TilePort] | None = None,
     *,
+    sjump_ports: list[SJumpPort] | None = None,
     tileDir: Path = Path(),
     matrixDir: Path = Path(),
     pinOrderConfig: dict | None = None,
@@ -227,6 +235,7 @@ def make_empty_tile(
             max_frames_per_col=max_frames_per_col,
             source=Path("ConfigMem.csv"),
         ),
+        sjump_ports=sjump_ports,
     )
 
 

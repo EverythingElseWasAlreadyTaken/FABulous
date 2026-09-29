@@ -27,6 +27,7 @@ import yaml
 from librelane.flows.flow import Flow
 from pytest_mock import MockerFixture
 
+from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_generator.gds_generator.flows import plugin_tile_flow
 from fabulous.fabric_generator.gds_generator.flows.plugin_fabric_flow import (
     FABulousFabric,
@@ -132,8 +133,12 @@ class TestFabricRealAsset:
     """`FABulousFabric.__init__` against the real synthetic fabric asset."""
 
     def test_builds_fabric_macros_and_verilog(
-        self, assets: Path, tmp_path: Path
+        self, assets: Path, tmp_path: Path, mocker: MockerFixture
     ) -> None:
+        # The synthetic asset is a grid of LUT4x8_ha with no terminator tiles, so
+        # its edge routing channels dangle and fabric generation would refuse
+        # it. This test is about the adapter's config translation, not routing.
+        mocker.patch.object(Fabric, "check_routing_channels")
         fabric_dir: Path = assets / "fabrics" / FABRIC_NAME
         fabric_csv: Path = fabric_dir / f"{FABRIC_NAME}.csv"
         macro_dir: Path = _write_macro_dir(tmp_path / "macros", TILE_NAME, "100", "100")

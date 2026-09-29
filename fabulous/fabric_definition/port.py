@@ -4,7 +4,7 @@ This module contains the port class hierarchy for representing different types o
 in the FPGA fabric:
 - Pin: A single bit of a port; the node of the routing graph
 - Port: Base class for all port types
-- TilePort: Port on a tile with side and termination information
+- TilePort: Port on a tile at one end of a routing channel
 - SJumpPort: Tile port facing the switch matrix of the surrounding supertile
 - BelPort: Port on a BEL (Basic Element of Logic)
 - ConfigPort: A port carrying configuration bits into a module
@@ -22,6 +22,7 @@ from fabulous.fabric_definition.define import IO, BelPortKind, Direction, Side
 
 if TYPE_CHECKING:
     from fabulous.fabric_definition.bel import Bel
+    from fabulous.fabric_definition.channel import ChannelDeclaration
     from fabulous.fabric_definition.tile import Tile
 
 NULL_PORT_NAME = "NULL"
@@ -247,76 +248,38 @@ class Port:
 
 @total_ordering
 class TilePort(Port):
-    """TilePort represents a port on a tile with a side and termination status.
+    """TilePort represents a port on a tile, as a part of a routing channel.
 
     It is an immutable and comparable class. When sorting a list of TilePort instances,
     the order is determined first by the side of the tile in order of
     [north, east, south, west] then by the IO type in the order of
     [output, input, inout].
 
+    The port is fully described by its `ChannelDeclaration`, the tile CSV line
+    shared by the ports it declares, and which end of it the port is: the
+    output port is the line's begin, on the side the wire runs to; the input
+    port is its end, on the opposite side. The port's `width` is `wire_count`
+    times the Manhattan distance of the offset: a spanning wire occupies one
+    slice per hop it crosses.
+
     Parameters
     ----------
-    name : str
-        The name of the port.
+    declaration : ChannelDeclaration
+        The tile CSV line declaring the port.
     io_direction : IO
-        The I/O direction (INPUT, OUTPUT, INOUT).
-    side_of_tile : Side
-        The side of the tile where the port is located.
-    term : bool
-        Indicates if the port is a termination port. Defaults to False.
-    wire_direction : Direction | None
-        The direction the wire runs in. Defaults to None, which resolves to
-        Direction.JUMP.
-    source_name : str
-        The source name of the wire connection. Defaults to "".
-    x_offset : int
-        The X-offset for wire routing. Defaults to 0.
-    y_offset : int
-        The Y-offset for wire routing. Defaults to 0.
-    destination_name : str
-        The destination name of the wire connection. Defaults to "".
-    wire_count : int
-        The number of wires per hop. Defaults to 1. The port's `width` is
-        `wire_count` times the Manhattan distance of the offset: a spanning wire
-        occupies one slice per hop it crosses.
+        OUTPUT for the line's begin, INPUT for its end.
     """
 
-    _side_of_tile: Side
-    _term: bool
     _tile: Tile | None
-    _wire_direction: Direction
-    _source_name: str
-    _x_offset: int
-    _y_offset: int
-    _destination_name: str
-    _wire_count: int
+    _declaration: ChannelDeclaration
 
-    def __init__(
-        self,
-        name: str,
-        io_direction: IO,
-        side_of_tile: Side,
-        term: bool = False,
-        wire_direction: Direction | None = None,
-        source_name: str = "",
-        x_offset: int = 0,
-        y_offset: int = 0,
-        destination_name: str = "",
-        wire_count: int = 1,
-    ) -> None:
-        distance = abs(x_offset) + abs(y_offset)
-        super().__init__(name, io_direction, wire_count * max(1, distance))
-        self._side_of_tile = side_of_tile
-        self._term = term
-        self._tile = None
-        self._wire_direction = (
-            wire_direction if wire_direction is not None else Direction.JUMP
+    def __init__(self, declaration: ChannelDeclaration, io_direction: IO) -> None:
+        name = declaration.begin if io_direction == IO.OUTPUT else declaration.end
+        super().__init__(
+            name, io_direction, declaration.wire_count * max(1, declaration.distance)
         )
-        self._source_name = source_name
-        self._x_offset = x_offset
-        self._y_offset = y_offset
-        self._destination_name = destination_name
-        self._wire_count = wire_count
+        self._tile = None
+        self._declaration = declaration
 
     __order = {Side.NORTH: 0, Side.EAST: 1, Side.SOUTH: 2, Side.WEST: 3, Side.ANY: 4}
     __io = {IO.OUTPUT: 0, IO.INPUT: 1, IO.INOUT: 2}
@@ -324,12 +287,8 @@ class TilePort(Port):
     @property
     def side_of_tile(self) -> Side:
         """The side of the tile where the port is located."""
-        return self._side_of_tile
-
-    @property
-    def term(self) -> bool:
-        """Whether the port is a termination port."""
-        return self._term
+        side = Side[self._declaration.direction.name]
+        return side if self.io_direction == IO.OUTPUT else side.opposite
 
     @property
     def tile(self) -> Tile | None:
@@ -343,34 +302,41 @@ class TilePort(Port):
         self._tile = tile
 
     @property
+    def declaration(self) -> ChannelDeclaration:
+        """The tile CSV line declaring the port."""
+        return self._declaration
+
+    # The wire properties below read the declaration; consumers move onto the
+    # declaration / channel directly and these go.
+    @property
     def wire_direction(self) -> Direction:
         """The direction the wire runs in."""
-        return self._wire_direction
+        return self._declaration.direction
 
     @property
     def source_name(self) -> str:
         """The name of the wire's driving end, or NULL."""
-        return self._source_name
+        return self._declaration.begin or NULL_PORT_NAME
 
     @property
     def x_offset(self) -> int:
         """The column offset from the driving to the receiving tile."""
-        return self._x_offset
+        return self._declaration.x_offset
 
     @property
     def y_offset(self) -> int:
         """The row offset from the driving to the receiving tile."""
-        return self._y_offset
+        return self._declaration.y_offset
 
     @property
     def destination_name(self) -> str:
         """The name of the wire's receiving end, or NULL."""
-        return self._destination_name
+        return self._declaration.end or NULL_PORT_NAME
 
     @property
     def wire_count(self) -> int:
         """The number of wires per hop."""
-        return self._wire_count
+        return self._declaration.wire_count
 
     def __repr__(self) -> str:
         """Return a string representation of the TilePort."""
@@ -400,7 +366,6 @@ class TilePort(Port):
         """Serialize the tile port to a dictionary."""
         return super().serialize() | {
             "side_of_tile": self.side_of_tile.value,
-            "term": self.term,
             "tile": self.tile.name if self.tile is not None else None,
             "wire_direction": self.wire_direction.value,
             "source_name": self.source_name,
@@ -417,7 +382,7 @@ class TilePort(Port):
         A CSV line may write either end as NULL to declare a wire that is
         driven or read nowhere; this asks about the driving end.
         """
-        return self.source_name != NULL_PORT_NAME
+        return self._declaration.begin is not None
 
     @property
     def has_destination(self) -> bool:
@@ -425,12 +390,12 @@ class TilePort(Port):
 
         The mirror image of `has_source`, asking about the receiving end.
         """
-        return self.destination_name != NULL_PORT_NAME
+        return self._declaration.end is not None
 
     @property
     def is_null_terminated(self) -> bool:
         """Whether either end of this port's wire is the NULL placeholder."""
-        return not (self.has_source and self.has_destination)
+        return self._declaration.is_null_terminated
 
     @property
     def _spanned_pins(self) -> tuple[Pin, ...]:
@@ -449,7 +414,7 @@ class TilePort(Port):
         only exposes its first `wire_count` bits; the remaining slices pass
         through the tile untouched.
         """
-        if self.is_null_terminated and self.wire_direction != Direction.SJUMP:
+        if self.is_null_terminated:
             return self._spanned_pins
         return self.pins[: self.wire_count]
 
@@ -460,8 +425,6 @@ class TilePort(Port):
         The mirror image of `sm_pins`: a named spanning wire hands its last
         `wire_count` bits to the neighbour, everything else stays inside.
         """
-        if self.wire_direction == Direction.SJUMP:
-            return self.pins
         if self.is_null_terminated:
             return self._spanned_pins
         return self.pins[self.width - self.wire_count :]
@@ -557,14 +520,13 @@ class TilePort(Port):
         return self._pin_names(self.top_pins, indexed, prefix, escape)
 
 
-class SJumpPort(TilePort):
+class SJumpPort(Port):
     """A tile port that faces the switch matrix of the surrounding supertile.
 
-    An SJUMP wire is one-way and never leaves the supertile, so unlike a
-    spanning `TilePort` it has no offset, no partner port at the far side of
-    the tile and no NULL-terminated expansion: every bit faces both the tile's
-    own switch matrix and the supertile's. `SJumpWire` pairs it with the
-    supertile matrix port it reaches.
+    An SJUMP wire is one-way and never leaves the supertile, so it is not part
+    of a routing channel: it has no side, no offset and no partner port, and
+    every bit faces both the tile's own switch matrix and the supertile's.
+    `SJumpWire` pairs it with the supertile matrix port it reaches.
 
     Parameters
     ----------
@@ -573,30 +535,13 @@ class SJumpPort(TilePort):
     io_direction : IO
         `IO.OUTPUT` for a signal leaving the tile towards the supertile matrix,
         `IO.INPUT` for one arriving from it.
-    wire_count : int
-        The number of wires, which is also the port's width.
+    width : int
+        The number of wires.
     """
-
-    def __init__(self, name: str, io_direction: IO, wire_count: int) -> None:
-        is_output = io_direction == IO.OUTPUT
-        super().__init__(
-            name=name,
-            io_direction=io_direction,
-            side_of_tile=Side.ANY,
-            wire_direction=Direction.SJUMP,
-            source_name=name if is_output else NULL_PORT_NAME,
-            destination_name=NULL_PORT_NAME if is_output else name,
-            wire_count=wire_count,
-        )
 
     @property
     def sm_pins(self) -> tuple[Pin, ...]:
         """Every pin faces the tile's own switch matrix."""
-        return self.pins
-
-    @property
-    def top_pins(self) -> tuple[Pin, ...]:
-        """Every pin faces the supertile, which is this port's top level."""
         return self.pins
 
     def __repr__(self) -> str:
@@ -837,7 +782,7 @@ class SwitchMatrixPort(Port):
         `IO.OUTPUT`, a mux input is `IO.INPUT`.
     width : int
         The bit width of the port. Defaults to 1.
-    origin : TilePort | BelPort | None
+    origin : TilePort | SJumpPort | BelPort | None
         The tile or BEL port this port wires to, or None for a constant.
         Defaults to None.
     prefix : str
@@ -848,7 +793,7 @@ class SwitchMatrixPort(Port):
         instead of `{name}{index}`. Defaults to False.
     """
 
-    _origin: TilePort | BelPort | None
+    _origin: TilePort | SJumpPort | BelPort | None
     _prefix: str
     _literal: bool
 
@@ -857,7 +802,7 @@ class SwitchMatrixPort(Port):
         name: str,
         io_direction: IO,
         width: int = 1,
-        origin: TilePort | BelPort | None = None,
+        origin: TilePort | SJumpPort | BelPort | None = None,
         prefix: str = "",
         literal: bool = False,
     ) -> None:
@@ -867,12 +812,14 @@ class SwitchMatrixPort(Port):
         self._literal = literal
 
     @classmethod
-    def from_tile_port(cls, port: TilePort, prefix: str = "") -> SwitchMatrixPort:
+    def from_tile_port(
+        cls, port: TilePort | SJumpPort, prefix: str = ""
+    ) -> SwitchMatrixPort:
         """Build the matrix port for the switch-matrix-facing pins of a tile port.
 
         Parameters
         ----------
-        port : TilePort
+        port : TilePort | SJumpPort
             The tile port. Its `sm_pins` set the width; the direction is the
             tile port's own (the matrix drives a tile output).
         prefix : str, optional
@@ -904,7 +851,7 @@ class SwitchMatrixPort(Port):
         return cls(port.name, io, port.width, port)
 
     @property
-    def origin(self) -> TilePort | BelPort | None:
+    def origin(self) -> TilePort | SJumpPort | BelPort | None:
         """The tile or BEL port this port wires to, or None for a constant."""
         return self._origin
 

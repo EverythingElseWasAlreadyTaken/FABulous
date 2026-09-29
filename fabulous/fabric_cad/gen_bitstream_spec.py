@@ -89,6 +89,7 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
         If a tile's or supertile's configuration memory holds a different number
         of bits than it has, which is how an ungenerated mapping shows.
     """
+    fabric.check_routing_channels()
     spec_data = {
         "TileMap": {},
         "TileSpecs": {},

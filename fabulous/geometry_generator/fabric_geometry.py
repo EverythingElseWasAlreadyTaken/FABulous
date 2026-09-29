@@ -55,6 +55,7 @@ class FabricGeometry:
     height: int
 
     def __init__(self, fabric: Fabric, padding: int = 8) -> None:
+        fabric.check_routing_channels()
         self.fabric = fabric
         self.tileNames = set()
         self.tileGeomMap = {}

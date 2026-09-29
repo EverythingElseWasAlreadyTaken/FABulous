@@ -18,7 +18,6 @@ from fabulous.fabric_definition.define import (
     USER_CLK_PREDECESSOR,
     BelPortKind,
     ConfigBitMode,
-    Direction,
     grid_at,
 )
 from fabulous.fabric_definition.fabric import Fabric
@@ -47,6 +46,7 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
     generation of top-level I/O ports, wiring between adjacent tiles, and the
     configuration infrastructure (either Frame-based or FlipFlop chain).
     """
+    fabric.check_routing_channels()
     # we first scan all tiles if those have IOs that have to go to top
     # the order of this scan is later maintained when instantiating the actual tiles
     # header
@@ -182,9 +182,7 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
                 seenPorts = set()
                 for p in tile.portsInfo:
                     wireLength = (abs(p.x_offset) + abs(p.y_offset)) * p.wire_count - 1
-                    # SJUMP ports route to the supertile wrapper, so they need no
-                    # tile-to-tile fabric wire.
-                    if not p.has_source or p.wire_direction == Direction.SJUMP:
+                    if not p.has_source:
                         continue
                     if p.source_name in seenPorts:
                         continue

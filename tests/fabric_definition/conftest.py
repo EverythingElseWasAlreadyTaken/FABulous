@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from fabulous.fabric_definition.channel import ChannelDeclaration
 from fabulous.fabric_definition.define import IO, Direction, Side
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.port import TilePort
@@ -38,15 +39,6 @@ def make_fabric() -> Callable[..., Fabric]:
 
 
 def make_side_port(side: Side, name: str = "P") -> TilePort:
-    """Construct a TilePort physically located on the given side."""
-    return TilePort(
-        name=name,
-        io_direction=IO.INPUT,
-        side_of_tile=side,
-        wire_direction=Direction.JUMP,
-        source_name=name,
-        x_offset=0,
-        y_offset=0,
-        destination_name=name,
-        wire_count=1,
-    )
+    """Construct an INPUT TilePort physically located on the given side."""
+    direction = Direction[side.opposite.name]
+    return TilePort(ChannelDeclaration(direction, 0, 0, 1, None, name), IO.INPUT)
