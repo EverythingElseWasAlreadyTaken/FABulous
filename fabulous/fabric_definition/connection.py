@@ -21,6 +21,9 @@ if TYPE_CHECKING:
 type InstancePin = tuple[TileInstance, Pin]
 """A pin of a placed tile."""
 
+type LocalPin = tuple[tuple[int, int], Pin]
+"""A pin at an `(x, y)` position of a supertile's `tileMap`."""
+
 
 @dataclass(frozen=True)
 class Connection[E]:

@@ -13,6 +13,7 @@ from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import IO
 from fabulous.fabric_definition.port import BelPort
 from fabulous.fabulous_repl.fabulous_repl import FABulousREPL
+from tests.conftest import make_empty_tile
 
 
 def test_gen_routing_model_returns_five_with_timing(cli: FABulousREPL) -> None:
@@ -66,6 +67,7 @@ def test_belLines_unknown_type_emits_no_timing_arcs() -> None:
             ]
         ],
     )
+    make_empty_tile("W_IO").add_bels([bel])
 
     _, _, v3_lines, _ = belLines(bel, "A", 0, 0)
 

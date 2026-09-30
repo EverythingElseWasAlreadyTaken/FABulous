@@ -116,7 +116,8 @@ class Tile:
         self.sjump_ports = sjump_ports or []
         for port in ports:
             port.tile = self
-        self.bels = bels
+        self.bels = []
+        self.add_bels(bels)
         if len(bels) > 26:
             raise ValueError(
                 f"Due to naming limitations, tile {name} cannot have more than 26 BELs."
@@ -138,6 +139,18 @@ class Tile:
             }
         else:
             self.pinOrderConfig = pinOrderConfig
+
+    def add_bels(self, bels: list[Bel]) -> None:
+        """Add BELs to the tile, which becomes their owner.
+
+        Parameters
+        ----------
+        bels : list[Bel]
+            The BELs, appended in order.
+        """
+        for bel in bels:
+            bel.owner = self
+        self.bels += bels
 
     def __eq__(self, __o: object, /) -> bool:
         """Check equality between tiles based on their name.

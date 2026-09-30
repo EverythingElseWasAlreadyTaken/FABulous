@@ -9,16 +9,18 @@ functionalities into a single, reusable block.
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from decimal import Decimal
+from functools import cached_property
 from pathlib import Path
 
 from fabulous.fabric_definition.bel import Bel
+from fabulous.fabric_definition.connection import FixedConnection, LocalPin
 from fabulous.fabric_definition.define import (
     IO,
     SWITCH_MATRIX_CONSTANTS,
     BelPortKind,
     Side,
 )
-from fabulous.fabric_definition.port import SwitchMatrixPort, TilePort
+from fabulous.fabric_definition.port import SJumpPort, SwitchMatrixPort, TilePort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_definition.wire import SJumpWire
@@ -74,6 +76,8 @@ class SuperTile:
             for tile in row:
                 if tile is not None:
                     tile.super_tile = self
+        for bel in self.bels:
+            bel.owner = self
         if self.bels:
             mx, my = self.get_master_tile_coords()
             master_tile = self.tileMap[my][mx]
@@ -201,9 +205,12 @@ class SuperTile:
             )
         return mx, my
 
-    @property
+    @cached_property
     def sjump_wires(self) -> list[SJumpWire]:
         """The wires joining every child tile's SJUMP ports to this matrix.
+
+        Built once: each wire creates the matrix port it reaches, and the
+        matrix must hold the same port objects.
 
         Returns
         -------
@@ -217,10 +224,7 @@ class SuperTile:
             if tile is not None
             for p in tile.sjump_ports
         ]
-        if not ports:
-            return []
-        master = self.get_master_tile_coords()
-        return [SJumpWire.create(name, x, y, master, p) for name, x, y, p in ports]
+        return [SJumpWire.create(name, x, y, p) for name, x, y, p in ports]
 
     def forward_sjump_wires(self) -> list[SJumpWire]:
         """Return the SJUMP wires a child tile drives into this matrix.
@@ -263,6 +267,38 @@ class SuperTile:
         for const in SWITCH_MATRIX_CONSTANTS:
             ports.append(SwitchMatrixPort(const, IO.INPUT, literal=True))
         return tuple(ports)
+
+    @property
+    def fixed_connections(self) -> list[FixedConnection[LocalPin]]:
+        """The hard wires at the supertile's switch matrix boundary.
+
+        Not cached: the parser sets `switch_matrix` after construction.
+
+        Every matrix port with an `origin` is joined to it: to a supertile BEL
+        port, at the master tile where the matrix and BELs sit, or to a child
+        tile's SJUMP port, at that child's `tileMap` position. The wrapper
+        signal between them is not a node of its own.
+
+        Returns
+        -------
+        list[FixedConnection[LocalPin]]
+            The connections, in matrix port order.
+        """
+        if self.switch_matrix is None:
+            return []
+        master = self.get_master_tile_coords()
+        child_at = {wire.matrix_port: (wire.x, wire.y) for wire in self.sjump_wires}
+        connections = []
+        for sm_port in self.switch_matrix.ports:
+            origin = sm_port.origin
+            if origin is None:
+                continue
+            at = child_at[sm_port] if isinstance(origin, SJumpPort) else master
+            for sm_pin, pin in zip(sm_port.pins, origin.pins, strict=True):
+                ends = ((master, sm_pin), (at, pin))
+                source, sink = ends if sm_port.is_output else ends[::-1]
+                connections.append(FixedConnection(source, sink, sm_port))
+        return connections
 
     @property
     def total_config_bits(self) -> int:

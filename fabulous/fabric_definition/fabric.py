@@ -5,7 +5,7 @@ including tile layout, configuration parameters, and connectivity information. T
 fabric is the top-level container for all tiles, BELs, and routing resources.
 """
 
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -259,53 +259,48 @@ class Fabric:
                     placements.append(SuperTileInstance(base_fx, base_fy, st, tiles))
         return placements
 
-    def fixed_connections(
-        self, instance: TileInstance
-    ) -> list[FixedConnection[InstancePin]]:
-        """Return the hard wires starting at a placed tile.
+    def fixed_connections(self) -> Iterator[FixedConnection[InstancePin]]:
+        """Yield every hard wire of the fabric.
 
-        These are the tile type's own `fixed_connections`, placed at the
-        instance, and the routing channel hops from each of its begin ports to
-        the same channel's end port one tile along. A hop keeps the bit index;
-        the staging is inside the tiles. Needs consistent routing channels
+        Each placement contributes its own: every tile instance its tile type's
+        connections, every supertile placement its supertile's. Then come the
+        routing channel hops, from each begin port to the same channel's end
+        port one tile along. A hop keeps the bit index; the staging is inside
+        the tiles. Needs consistent routing channels
         (`check_routing_channels`).
 
-        Parameters
-        ----------
-        instance : TileInstance
-            The placed tile.
-
-        Returns
-        -------
-        list[FixedConnection[InstancePin]]
-            The connections, the tile's own first, then the hops.
+        Yields
+        ------
+        FixedConnection[InstancePin]
+            The connections, each end at the tile instance it sits in.
         """
-        connections = [
-            FixedConnection((instance, c.source), (instance, c.sink), c.declaration)
-            for c in instance.tile_type.fixed_connections
-        ]
-        for out in instance.tile_type.portsInfo:
-            if not out.is_output:
-                continue
-            declaration = out.declaration
-            channel = self.channels[declaration]
-            dx, dy = channel.step
-            target = self.instances[instance.y + dy][instance.x + dx]
-            end = next(
-                p
-                for p in target.tile_type.portsInfo
-                if p.is_input and self.channels[p.declaration] is channel
-            )
-            # A start tap drives every slice it spans; with no span, none.
-            if declaration.end is None:
-                bits = range(declaration.wire_count * declaration.distance)
-            else:
-                bits = range(out.width)
-            connections += [
-                FixedConnection((instance, out[i]), (target, end[i]), declaration)
-                for i in bits
-            ]
-        return connections
+        placed = [instance for row in self.instances for instance in row if instance]
+        for instance in placed:
+            yield from instance.fixed_connections
+        for placement in self.super_tile_instances:
+            yield from placement.fixed_connections
+        for instance in placed:
+            for out in instance.tile_type.portsInfo:
+                if not out.is_output:
+                    continue
+                declaration = out.declaration
+                channel = self.channels[declaration]
+                dx, dy = channel.step
+                target = self.instances[instance.y + dy][instance.x + dx]
+                end = next(
+                    p
+                    for p in target.tile_type.portsInfo
+                    if p.is_input and self.channels[p.declaration] is channel
+                )
+                # A start tap drives every slice it spans; with no span, none.
+                if declaration.end is None:
+                    bits = range(declaration.wire_count * declaration.distance)
+                else:
+                    bits = range(out.width)
+                for i in bits:
+                    yield FixedConnection(
+                        (instance, out[i]), (target, end[i]), declaration
+                    )
 
     def check_routing_channels(self) -> None:
         """Refuse a fabric whose routing channels are inconsistent.

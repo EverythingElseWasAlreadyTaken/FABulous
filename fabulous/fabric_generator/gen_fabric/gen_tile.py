@@ -1071,8 +1071,8 @@ def generateSuperTile(
                 )
             )
         writer.addInstantiation(
-            compName=f"{superTile.name}_switch_matrix",
-            compInsName=f"Inst_{superTile.name}_switch_matrix",
+            compName=superTile.switch_matrix.module_name,
+            compInsName=superTile.switch_matrix.instance_name,
             portsPairs=sm_ports_pairs,
         )
 
@@ -1102,7 +1102,7 @@ def generateSuperTile(
         st_bel_config_offset += bel.configBit
         writer.addInstantiation(
             compName=bel.name,
-            compInsName=f"Inst_ST_{bel.prefix}{bel.name}",
+            compInsName=bel.instance_name,
             portsPairs=bel_ports_pairs,
         )
 

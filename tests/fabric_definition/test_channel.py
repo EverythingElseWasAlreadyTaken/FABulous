@@ -130,7 +130,8 @@ class TestRoutingChannelProblems:
         def named(instance: TileInstance) -> set[tuple]:
             return {
                 (c.source[0].y, c.source[1].name(), c.sink[0].y, c.sink[1].name())
-                for c in fabric.fixed_connections(instance)
+                for c in fabric.fixed_connections()
+                if c.source[0] is instance
             }
 
         assert named(fabric.instances[1][0]) == {

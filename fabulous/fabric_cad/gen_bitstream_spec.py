@@ -195,16 +195,16 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
 
                 curBitOffset += controlWidth
 
-            # And now we add empty config bit mappings for immutable connections
-            # (i.e. wires), as nextpnr sees these the same as normal pips
-            for connection in fabric.fixed_connections(fabric.instances[y][x]):
-                (_, src), (_, dst) = connection.source, connection.sink
-                pip = f"{src.full_name()}.{dst.full_name()}"
-                curTileMap[pip] = {}
-                curTileMapNoMask[pip] = {}
-
             specData["TileSpecs"][f"X{x}Y{y}"] = curTileMap
             specData["TileSpecs_No_Mask"][f"X{x}Y{y}"] = curTileMapNoMask
+
+    # Fixed connections get an empty bit mapping in the tile they start in, as
+    # nextpnr sees them as pips.
+    for connection in fabric.fixed_connections():
+        (src_at, src), (_, dst) = connection.source, connection.sink
+        pip = f"{src.full_name()}.{dst.full_name()}"
+        for key in ("TileSpecs", "TileSpecs_No_Mask"):
+            specData[key][f"X{src_at.x}Y{src_at.y}"][pip] = {}
 
     # Supertile bitstream features. A supertile's config bits physically live in
     # its master tile's frame column (the master tile's own ConfigMem leaves those
@@ -236,14 +236,18 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
                             fabric.frameBitsPerRow - 1 - i
                         ) + fabric.frameBitsPerRow * cfm.frameIndex
 
+        # A pip is named by its wires, as in the nextpnr model; the SJUMP
+        # wires are fixed connections, mapped with the tiles above.
         sm_connections: dict[str, list[str]] = {}
         if super_tile.switch_matrix is not None:
-            sm_connections = super_tile.switch_matrix.named_connections
+            sm_connections = {
+                out.full_name(): [pin.full_name() for pin in ins]
+                for out, ins in super_tile.switch_matrix.connections.items()
+            }
 
         for placement in fabric.super_tile_instances:
             if placement.super_tile is not super_tile:
                 continue
-            base_fx, base_fy = placement.x, placement.y
             ftx, fty = placement.master.x, placement.master.y
             master_tile = placement.master.tile_type
 
@@ -259,16 +263,6 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
             curTileMapNoMask = specData["TileSpecs_No_Mask"].setdefault(
                 f"X{ftx}Y{fty}", {}
             )
-
-            # SJUMP wires are immutable connections, like the tile wires above:
-            # nextpnr sees them as pips, so they need an empty bit mapping in
-            # the tile the wire starts in.
-            for wire in super_tile.sjump_wires:
-                sx, sy = wire.source_cell(base_fx, base_fy)
-                for key in ("TileSpecs", "TileSpecs_No_Mask"):
-                    tile_map = specData[key].setdefault(f"X{sx}Y{sy}", {})
-                    for source, destination in wire.pin_names:
-                        tile_map[f"{source}.{destination}"] = {}
 
             curBitOffset = 0
             for source, sinkList in sm_connections.items():

@@ -593,12 +593,12 @@ class FABulous_API:
 
         # update fabric tileDic with generated IO BELs
         if self.fabric.tileDic.get(tile_name):
-            self.fabric.tileDic[tile_name].bels += bels
+            self.fabric.tileDic[tile_name].add_bels(bels)
         elif not self.fabric.unusedTileDic[tile_name].bels:
             logger.warning(
                 f"Tile {tile_name} is not used in fabric, but defined in fabric.csv."
             )
-            self.fabric.unusedTileDic[tile_name].bels += bels
+            self.fabric.unusedTileDic[tile_name].add_bels(bels)
         else:
             logger.error(
                 f"Tile {tile_name} is not defined in fabric, please add to fabric.csv."

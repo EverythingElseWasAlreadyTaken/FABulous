@@ -10,7 +10,6 @@ placement and routing for user designs.
 """
 
 import string
-from collections.abc import Callable
 from pathlib import Path
 
 from fabulous.fabric_cad.timing_model.FABulous_timing_model_interface import (
@@ -19,7 +18,6 @@ from fabulous.fabric_cad.timing_model.FABulous_timing_model_interface import (
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import IO, BelPortKind
 from fabulous.fabric_definition.fabric import Fabric
-from fabulous.fabric_definition.port import Pin
 
 # Dummy BEL timing values (ns), mirroring nextpnr's historical hardcoded
 # constants (fabulous.cc, seed_default_estimates).
@@ -118,7 +116,7 @@ IO_BEL_TYPES = (
 
 
 def belLines(
-    bel: Bel, letter: str, x: int, y: int, wire: Callable[[Pin], str] = Pin.name
+    bel: Bel, letter: str, x: int, y: int
 ) -> tuple[str, list[str], list[str], list[str]]:
     """Build a BEL's legacy v1 line, its v2/v3 blocks, and any pin constraint.
 
@@ -137,8 +135,6 @@ def belLines(
         Tile X coordinate the BEL belongs to.
     y : int
         Tile Y coordinate the BEL belongs to.
-    wire : Callable[[Pin], str], optional
-        The name of the wire a BEL pin sits on, by default its flat name.
 
     Returns
     -------
@@ -151,7 +147,7 @@ def belLines(
         cType = "FABULOUS_LC"
     pin_inputs, pin_outputs = (
         [
-            wire(pin)
+            pin.full_name()
             for port in bel.get_ports(BelPortKind.INTERNAL, io)
             for pin in port.pins
         ]
@@ -270,22 +266,6 @@ def genNextpnrModel(
                     src, dst = source.full_name(), sink.full_name()
                     pipStr.append(f"X{x}Y{y},{src},X{x}Y{y},{dst},{delay},{src}.{dst}")
 
-            pipStr.append(f"#Tile-external pips on tile X{x}Y{y}:")
-            for connection in fabric.fixed_connections(fabric.instances[y][x]):
-                src_at, src_pin = connection.source
-                dst_at, dst_pin = connection.sink
-                src = src_pin.full_name()
-                dst = dst_pin.full_name()
-                delay: float = DUMMY_PIP_DELAY
-                if delay_model is not None:
-                    delay = delay_model.pip_delay(
-                        tile.name, src_pin.name(), dst_pin.name()
-                    )
-                pipStr.append(
-                    f"X{src_at.x}Y{src_at.y},{src},X{dst_at.x}Y{dst_at.y},{dst},"
-                    f"{delay},{src}.{dst}"
-                )
-
             # BEL definitions: legacy v1, and new-style v2 / v3 (with timing arcs).
             belStr.append(f"#Tile_X{x}Y{y}")
             belv2Str.append(f"#Tile_X{x}Y{y}")
@@ -293,31 +273,32 @@ def genNextpnrModel(
             for i, bel in enumerate(tile.bels):
                 letter = string.ascii_uppercase[i]
                 v1_line, v2_lines, v3_lines, constrain_lines = belLines(
-                    bel, letter, x, y, Pin.full_name
+                    bel, letter, x, y
                 )
                 belStr.append(v1_line)
                 belv2Str.extend(v2_lines)
                 belv3Str.extend(v3_lines)
                 constrainStr.extend(constrain_lines)
 
-    # Supertile SJUMP, BEL and switch-matrix PIP emission.
+    # Fixed connections are pips without config bits, in the tile they start.
+    pipStr.append("#Fixed connections:")
+    for connection in fabric.fixed_connections():
+        (src_at, src_pin), (dst_at, dst_pin) = connection.source, connection.sink
+        src, dst = src_pin.full_name(), dst_pin.full_name()
+        delay = DUMMY_PIP_DELAY
+        if delay_model is not None:
+            delay = delay_model.pip_delay(
+                src_at.tile_type.name, src_pin.name(), dst_pin.name()
+            )
+        pipStr.append(
+            f"X{src_at.x}Y{src_at.y},{src},X{dst_at.x}Y{dst_at.y},{dst},"
+            f"{delay},{src}.{dst}"
+        )
+
+    # Supertile BEL and switch-matrix PIP emission; its SJUMP wires and BEL
+    # boundary are fixed connections, emitted above.
     for placement in fabric.super_tile_instances:
         super_tile = placement.super_tile
-        base_fx, base_fy = placement.x, placement.y
-        for wire in super_tile.sjump_wires:
-            sx, sy = wire.source_cell(base_fx, base_fy)
-            source_tile = fabric.tile[sy][sx]
-            for source, destination in wire.pin_names:
-                delay: float = DUMMY_PIP_DELAY
-                if delay_model is not None:
-                    delay = delay_model.pip_delay(source_tile.name, source, destination)
-                pipStr.append(
-                    f"X{sx}Y{sy},{source},"
-                    f"X{sx + wire.x_offset}Y{sy + wire.y_offset},{destination},"
-                    f"{delay},"
-                    f"{source}.{destination}"
-                )
-
         if not super_tile.bels and super_tile.supertile_matrix_dir is None:
             continue
 
@@ -338,13 +319,16 @@ def genNextpnrModel(
             constrainStr.extend(constrain_lines)
 
         if super_tile.switch_matrix is not None:
-            for sink, sources in super_tile.switch_matrix.named_connections.items():
-                for src in sources:
+            for sink, sources in super_tile.switch_matrix.connections.items():
+                for source in sources:
                     delay = DUMMY_PIP_DELAY
                     if delay_model is not None:
-                        delay = delay_model.pip_delay(super_tile.name, sink, src)
+                        delay = delay_model.pip_delay(
+                            super_tile.name, sink.name(), source.name()
+                        )
+                    src, dst = source.full_name(), sink.full_name()
                     pipStr.append(
-                        f"X{ftx}Y{fty},{src},X{ftx}Y{fty},{sink},{delay},{src}.{sink}"
+                        f"X{ftx}Y{fty},{src},X{ftx}Y{fty},{dst},{delay},{src}.{dst}"
                     )
 
     return (

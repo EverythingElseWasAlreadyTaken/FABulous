@@ -8,9 +8,14 @@ such as LUTs, flip-flops, and other logic elements.
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fabulous.fabric_definition.define import IO, BelPortKind, HDLType
 from fabulous.fabric_definition.port import BelConfigPort, BelPort
+
+if TYPE_CHECKING:
+    from fabulous.fabric_definition.supertile import SuperTile
+    from fabulous.fabric_definition.tile import Tile
 
 
 @dataclass
@@ -97,6 +102,7 @@ class Bel:
         self.config_port = config_port
         if config_port is not None:
             config_port.bel = self
+        self._owner: Tile | SuperTile | None = None
         if self.src.suffix in [".sv", ".v"]:
             self.language = "verilog"
             self.filetype = HDLType.VERILOG
@@ -107,9 +113,32 @@ class Bel:
             raise ValueError(f"Unknown file type {self.src.suffix} for BEL {self.src}")
 
     @property
+    def owner(self) -> "Tile | SuperTile | None":
+        """The tile or supertile the BEL belongs to, or None while unattached."""
+        return self._owner
+
+    @owner.setter
+    def owner(self, owner: "Tile | SuperTile") -> None:
+        if self._owner is not None and self._owner is not owner:
+            raise ValueError(f"BEL {self.name} already belongs to {self._owner.name}")
+        self._owner = owner
+
+    @property
     def instance_name(self) -> str:
-        """The instance name of the BEL in the tile's RTL."""
-        return f"Inst_{self.prefix}{self.name}"
+        """The instance name of the BEL in its tile's or supertile's RTL.
+
+        Raises
+        ------
+        ValueError
+            If the BEL belongs to no tile or supertile.
+        """
+        # Imported here: supertile.py imports this module.
+        from fabulous.fabric_definition.supertile import SuperTile
+
+        if self._owner is None:
+            raise ValueError(f"BEL {self.name} belongs to no tile, so no instance")
+        scope = "ST_" if isinstance(self._owner, SuperTile) else ""
+        return f"Inst_{scope}{self.prefix}{self.name}"
 
     @property
     def configBit(self) -> int:
