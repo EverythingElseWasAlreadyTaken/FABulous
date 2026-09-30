@@ -324,7 +324,7 @@ def genNextpnrModel(
                     delay = DUMMY_PIP_DELAY
                     if delay_model is not None:
                         delay = delay_model.pip_delay(
-                            super_tile.name, sink.name(), source.name()
+                            super_tile.name, source.name(), sink.name()
                         )
                     src, dst = source.full_name(), sink.full_name()
                     pipStr.append(

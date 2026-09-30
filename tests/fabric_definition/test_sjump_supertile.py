@@ -9,6 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from pytest_mock import MockerFixture
 
 from fabulous.fabric_cad.gen_bitstream_spec import generateBitstreamSpec
 from fabulous.fabric_cad.gen_npnr_model import genNextpnrModel
@@ -285,6 +286,18 @@ class TestGenNpnrModelSupertile:
         # BEL output SUPER_Q0 -> reverse wire DSP_bot_Q0.
         q0, super_q0 = f"{SM}DSP_bot_Q0", f"{SM}SUPER_Q0"
         assert f"X0Y1,{super_q0},X0Y1,{q0},8,{super_q0}.{q0}" in pips
+
+    def test_delay_model_gets_source_then_sink(
+        self, fabric: Fabric, mocker: MockerFixture
+    ) -> None:
+        """The delay model is asked for a pip as (supertile, source, sink)."""
+        delay_model = mocker.Mock()
+        delay_model.pip_delay.return_value = 1.0
+
+        genNextpnrModel(fabric, delay_model)
+
+        delay_model.pip_delay.assert_any_call("DSP", "DSP_bot_A0", "SUPER_A0")
+        delay_model.pip_delay.assert_any_call("DSP", "SUPER_Q0", "DSP_bot_Q0")
 
     def test_supertile_bel_emitted_in_belv2_and_belv3(
         self, make_fabric: Callable[..., Fabric], tmp_path: Path
