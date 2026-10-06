@@ -5,7 +5,9 @@ from pathlib import Path
 
 from loguru import logger
 
+from fabulous.fabric_definition.define import grid_at
 from fabulous.fabric_definition.fabric import Fabric
+from fabulous.fabric_definition.instance import TileInstance
 from fabulous.geometry_generator.geometry_obj import Border, Location
 from fabulous.geometry_generator.tile_geometry import TileGeometry
 
@@ -66,90 +68,70 @@ class FabricGeometry:
 
         self.generateGeometry()
 
+    @property
+    def _placed(self) -> list[TileInstance]:
+        """The placed tiles, in row-major order."""
+        return [i for row in self.fabric.instances for i in row if i is not None]
+
     def genNeighbourConstraints(self, queried: TileGeometry) -> None:
-        """Generate neighbour constraints for a given tile geometry.
+        """Take the wire constraints of a neighbour on the queried tile's border.
+
+        A tile on a north/south border lines its direct wires up with the tile
+        below it (or above, if that cell is empty), one on an east/west border
+        with the tile to its right (or left); T-shaped fabrics can have an
+        empty cell on one side inside the grid. The last placement of the tile
+        type with such a neighbour decides.
 
         Parameters
         ----------
         queried : TileGeometry
             The tile geometry to generate constraints for
         """
-        for i in range(self.fabric.numberOfRows):
-            for j in range(self.fabric.numberOfColumns):
-                tile = self.fabric.tile[i][j]
-                if tile is None:
-                    continue
-                tileName = tile.name
-                tileGeom = self.tileGeomMap[tileName]
-
-                if tileGeom is queried:
-                    searchedTile = None
-                    # Pick the in-fabric neighbour on the relevant axis:
-                    # for NORTHSOUTH borders that means the tile above or
-                    # below (whichever is non-NULL); for EASTWEST it's the
-                    # tile to the left or right. T-shaped fabrics can have
-                    # one side be NULL even when i / j is not at the grid
-                    # bounds, so we fall back to the opposite direction.
-                    if queried.border == Border.NORTHSOUTH:
-                        if i + 1 < self.fabric.numberOfRows:
-                            searchedTile = self.fabric.tile[i + 1][j]
-                        if searchedTile is None and i - 1 >= 0:
-                            searchedTile = self.fabric.tile[i - 1][j]
-
-                    elif queried.border == Border.EASTWEST:
-                        if j + 1 < self.fabric.numberOfColumns:
-                            searchedTile = self.fabric.tile[i][j + 1]
-                        if searchedTile is None and j - 1 >= 0:
-                            searchedTile = self.fabric.tile[i][j - 1]
-
-                    if searchedTile is not None:
-                        searchedTileName = searchedTile.name
-                        queried.neighbourConstraints = self.tileGeomMap[
-                            searchedTileName
-                        ].wireConstraints
+        steps = {
+            Border.NORTHSOUTH: ((0, 1), (0, -1)),
+            Border.EASTWEST: ((1, 0), (-1, 0)),
+        }.get(queried.border, ())
+        for instance in self._placed:
+            if self.tileGeomMap[instance.tile_type.name] is not queried:
+                continue
+            neighbours = (
+                grid_at(self.fabric.tile, instance.x + dx, instance.y + dy)
+                for dx, dy in steps
+            )
+            neighbour = next((n for n in neighbours if n is not None), None)
+            if neighbour is not None:
+                queried.neighbourConstraints = self.tileGeomMap[
+                    neighbour.name
+                ].wireConstraints
 
     def generateGeometry(self) -> None:
         """Generate the geometric information from the given fabric object.
 
-        The border attribute is set for tiles that are located at a border of the tile.
-        This is done to ensure no stair-like wires being generated for these tiles. The
-        distinction left/right and top/bottom is made, to prevent generation of
-        horizontal and vertical stair-like wires respectively.
+        The border attribute is set for tiles that are located at a border of the
+        fabric: such a tile reserves no space for stair-like wires and lines its
+        direct wires up with its neighbour. The distinction left/right and
+        top/bottom is made per axis.
         """
-        for i in range(self.fabric.numberOfRows):
-            for j in range(self.fabric.numberOfColumns):
-                tile = self.fabric.tile[i][j]
-
-                if tile is not None:
-                    self.tileNames.add(tile.name)
-
-                    if tile.name not in self.tileGeomMap:
-                        self.tileGeomMap[tile.name] = TileGeometry()
-
-                    tileGeom = self.tileGeomMap[tile.name]
-                    # A tile sits on a north/south border if it is on the
-                    # top/bottom row OR the cell above/below is NULL — the
-                    # latter case lets termination tiles on the inner edge
-                    # of T-shaped fabrics be classified correctly.
-                    northSouth = (
-                        i == 0
-                        or i + 1 == self.fabric.numberOfRows
-                        or self.fabric.tile[i - 1][j] is None
-                        or self.fabric.tile[i + 1][j] is None
-                    )
-                    eastWest = (
-                        j == 0
-                        or j + 1 == self.fabric.numberOfColumns
-                        or self.fabric.tile[i][j - 1] is None
-                        or self.fabric.tile[i][j + 1] is None
-                    )
-
-                    if northSouth and eastWest:
-                        tileGeom.border = Border.CORNER
-                    elif northSouth:
-                        tileGeom.border = Border.NORTHSOUTH
-                    elif eastWest:
-                        tileGeom.border = Border.EASTWEST
+        grid = self.fabric.tile
+        for instance in self._placed:
+            tile, x, y = instance.tile_type, instance.x, instance.y
+            self.tileNames.add(tile.name)
+            tileGeom = self.tileGeomMap.setdefault(tile.name, TileGeometry())
+            # A tile sits on a north/south border if the cell above or below is
+            # off the grid or NULL; the latter lets termination tiles on the
+            # inner edge of T-shaped fabrics be classified correctly.
+            northSouth = (
+                grid_at(grid, x, y - 1) is None or grid_at(grid, x, y + 1) is None
+            )
+            eastWest = (
+                grid_at(grid, x - 1, y) is None or grid_at(grid, x + 1, y) is None
+            )
+            if northSouth and eastWest:
+                tileGeom.border = Border.CORNER
+            elif northSouth:
+                tileGeom.border = Border.NORTHSOUTH
+            elif eastWest:
+                tileGeom.border = Border.EASTWEST
 
         # generate geometry for central tiles first
         # to avoid conflicts at outer tiles:
@@ -184,132 +166,70 @@ class FabricGeometry:
                 tile, self.padding, extra_bels=master_bels.get(tileName)
             )
 
-        # This step is for figuring out, which tile
-        # is the widest/tallest in each column/row
-        # All tiles are resized to those dimensions
-        # in order to form a regular grid.
-        tileGeometries = []
-        for i in range(self.fabric.numberOfRows):
-            tileGeometries.append([])
-            for j in range(self.fabric.numberOfColumns):
-                tile = self.fabric.tile[i][j]
+        # All tiles of a column take the widest tile's width, all tiles of a
+        # row the tallest one's height, so they form a regular grid.
+        geoms = [
+            [TileGeometry() if t is None else self.tileGeomMap[t.name] for t in row]
+            for row in grid
+        ]
+        columns = list(zip(*geoms, strict=True))
+        maxWidths = [max(g.width for g in col) for col in columns]
+        maxSmRelXValues = [max(g.smGeometry.relX for g in col) for col in columns]
+        maxSmWidths = [max(g.smGeometry.width for g in col) for col in columns]
+        maxHeights = [max(g.height for g in row) for row in geoms]
+        lowestSmYCoords = [
+            max(g.smGeometry.relY + g.smGeometry.height for g in row) for row in geoms
+        ]
 
-                if tile is None:
-                    tileGeometries[i].append(TileGeometry())
-                else:
-                    tileGeometries[i].append(self.tileGeomMap[tile.name])
+        for instance in self._placed:
+            x, y = instance.x, instance.y
+            self.tileGeomMap[instance.tile_type.name].adjustDimensions(
+                maxWidths[x], maxHeights[y], maxSmWidths[x], maxSmRelXValues[x]
+            )
 
-        maxWidths = []
-        maxSmRelXValues = []
-        maxSmWidths = []
-        for j in range(self.fabric.numberOfColumns):
-            maxWidth = 0
-            maxSmRelX = 0
-            maxSmWidth = 0
-            for i in range(self.fabric.numberOfRows):
-                maxWidth = max(maxWidth, tileGeometries[i][j].width)
-                maxSmRelX = max(maxSmRelX, tileGeometries[i][j].smGeometry.relX)
-                maxSmWidth = max(maxSmWidth, tileGeometries[i][j].smGeometry.width)
-            maxWidths.append(maxWidth)
-            maxSmRelXValues.append(maxSmRelX)
-            maxSmWidths.append(maxSmWidth)
+        self.tileLocs = [
+            [
+                None if t is None else Location(sum(maxWidths[:x]), sum(maxHeights[:y]))
+                for x, t in enumerate(row)
+            ]
+            for y, row in enumerate(grid)
+        ]
 
-        lowestSmYCoords = []
-        maxHeights = []
-        for i in range(self.fabric.numberOfRows):
-            lowestSmYCoord = 0
-            maxHeight = 0
-            for j in range(self.fabric.numberOfColumns):
-                smRelY = tileGeometries[i][j].smGeometry.relY
-                smHeight = tileGeometries[i][j].smGeometry.height
-                lowestSmYCoord = max(lowestSmYCoord, smRelY + smHeight)
-                maxHeight = max(maxHeight, tileGeometries[i][j].height)
-            lowestSmYCoords.append(lowestSmYCoord)
-            maxHeights.append(maxHeight)
+        # The top left point of the fabric is the origin (0, 0), so the
+        # fabric's dimensions are its rightmost and bottommost points.
+        self.width = max(
+            (
+                self.tileLocs[y][-1].x + self.tileGeomMap[row[-1].name].width
+                for y, row in enumerate(grid)
+                if row[-1] is not None
+            ),
+            default=0,
+        )
+        self.height = max(
+            (
+                self.tileLocs[-1][x].y + self.tileGeomMap[t.name].height
+                for x, t in enumerate(grid[-1])
+                if t is not None
+            ),
+            default=0,
+        )
 
-        for i in range(self.fabric.numberOfRows):
-            for j in range(self.fabric.numberOfColumns):
-                tile = self.fabric.tile[i][j]
-
-                if tile is not None:
-                    maxWidthInColumn = maxWidths[j]
-                    maxSmWidthInColumn = maxSmWidths[j]
-                    maxSmRelXInColumn = maxSmRelXValues[j]
-                    maxHeightInRow = maxHeights[i]
-                    tileGeom = self.tileGeomMap[tile.name]
-
-                    tileGeom.adjustDimensions(
-                        maxWidthInColumn,
-                        maxHeightInRow,
-                        maxSmWidthInColumn,
-                        maxSmRelXInColumn,
-                    )
-
-        for i in range(self.fabric.numberOfRows):
-            self.tileLocs.append([])
-            for j in range(self.fabric.numberOfColumns):
-                tile = self.fabric.tile[i][j]
-                if tile is None:
-                    self.tileLocs[i].append(None)
-                else:
-                    tileX = sum([maxWidths[k] for k in range(j)])
-                    tileY = sum([maxHeights[k] for k in range(i)])
-                    self.tileLocs[i].append(Location(tileX, tileY))
-
-        # this step is for figuring out the fabric dimensions
-        # as tile dimensions are fixed by now.
-        # Because of the top left point of the fabric being
-        # the origin (0, 0), the fabrics dimensions can be
-        # figured out by determining the rightmost and
-        # bottommost points of the fabric.
-        rightMostX = 0
-        bottomMostY = 0
-        for i in range(self.fabric.numberOfRows):
-            tile = self.fabric.tile[i][-1]
-            if tile is not None:
-                tileGeom = self.tileGeomMap[tile.name]
-                tileLoc = self.tileLocs[i][-1]
-                tileRightmostX = tileLoc.x + tileGeom.width
-                rightMostX = max(rightMostX, tileRightmostX)
-
-        for j in range(self.fabric.numberOfColumns):
-            tile = self.fabric.tile[-1][j]
-            if tile is not None:
-                tileGeom = self.tileGeomMap[tile.name]
-                tileLoc = self.tileLocs[-1][j]
-                tileBottommostY = tileLoc.y + tileGeom.height
-                bottomMostY = max(bottomMostY, tileBottommostY)
-
-        self.width = rightMostX
-        self.height = bottomMostY
-
-        # this step is for rearranging the switch matrices by setting
-        # the relX/relY appropriately. This is done to ensure that
-        # all inter-tile wires line up correctly.
-        adjustedTileNames = set()
-
-        for i in range(self.fabric.numberOfRows):
-            for j in range(self.fabric.numberOfColumns):
-                tile = self.fabric.tile[i][j]
-
-                if tile is not None and tile.name not in adjustedTileNames:
-                    lowestSmYInRow = lowestSmYCoords[i]
-                    tileGeom = self.tileGeomMap[tile.name]
-                    tileGeom.adjustSmPos(lowestSmYInRow, self.padding)
-                    adjustedTileNames.add(tile.name)
-
-        # all tiles should now be adjusted
-        assert adjustedTileNames == self.tileNames
+        # Line up the switch matrices of a row at their southern edge, so all
+        # inter-tile wires line up; a tile type is adjusted at its first
+        # placement.
+        adjusted = set()
+        for instance in self._placed:
+            name = instance.tile_type.name
+            if name not in adjusted:
+                self.tileGeomMap[name].adjustSmPos(
+                    lowestSmYCoords[instance.y], self.padding
+                )
+                adjusted.add(name)
 
         # By now, the geometry of the whole fabric is fixed,
         # hence we can start generating the inter-tile wires.
-        for tileName in innerTileNames:
-            tileGeom = self.tileGeomMap[tileName]
-            tileGeom.generateWires(self.padding)
-
-        for tileName in outerTileNames:
-            tileGeom = self.tileGeomMap[tileName]
-            tileGeom.generateWires(self.padding)
+        for tileName in innerTileNames + outerTileNames:
+            self.tileGeomMap[tileName].generateWires(self.padding)
 
     def totalWireLines(self) -> int:
         """Return the total amount of lines (segments) of wires of the fabrics routing.
@@ -317,24 +237,9 @@ class FabricGeometry:
         Can, for instance, be used to initialize the size of datastructures in the
         frontend.
         """
-        lineGeomMap = {}
-        totalWireLines = 0
-
-        for i in range(self.fabric.numberOfRows):
-            for j in range(self.fabric.numberOfColumns):
-                tile = self.fabric.tile[i][j]
-                if tile is None:
-                    continue
-
-                if tile.name not in lineGeomMap:
-                    tileGeom = self.tileGeomMap[tile.name]
-                    tileLines = tileGeom.totalWireLines()
-                    lineGeomMap[tile.name] = tileLines
-                    totalWireLines += tileLines
-                else:
-                    totalWireLines += lineGeomMap[tile.name]
-
-        return totalWireLines
+        return sum(
+            self.tileGeomMap[i.tile_type.name].totalWireLines() for i in self._placed
+        )
 
     def saveToCSV(self, fileName: str) -> None:
         """Save geometric information of the given fabric for the graphical frontend.

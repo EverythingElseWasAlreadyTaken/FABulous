@@ -153,8 +153,9 @@ class StairWires:
     ) -> None:
         """Generate the stair wire geometry based on parameters and direction.
 
-        Creates the complete stair-like wire structure by calling the appropriate
-        directional generation method based on the specified direction.
+        Creates the stair-like wire structure: `groupWires * (|offset| - 1)`
+        wires, vertical ones for a north / south stair, horizontal ones for an
+        east / west stair.
 
         Parameters
         ----------
@@ -186,126 +187,41 @@ class StairWires:
         self.tileWidth = tileWidth
         self.tileHeight = tileHeight
 
-        if self.direction == Direction.NORTH:
-            self.generateNorthStairWires()
-        elif self.direction == Direction.SOUTH:
-            self.generateSouthStairWires()
-        elif self.direction == Direction.EAST:
-            self.generateEastStairWires()
-        elif self.direction == Direction.WEST:
-            self.generateWestStairWires()
-        else:
-            raise InvalidPortType(
-                f"Invalid direction {self.direction} for stair wires!"
-            )
+        if direction not in (
+            Direction.NORTH,
+            Direction.SOUTH,
+            Direction.EAST,
+            Direction.WEST,
+        ):
+            raise InvalidPortType(f"Invalid direction {direction} for stair wires!")
 
-    def generateNorthStairWires(self) -> None:
-        """Generate stair-like wires for north direction routing.
-
-        Creates a series of L-shaped wire segments that form a stair-like pattern for
-        routing connections northward across multiple tiles. Each wire starts at the
-        bottom edge, goes to a stair step, then continues to the top edge.
-        """
-        totalWires = self.groupWires * (abs(self.offset) - 1)
-        refX = self.refX
-        refY = self.refY
-
-        for i in range(totalWires):
+        # Each wire enters at one tile edge, steps aside by a strand
+        # (`groupWires`) and leaves at the opposite edge; the next wire starts
+        # one track further along both axes.
+        refX, refY, strand = self.refX, self.refY, self.groupWires
+        for i in range(strand * (abs(offset) - 1)):
+            if direction in (Direction.NORTH, Direction.SOUTH):
+                side = -1 if direction == Direction.NORTH else 1
+                path = [
+                    (refX, 0),
+                    (refX, refY),
+                    (refX + side * strand, refY),
+                    (refX + side * strand, tileHeight),
+                ]
+                refX, refY = refX + side, refY - 1
+            else:
+                side = 1 if direction == Direction.EAST else -1
+                path = [
+                    (tileWidth, refY),
+                    (refX, refY),
+                    (refX, refY + side * strand),
+                    (0, refY + side * strand),
+                ]
+                refX, refY = refX + 1, refY + side
             wireGeom = WireGeometry(f"{self.name} #{i}")
-            start = Location(refX, 0)
-            nextToStart = Location(refX, refY)
-            nextToEnd = Location(refX - self.groupWires, refY)
-            end = Location(refX - self.groupWires, self.tileHeight)
-
-            wireGeom.addPathLoc(start)
-            wireGeom.addPathLoc(nextToStart)
-            wireGeom.addPathLoc(nextToEnd)
-            wireGeom.addPathLoc(end)
+            for x, y in path:
+                wireGeom.addPathLoc(Location(x, y))
             self.wireGeoms.append(wireGeom)
-
-            refX -= 1
-            refY -= 1
-
-    def generateSouthStairWires(self) -> None:
-        """Generate stair-like wires for south direction routing.
-
-        Creates a series of L-shaped wire segments that form a stair-like pattern for
-        routing connections southward across multiple tiles. Each wire starts at the
-        bottom edge, goes to a stair step, then continues to the top edge.
-        """
-        totalWires = self.groupWires * (abs(self.offset) - 1)
-        refX = self.refX
-        refY = self.refY
-
-        for i in range(totalWires):
-            wireGeom = WireGeometry(f"{self.name} #{i}")
-            start = Location(refX, 0)
-            nextToStart = Location(refX, refY)
-            nextToEnd = Location(refX + self.groupWires, refY)
-            end = Location(refX + self.groupWires, self.tileHeight)
-
-            wireGeom.addPathLoc(start)
-            wireGeom.addPathLoc(nextToStart)
-            wireGeom.addPathLoc(nextToEnd)
-            wireGeom.addPathLoc(end)
-            self.wireGeoms.append(wireGeom)
-
-            refX += 1
-            refY -= 1
-
-    def generateEastStairWires(self) -> None:
-        """Generate stair-like wires for east direction routing.
-
-        Creates a series of L-shaped wire segments that form a stair-like pattern for
-        routing connections eastward across multiple tiles. Each wire starts at the
-        right edge, goes to a stair step, then continues to the left edge.
-        """
-        totalWires = self.groupWires * (abs(self.offset) - 1)
-        refX = self.refX
-        refY = self.refY
-
-        for i in range(totalWires):
-            wireGeom = WireGeometry(f"{self.name} #{i}")
-            start = Location(self.tileWidth, refY)
-            nextToStart = Location(refX, refY)
-            nextToEnd = Location(refX, refY + self.groupWires)
-            end = Location(0, refY + self.groupWires)
-
-            wireGeom.addPathLoc(start)
-            wireGeom.addPathLoc(nextToStart)
-            wireGeom.addPathLoc(nextToEnd)
-            wireGeom.addPathLoc(end)
-            self.wireGeoms.append(wireGeom)
-
-            refX += 1
-            refY += 1
-
-    def generateWestStairWires(self) -> None:
-        """Generate stair-like wires for west direction routing.
-
-        Creates a series of L-shaped wire segments that form a stair-like pattern for
-        routing connections westward across multiple tiles. Each wire starts at the
-        right edge, goes to a stair step, then continues to the left edge.
-        """
-        totalWires = self.groupWires * (abs(self.offset) - 1)
-        refX = self.refX
-        refY = self.refY
-
-        for i in range(totalWires):
-            wireGeom = WireGeometry(f"{self.name} #{i}")
-            start = Location(self.tileWidth, refY)
-            nextToStart = Location(refX, refY)
-            nextToEnd = Location(refX, refY - self.groupWires)
-            end = Location(0, refY - self.groupWires)
-
-            wireGeom.addPathLoc(start)
-            wireGeom.addPathLoc(nextToStart)
-            wireGeom.addPathLoc(nextToEnd)
-            wireGeom.addPathLoc(end)
-            self.wireGeoms.append(wireGeom)
-
-            refX += 1
-            refY -= 1
 
     def saveToCSV(self, writer: csvWriter) -> None:
         """Save all stair wire geometries to CSV format.
@@ -356,36 +272,12 @@ class WireConstraints:
         stairWires : StairWires
             The stair wires structure to extract constraints from
         """
-        totalWires = stairWires.groupWires * (abs(stairWires.offset) - 1)
-
-        if stairWires.direction == Direction.NORTH:
-            refX = stairWires.refX
-
-            for _i in range(totalWires):
-                self.northPositions.append(refX)
-                self.southPositions.append(refX - stairWires.groupWires)
-                refX -= 1
-
-        if stairWires.direction == Direction.SOUTH:
-            refX = stairWires.refX
-
-            for _i in range(totalWires):
-                self.northPositions.append(refX)
-                self.southPositions.append(refX + stairWires.groupWires)
-                refX += 1
-
-        if stairWires.direction == Direction.EAST:
-            refY = stairWires.refY
-
-            for _i in range(totalWires):
-                self.eastPositions.append(refY)
-                self.westPositions.append(refY + stairWires.groupWires)
-                refY += 1
-
-        if stairWires.direction == Direction.WEST:
-            refY = stairWires.refY
-
-            for _i in range(totalWires):
-                self.eastPositions.append(refY)
-                self.westPositions.append(refY - stairWires.groupWires)
-                refY -= 1
+        # A stair wire starts at one tile edge and ends at the opposite one.
+        for wireGeom in stairWires.wireGeoms:
+            start, end = wireGeom.path[0], wireGeom.path[-1]
+            if stairWires.direction in (Direction.NORTH, Direction.SOUTH):
+                self.northPositions.append(start.x)
+                self.southPositions.append(end.x)
+            else:
+                self.eastPositions.append(start.y)
+                self.westPositions.append(end.y)

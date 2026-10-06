@@ -2,6 +2,7 @@
 
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import IO, BelPortKind
+from fabulous.fabric_definition.port import BelPort
 from fabulous.geometry_generator.port_geometry import PortGeometry, PortType
 
 
@@ -26,14 +27,6 @@ class BelGeometry:
         X coordinate of the bel, relative within the tile
     relY : int
         Y coordinate of the bel, relative within the tile
-    internalInputs : list[str]
-        Internal input port names of the bel
-    internalOutputs : list[str]
-        Internal output port names of the bel
-    externalInputs : list[str]
-        External input port names of the bel
-    externalOutputs : list[str]
-        External output port names of the bel
     internalPortGeoms : list[PortGeometry]
         List of geometries of the internal ports of the bel
     externalPortGeoms : list[PortGeometry]
@@ -46,10 +39,6 @@ class BelGeometry:
     height: int
     relX: int
     relY: int
-    internalInputs: list[str]
-    internalOutputs: list[str]
-    externalInputs: list[str]
-    externalOutputs: list[str]
     internalPortGeoms: list[PortGeometry]
     externalPortGeoms: list[PortGeometry]
 
@@ -60,10 +49,6 @@ class BelGeometry:
         self.height = 0
         self.relX = 0
         self.relY = 0
-        self.internalInputs = []
-        self.internalOutputs = []
-        self.externalInputs = []
-        self.externalOutputs = []
         self.internalPortGeoms = []
         self.externalPortGeoms = []
 
@@ -83,97 +68,40 @@ class BelGeometry:
         """
         self.name = bel.name
         self.src = bel.src
-        self.internalInputs = bel.pin_names(BelPortKind.INTERNAL, IO.INPUT)
-        self.internalOutputs = bel.pin_names(BelPortKind.INTERNAL, IO.OUTPUT)
-        self.externalInputs = bel.pin_names(BelPortKind.EXTERNAL, IO.INPUT)
-        self.externalOutputs = bel.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT)
-
-        internalPortsAmount = len(self.internalInputs) + len(self.internalOutputs)
-        externalPortsAmount = len(self.externalInputs) + len(self.externalOutputs)
-        maxAmountVerticalPorts = max(internalPortsAmount, externalPortsAmount)
-
-        self.height = maxAmountVerticalPorts + padding
+        internal = bel.get_ports(BelPortKind.INTERNAL, IO.INPUT) + bel.get_ports(
+            BelPortKind.INTERNAL, IO.OUTPUT
+        )
+        external = bel.get_ports(BelPortKind.EXTERNAL, IO.INPUT) + bel.get_ports(
+            BelPortKind.EXTERNAL, IO.OUTPUT
+        )
+        pins = max(sum(p.width for p in internal), sum(p.width for p in external))
+        self.height = pins + padding
         self.width = 32  # TODO: Deduce width in a meaningful way?
 
-        self.generatePortsGeometry(bel, padding)
+        # Internal ports face the switch matrix (left edge) under their tile
+        # name; external ones face the fabric top (right edge) without prefix.
+        self.internalPortGeoms = self._portGeoms(internal, 0, padding, prefixed=True)
+        self.externalPortGeoms = self._portGeoms(
+            external, self.width, padding, prefixed=False
+        )
 
-    def generatePortsGeometry(self, bel: Bel, padding: int) -> None:
-        """Generate the geometry for all ports of the BEL.
-
-        Creates PortGeometry objects for all internal and external input/output
-        ports of the BEL. Internal ports are positioned on the left side (X=0),
-        while external ports are positioned on the right side (X=width).
-
-        Parameters
-        ----------
-        bel : Bel
-            The BEL object containing port information
-        padding : int
-            The padding space to add around ports
-        """
-        internalPortX = 0
-        internalPortY = padding // 2
-        for port in self.internalInputs:
-            portName = port
-            portGeom = PortGeometry()
-            portGeom.generateGeometry(
-                portName,
-                portName,
-                portName,
-                PortType.BEL,
-                IO.INPUT,
-                internalPortX,
-                internalPortY,
-            )
-            self.internalPortGeoms.append(portGeom)
-            internalPortY += 1
-
-        for port in self.internalOutputs:
-            portName = port
-            portGeom = PortGeometry()
-            portGeom.generateGeometry(
-                portName,
-                portName,
-                portName,
-                PortType.BEL,
-                IO.OUTPUT,
-                internalPortX,
-                internalPortY,
-            )
-            self.internalPortGeoms.append(portGeom)
-            internalPortY += 1
-
-        externalPortX = self.width
-        externalPortY = padding // 2
-        for port in self.externalInputs:
-            portName = port.removeprefix(bel.prefix)
-            portGeom = PortGeometry()
-            portGeom.generateGeometry(
-                portName,
-                portName,
-                portName,
-                PortType.BEL,
-                IO.INPUT,
-                externalPortX,
-                externalPortY,
-            )
-            self.externalPortGeoms.append(portGeom)
-            externalPortY += 1
-
-        for port in self.externalOutputs:
-            portName = port.removeprefix(bel.prefix)
-            portGeom = PortGeometry()
-            portGeom.generateGeometry(
-                portName,
-                portName,
-                portName,
-                PortType.BEL,
-                IO.OUTPUT,
-                externalPortX,
-                externalPortY,
-            )
-            self.externalPortGeoms.append(portGeom)
-            externalPortY += 1
+    @staticmethod
+    def _portGeoms(
+        ports: list[BelPort], x: int, padding: int, prefixed: bool
+    ) -> list[PortGeometry]:
+        """Return one port geometry per pin, stacked down from the BEL's top."""
+        geoms = []
+        y = padding // 2
+        for port in ports:
+            for pin in port.pins:
+                name = pin.name() if prefixed else pin.name().removeprefix(port.prefix)
+                portGeom = PortGeometry()
+                portGeom.generateGeometry(
+                    name, name, name, PortType.BEL, port.io_direction, x, y
+                )
+                geoms.append(portGeom)
+                y += 1
+        return geoms
 
     def adjustPos(self, relX: int, relY: int) -> None:
         """Adjust the position of the BEL within its containing tile.
