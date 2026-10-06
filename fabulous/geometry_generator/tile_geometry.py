@@ -391,6 +391,9 @@ class TileGeometry:
         These wires require staircase-like routing patterns to reach tiles
         that are not direct neighbors (offset >= 2). The routing varies
         by tile side and wire direction.
+        Only lines staged through the tile have such an offset, and none sits at
+        the fabric edge (it would dangle, which `check_routing_channels`
+        rejects), so the stairs need no border check.
 
         Raises
         ------
@@ -426,13 +429,9 @@ class TileGeometry:
         portGeom : PortGeometry
             The port geometry defining the wire characteristics
         """
-        generateNorthSouthStairWire = (
-            self.border != Border.NORTHSOUTH and self.border != Border.CORNER
-        )
-
         # with a new group of ports, there will be the
         # need for a new stair-like wire for that group
-        if generateNorthSouthStairWire and self.currPortGroupId != portGeom.groupId:
+        if self.currPortGroupId != portGeom.groupId:
             self.currPortGroupId = portGeom.groupId
 
             if self.reserveStairSpaceLeft:
@@ -490,13 +489,9 @@ class TileGeometry:
         portGeom : PortGeometry
             The port geometry defining the wire characteristics
         """
-        generateNorthSouthStairWire = (
-            self.border != Border.NORTHSOUTH and self.border != Border.CORNER
-        )
-
         # with a new group of ports, there will be the
         # need for space for the generated stair-like wire
-        if generateNorthSouthStairWire and self.currPortGroupId != portGeom.groupId:
+        if self.currPortGroupId != portGeom.groupId:
             self.currPortGroupId = portGeom.groupId
 
             self.southMiddleX -= self.queuedAdjustmentLeft
@@ -536,13 +531,9 @@ class TileGeometry:
         portGeom : PortGeometry
             The port geometry defining the wire characteristics
         """
-        generateEastWestStairWire = (
-            self.border != Border.EASTWEST and self.border != Border.CORNER
-        )
-
         # with a new group of ports, there will be the
         # need for a new stair-like wire for that group
-        if generateEastWestStairWire and self.currPortGroupId != portGeom.groupId:
+        if self.currPortGroupId != portGeom.groupId:
             self.currPortGroupId = portGeom.groupId
 
             if self.reserveStairSpaceBottom:
@@ -602,13 +593,9 @@ class TileGeometry:
         portGeom : PortGeometry
             The port geometry defining the wire characteristics
         """
-        generateEastWestStairWire = (
-            self.border != Border.EASTWEST and self.border != Border.CORNER
-        )
-
         # with a new group of ports, there will be the
         # need for space for the generated stair-like wire
-        if generateEastWestStairWire and self.currPortGroupId != portGeom.groupId:
+        if self.currPortGroupId != portGeom.groupId:
             self.currPortGroupId = portGeom.groupId
 
             self.westMiddleY += self.queuedAdjustmentBottom
