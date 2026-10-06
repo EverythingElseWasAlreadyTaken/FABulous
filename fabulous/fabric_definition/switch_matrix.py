@@ -12,11 +12,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from enum import Enum
+from functools import cached_property
 from typing import TYPE_CHECKING
 
 from loguru import logger
 
 from fabulous.custom_exception import InvalidFileType, InvalidSwitchMatrixDefinition
+from fabulous.fabric_definition.connection import FixedConnection, Pip
 from fabulous.fabric_definition.define import IO, SWITCH_MATRIX_CONSTANTS, BelPortKind
 from fabulous.fabric_definition.port import Pin, SwitchMatrixPort
 
@@ -77,6 +80,91 @@ def switch_matrix_ports(
         if const not in declared:
             result.append(SwitchMatrixPort(const, IO.INPUT, literal=True))
     return tuple(result)
+
+
+class MuxEncoding(Enum):
+    """How a multiplexer's config bits select one of its inputs.
+
+    This is the meaning of the bits, not how the RTL builds the mux.
+    """
+
+    BINARY = "binary"
+    """The select bits hold the input index in binary, LSB first."""
+
+    def width(self, inputs: int) -> int:
+        """Return the number of config bits of a mux with `inputs` inputs.
+
+        Parameters
+        ----------
+        inputs : int
+            The number of mux inputs.
+
+        Returns
+        -------
+        int
+            The number of select bits.
+        """
+        return (inputs - 1).bit_length()
+
+    def select(self, index: int, inputs: int) -> tuple[str, ...]:
+        """Return the select bit values that switch input `index` through.
+
+        Parameters
+        ----------
+        index : int
+            The mux input.
+        inputs : int
+            The number of mux inputs.
+
+        Returns
+        -------
+        tuple[str, ...]
+            One `"0"` / `"1"` per select bit, LSB first.
+        """
+        return tuple(str(index >> i & 1) for i in range(self.width(inputs)))
+
+
+@dataclass(frozen=True)
+class Mux:
+    """A switch matrix multiplexer: one output, its inputs and its select bits.
+
+    Attributes
+    ----------
+    output : Pin
+        The mux output.
+    inputs : tuple[Pin, ...]
+        The mux inputs; input `k` is selected by select value `k`.
+    offset : int
+        The first of the mux's config bits within its matrix.
+    encoding : MuxEncoding
+        How the config bits select an input.
+    """
+
+    output: Pin
+    inputs: tuple[Pin, ...]
+    offset: int
+    encoding: MuxEncoding = MuxEncoding.BINARY
+
+    @property
+    def width(self) -> int:
+        """The number of config bits of the mux."""
+        return self.encoding.width(len(self.inputs))
+
+    def select(self, index: int) -> tuple[tuple[int, str], ...]:
+        """Return the config bits that switch input `index` through.
+
+        Parameters
+        ----------
+        index : int
+            The mux input.
+
+        Returns
+        -------
+        tuple[tuple[int, str], ...]
+            `(config bit within the matrix, value)` per select bit.
+        """
+        values = self.encoding.select(index, len(self.inputs))
+        return tuple((self.offset + i, v) for i, v in enumerate(values))
 
 
 @dataclass(frozen=True)
@@ -164,7 +252,55 @@ class SwitchMatrix:
         """
         if self.hdl_config_bits is not None:
             return self.hdl_config_bits
-        return self._count_config_bits(self.connections)
+        return sum(mux.width for mux in self.muxes)
+
+    @cached_property
+    def muxes(self) -> tuple[Mux, ...]:
+        """The multiplexers: every mux output with two or more inputs.
+
+        Their config bits follow each other in `connections` order.
+
+        Returns
+        -------
+        tuple[Mux, ...]
+            The muxes.
+        """
+        muxes, offset = [], 0
+        for out, ins in self.connections.items():
+            if len(ins) >= 2:
+                muxes.append(Mux(out, ins, offset))
+                offset += muxes[-1].width
+        return tuple(muxes)
+
+    @cached_property
+    def pips(self) -> tuple[Pip[Pin], ...]:
+        """The programmable connections: one per mux input.
+
+        Returns
+        -------
+        tuple[Pip[Pin], ...]
+            The pips, mux by mux, in input order.
+        """
+        return tuple(
+            Pip(pin, mux.output, mux, k)
+            for mux in self.muxes
+            for k, pin in enumerate(mux.inputs)
+        )
+
+    @cached_property
+    def fixed_connections(self) -> tuple[FixedConnection[Pin], ...]:
+        """The hard wires inside the matrix: outputs with a single input.
+
+        Returns
+        -------
+        tuple[FixedConnection[Pin], ...]
+            The connections; their declaration is this matrix.
+        """
+        return tuple(
+            FixedConnection(ins[0], out, self)
+            for out, ins in self.connections.items()
+            if len(ins) == 1
+        )
 
     @classmethod
     def from_file(
@@ -327,6 +463,7 @@ class SwitchMatrix:
 
         if not canonical:
             connections = {out: tuple(ins) for out, ins in resolved.items()}
+            cls._check_usage(path, matrix, connections)
             return cls(path, ports, connections, name, preserve_list_order)
 
         # Unconnected outputs keep an empty entry so generation's
@@ -337,7 +474,46 @@ class SwitchMatrix:
             if not preserve_list_order:
                 ins = sorted(ins, key=lambda pin: input_index[pin])
             connections[out] = tuple(ins)
+        cls._check_usage(path, matrix, connections)
         return cls(path, ports, connections, name, preserve_list_order)
+
+    @staticmethod
+    def _check_usage(
+        path: Path, matrix: SwitchMatrix, connections: dict[Pin, tuple[Pin, ...]]
+    ) -> None:
+        """Reject an output nobody drives; warn about an input nobody reads.
+
+        Constants are offered to every matrix, so an unused one is expected.
+
+        Parameters
+        ----------
+        path : Path
+            The matrix file, for the messages.
+        matrix : SwitchMatrix
+            The matrix whose ports are checked.
+        connections : dict[Pin, tuple[Pin, ...]]
+            Mux output -> mux inputs, as resolved from the file.
+
+        Raises
+        ------
+        InvalidSwitchMatrixDefinition
+            If a matrix output has no input.
+        """
+        undriven = [
+            out.name() for out in matrix.mux_outputs if not connections.get(out)
+        ]
+        if undriven:
+            raise InvalidSwitchMatrixDefinition(
+                f"Switch matrix outputs in {path.name} have no input: {undriven}"
+            )
+        used = {pin for ins in connections.values() for pin in ins}
+        unused = [
+            pin.name()
+            for pin in matrix.mux_inputs
+            if pin not in used and not pin.port.is_constant
+        ]
+        if unused:
+            logger.warning(f"Switch matrix inputs in {path.name} are unused: {unused}")
 
     def to_csv_file(self, path: Path, tile_name: str) -> None:
         """Write the switch matrix connections to a `.csv` file.
@@ -370,27 +546,6 @@ class SwitchMatrix:
         from fabulous.fabric_generator.parser.parse_switchmatrix import write_list
 
         write_list(self.named_connections, path)
-
-    @staticmethod
-    def _count_config_bits(connections: dict[Pin, tuple[Pin, ...]]) -> int:
-        """Count config bits needed to select each mux's inputs.
-
-        Parameters
-        ----------
-        connections : dict[Pin, tuple[Pin, ...]]
-            Mux output -> mux inputs.
-
-        Returns
-        -------
-        int
-            Total select bits summed over every mux (a mux with fewer than two
-            inputs needs none).
-        """
-        total = 0
-        for sources in connections.values():
-            if len(sources) >= 2:
-                total += (len(sources) - 1).bit_length()
-        return total
 
     @staticmethod
     def _extract_config_bits_from_hdl(path: Path) -> int:

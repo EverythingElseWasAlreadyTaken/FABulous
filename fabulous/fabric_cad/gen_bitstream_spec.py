@@ -165,29 +165,11 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
                             ] = {positions[bit_offset + v]: feature_bits[entry][v]}
                         bit_offset += len(feature_bits[entry])
 
-            # A pip is named by its wires, as in the nextpnr model.
-            for mux_out, mux_ins in tile.switch_matrix.connections.items():
-                source = mux_out.full_name()
-                sinks = [pin.full_name() for pin in mux_ins]
-                control_width = 0
-                for i, sink in enumerate(reversed(sinks)):
-                    control_width = (len(sinks) - 1).bit_length()
-                    control_value = f"{len(sinks) - 1 - i:0{control_width}b}"
-                    pip = f"{sink}.{source}"
-                    if len(sinks) < 2:
-                        tile_specs[pip] = {}
-                        tile_specs_no_mask[pip] = {}
-                        continue
-
-                    for c, char in enumerate(control_value[::-1]):
-                        if pip not in tile_specs:
-                            tile_specs[pip] = {}
-                            tile_specs_no_mask[pip] = {}
-
-                        tile_specs[pip][positions[bit_offset + c]] = char
-                        tile_specs_no_mask[pip][positions[bit_offset + c]] = char
-
-                bit_offset += control_width
+            # The switch matrix's config bits follow the BEL bits.
+            for pip in tile.switch_matrix.pips:
+                bits = {positions[bit_offset + o]: v for o, v in pip.bits}
+                tile_specs[pip.feature] = bits
+                tile_specs_no_mask[pip.feature] = dict(bits)
 
             spec_data["TileSpecs"][f"X{x}Y{y}"] = tile_specs
             spec_data["TileSpecs_No_Mask"][f"X{x}Y{y}"] = tile_specs_no_mask
@@ -195,10 +177,9 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
     # Fixed connections get an empty bit mapping in the tile they start in, as
     # nextpnr sees them as pips.
     for connection in fabric.fixed_connections():
-        (src_at, src), (_, dst) = connection.source, connection.sink
-        pip = f"{src.full_name()}.{dst.full_name()}"
+        src_at = connection.source[0]
         for key in ("TileSpecs", "TileSpecs_No_Mask"):
-            spec_data[key][f"X{src_at.x}Y{src_at.y}"][pip] = {}
+            spec_data[key][f"X{src_at.x}Y{src_at.y}"][connection.feature] = {}
 
     # Supertile bitstream features. A supertile's config bits physically live in
     # its master tile's frame column (the master tile's own ConfigMem leaves those
@@ -234,14 +215,10 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
             }
             st_positions = bit_positions(st_memory, fabric)
 
-        # A pip is named by its wires, as in the nextpnr model; the SJUMP
-        # wires are fixed connections, mapped with the tiles above.
-        sm_connections: dict[str, list[str]] = {}
-        if super_tile.switch_matrix is not None:
-            sm_connections = {
-                out.full_name(): [pin.full_name() for pin in ins]
-                for out, ins in super_tile.switch_matrix.connections.items()
-            }
+        # The SJUMP wires and single-input matrix outputs are fixed
+        # connections, mapped with the tiles above.
+        muxes = super_tile.switch_matrix.muxes if super_tile.switch_matrix else ()
+        pips = super_tile.switch_matrix.pips if super_tile.switch_matrix else ()
 
         for placement in fabric.super_tile_instances:
             if placement.super_tile is not super_tile:
@@ -262,27 +239,16 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
                 f"X{ftx}Y{fty}", {}
             )
 
-            bit_offset = 0
-            for source, sinks in sm_connections.items():
-                control_width = (len(sinks) - 1).bit_length()
-                if st_config_bits == 0:
-                    # No config bits — all connections are passthrough.
-                    for sink in sinks:
-                        for t in (tile_specs, tile_specs_no_mask):
-                            t[f"{sink}.{source}"] = {}
-                    continue
-                for i, sink in enumerate(reversed(sinks)):
-                    pip = f"{sink}.{source}"
-                    if len(sinks) < 2:
-                        for t in (tile_specs, tile_specs_no_mask):
-                            t[pip] = {}
-                        continue
-                    control_value = f"{len(sinks) - 1 - i:0{control_width}b}"
-                    for c, char in enumerate(control_value[::-1]):
-                        for t in (tile_specs, tile_specs_no_mask):
-                            t.setdefault(pip, {})
-                            t[pip][st_positions[bit_offset + c]] = char
-                bit_offset += control_width
+            # The switch matrix's config bits come first, then the BEL bits.
+            # Without config bits every pip is a passthrough.
+            for pip in pips:
+                for t in (tile_specs, tile_specs_no_mask):
+                    t[pip.feature] = (
+                        {}
+                        if st_config_bits == 0
+                        else {st_positions[o]: v for o, v in pip.bits}
+                    )
+            bit_offset = 0 if st_config_bits == 0 else sum(m.width for m in muxes)
 
             bel_coord = (ftx, fty)
             bel_offset = len(master_tile.bels) + st_bel_count.get(bel_coord, 0)

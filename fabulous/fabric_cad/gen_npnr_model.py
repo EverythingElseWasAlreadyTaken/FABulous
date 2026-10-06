@@ -18,6 +18,7 @@ from fabulous.fabric_cad.timing_model.FABulous_timing_model_interface import (
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import IO, BelPortKind
 from fabulous.fabric_definition.fabric import Fabric
+from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 
 # Dummy BEL timing values (ns), mirroring nextpnr's historical hardcoded
 # constants (fabulous.cc, seed_default_estimates).
@@ -233,7 +234,8 @@ def genNextpnrModel(
         - constrainStr: A string with constraint definitions.
     """
     fabric.check_routing_channels()
-    pipStr = []
+    # Every pip is listed under the tile it starts in, tiles in row-major order.
+    pips: dict[tuple[int, int], list[str]] = {}
     belStr = []
     belv2Str = []
     belv3Str = []
@@ -255,16 +257,17 @@ def genNextpnrModel(
         for x, tile in enumerate(row):
             if tile is None:
                 continue
-            pipStr.append(f"#Tile-internal pips on tile X{x}Y{y}:")
-            for sink, sources in tile.switch_matrix.connections.items():
-                for source in sources:
-                    delay: float = DUMMY_PIP_DELAY
-                    if delay_model is not None:
-                        delay = delay_model.pip_delay(
-                            tile.name, source.name(), sink.name()
-                        )
-                    src, dst = source.full_name(), sink.full_name()
-                    pipStr.append(f"X{x}Y{y},{src},X{x}Y{y},{dst},{delay},{src}.{dst}")
+            pips[(x, y)] = []
+            for pip in tile.switch_matrix.pips:
+                delay: float = DUMMY_PIP_DELAY
+                if delay_model is not None:
+                    delay = delay_model.pip_delay(
+                        tile.name, pip.source.name(), pip.sink.name()
+                    )
+                src, dst = pip.source.full_name(), pip.sink.full_name()
+                pips[(x, y)].append(
+                    f"X{x}Y{y},{src},X{x}Y{y},{dst},{delay},{pip.feature}"
+                )
 
             # BEL definitions: legacy v1, and new-style v2 / v3 (with timing arcs).
             belStr.append(f"#Tile_X{x}Y{y}")
@@ -280,19 +283,21 @@ def genNextpnrModel(
                 belv3Str.extend(v3_lines)
                 constrainStr.extend(constrain_lines)
 
-    # Fixed connections are pips without config bits, in the tile they start.
-    pipStr.append("#Fixed connections:")
+    # Fixed connections are pips without config bits.
     for connection in fabric.fixed_connections():
         (src_at, src_pin), (dst_at, dst_pin) = connection.source, connection.sink
         src, dst = src_pin.full_name(), dst_pin.full_name()
         delay = DUMMY_PIP_DELAY
         if delay_model is not None:
+            # A wire inside a (supertile) switch matrix is timed by that matrix.
+            owner = connection.declaration
+            name = owner.name if isinstance(owner, SwitchMatrix) else None
             delay = delay_model.pip_delay(
-                src_at.tile_type.name, src_pin.name(), dst_pin.name()
+                name or src_at.tile_type.name, src_pin.name(), dst_pin.name()
             )
-        pipStr.append(
+        pips[(src_at.x, src_at.y)].append(
             f"X{src_at.x}Y{src_at.y},{src},X{dst_at.x}Y{dst_at.y},{dst},"
-            f"{delay},{src}.{dst}"
+            f"{delay},{connection.feature}"
         )
 
     # Supertile BEL and switch-matrix PIP emission; its SJUMP wires and BEL
@@ -319,18 +324,21 @@ def genNextpnrModel(
             constrainStr.extend(constrain_lines)
 
         if super_tile.switch_matrix is not None:
-            for sink, sources in super_tile.switch_matrix.connections.items():
-                for source in sources:
-                    delay = DUMMY_PIP_DELAY
-                    if delay_model is not None:
-                        delay = delay_model.pip_delay(
-                            super_tile.name, source.name(), sink.name()
-                        )
-                    src, dst = source.full_name(), sink.full_name()
-                    pipStr.append(
-                        f"X{ftx}Y{fty},{src},X{ftx}Y{fty},{dst},{delay},{src}.{dst}"
+            for pip in super_tile.switch_matrix.pips:
+                delay = DUMMY_PIP_DELAY
+                if delay_model is not None:
+                    delay = delay_model.pip_delay(
+                        super_tile.name, pip.source.name(), pip.sink.name()
                     )
+                src, dst = pip.source.full_name(), pip.sink.full_name()
+                pips[(ftx, fty)].append(
+                    f"X{ftx}Y{fty},{src},X{ftx}Y{fty},{dst},{delay},{pip.feature}"
+                )
 
+    pipStr = []
+    for (x, y), lines in pips.items():
+        pipStr.append(f"#Pips on tile X{x}Y{y}:")
+        pipStr += lines
     return (
         "\n".join(pipStr),
         "\n".join(belStr),

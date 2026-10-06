@@ -83,7 +83,6 @@ class TestListExport:
             [
                 ("A_I", IO.INPUT),
                 ("B_I", IO.INPUT),
-                ("C_I", IO.INPUT),
                 ("X", IO.OUTPUT),
                 ("Y", IO.OUTPUT),
                 ("Z", IO.OUTPUT),
@@ -91,17 +90,16 @@ class TestListExport:
         )
         ports = switch_matrix_ports([], [bel])
         sm = SwitchMatrix.from_names(
-            Path("x.csv"), "T", ports, {"A_I": ["X", "Y"], "B_I": ["Z"], "C_I": []}
+            Path("x.csv"), "T", ports, {"A_I": ["X", "Y"], "B_I": ["Z"]}
         )
         out = tmp_path / "m.list"
         sm.to_list_file(out)
-        # One line per connected mux; inputs always written reversed (MSB-first);
-        # the empty C_I is omitted.
+        # One line per mux; inputs always written reversed (MSB-first).
         assert out.read_text() == "{2}A_I,[Y|X]\n{1}B_I,[Z]\n"
-        # A preserve read recovers the exact input order (C_I is back, empty).
+        # A preserve read recovers the exact input order.
         assert SwitchMatrix.from_file(
             out, "T", ports, preserve_list_order=True
-        ).named_connections == {"A_I": ["X", "Y"], "B_I": ["Z"], "C_I": []}
+        ).named_connections == {"A_I": ["X", "Y"], "B_I": ["Z"]}
 
     def test_preserve_list_order_round_trips(self, tmp_path: Path) -> None:
         bel = make_muladd_bel(
@@ -364,7 +362,9 @@ class TestSuperTileSwitchMatrixConstants:
         code_generator_factory: Callable[[str, str], CodeGenerator],
     ) -> None:
         rtl = self._gen(
-            tmp_path, code_generator_factory, [("SUPER_A0", "[DSP_bot_x0]")]
+            tmp_path,
+            code_generator_factory,
+            [("SUPER_A0", "[DSP_bot_x0]"), ("SUPER_B0", "[GND0]")],
         )
         assert "parameter GND0 = 1'b0;" in rtl
         assert "parameter VCC0 = 1'b1;" in rtl
@@ -375,7 +375,11 @@ class TestSuperTileSwitchMatrixConstants:
         tmp_path: Path,
         code_generator_factory: Callable[[str, str], CodeGenerator],
     ) -> None:
-        rtl = self._gen(tmp_path, code_generator_factory, [("SUPER_A0", "[GND0]")])
+        rtl = self._gen(
+            tmp_path,
+            code_generator_factory,
+            [("SUPER_A0", "[GND0]"), ("SUPER_B0", "[GND0]")],
+        )
         assert "assign SUPER_A0 = GND0;" in rtl
 
     def test_constant_as_mux_input(
@@ -384,7 +388,9 @@ class TestSuperTileSwitchMatrixConstants:
         code_generator_factory: Callable[[str, str], CodeGenerator],
     ) -> None:
         rtl = self._gen(
-            tmp_path, code_generator_factory, [("SUPER_B0{2}", "[VCC0|DSP_bot_x0]")]
+            tmp_path,
+            code_generator_factory,
+            [("SUPER_A0", "[GND0]"), ("SUPER_B0{2}", "[VCC0|DSP_bot_x0]")],
         )
         assert "SUPER_B0_input = {DSP_bot_x0,VCC0}" in rtl
         assert "cus_mux21 inst_cus_mux21_SUPER_B0" in rtl

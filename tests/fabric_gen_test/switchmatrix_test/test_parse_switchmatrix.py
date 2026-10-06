@@ -12,7 +12,7 @@ from fabulous.custom_exception import (
 from fabulous.fabric_definition.define import IO
 from fabulous.fabric_definition.port import SJumpPort
 from fabulous.fabric_definition.supertile import SuperTile
-from fabulous.fabric_definition.switch_matrix import SwitchMatrix
+from fabulous.fabric_definition.switch_matrix import SwitchMatrix, switch_matrix_ports
 from fabulous.fabric_generator.parser.parse_csv import (
     parse_port_line,
 )
@@ -364,3 +364,47 @@ class TestSuperTileMatrixValidation:
         else:
             with pytest.raises(InvalidSwitchMatrixDefinition, match=error_match):
                 SwitchMatrix.from_names(path, "DSP", ports, connections)
+
+
+class TestMuxesAndPips:
+    """The matrix expands its connections into muxes, pips and hard wires."""
+
+    @staticmethod
+    def _matrix(raw: dict[str, list[str]]) -> SwitchMatrix:
+        bel = make_muladd_bel(
+            [("I0", IO.INPUT), ("I1", IO.INPUT)]
+            + [(f"O{i}", IO.OUTPUT) for i in range(5)]
+        )
+        make_empty_tile("T").add_bels([bel])
+        ports = switch_matrix_ports([], [bel])
+        return SwitchMatrix.from_names(Path("m.list"), "T", ports, raw)
+
+    def test_binary_select_bits_follow_each_other(self) -> None:
+        sm = self._matrix({"I0": ["O0", "O1", "O2"], "I1": ["O3", "O4"]})
+
+        assert [(m.offset, m.width) for m in sm.muxes] == [(0, 2), (2, 1)]
+        assert sm.no_config_bits == 3
+        assert [(p.source.name(), p.bits) for p in sm.pips] == [
+            ("O0", ((0, "0"), (1, "0"))),
+            ("O1", ((0, "1"), (1, "0"))),
+            ("O2", ((0, "0"), (1, "1"))),
+            ("O3", ((2, "0"),)),
+            ("O4", ((2, "1"),)),
+        ]
+
+    def test_single_input_is_a_hard_wire_of_the_matrix(self) -> None:
+        sm = self._matrix({"I0": ["O0", "O1"], "I1": ["O2"]})
+
+        (wire,) = sm.fixed_connections
+        assert (wire.source.name(), wire.sink.name()) == ("O2", "I1")
+        assert wire.declaration is sm
+        assert [m.output.name() for m in sm.muxes] == ["I0"]
+
+    def test_output_without_input_raises(self) -> None:
+        with pytest.raises(InvalidSwitchMatrixDefinition, match="no input.*I1"):
+            self._matrix({"I0": ["O0"]})
+
+    def test_unused_input_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        self._matrix({"I0": ["O0"], "I1": ["O1"]})
+
+        assert "unused: ['O2', 'O3', 'O4']" in caplog.text

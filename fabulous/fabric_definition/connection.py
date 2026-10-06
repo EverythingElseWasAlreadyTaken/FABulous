@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from fabulous.fabric_definition.channel import ChannelDeclaration
     from fabulous.fabric_definition.instance import TileInstance
     from fabulous.fabric_definition.port import Pin, SwitchMatrixPort
+    from fabulous.fabric_definition.switch_matrix import Mux, SwitchMatrix
     from fabulous.fabric_definition.wire import JumpWire
 
 type InstancePin = tuple[TileInstance, Pin]
@@ -40,6 +41,16 @@ class Connection[E]:
     source: E
     sink: E
 
+    @property
+    def feature(self) -> str:
+        """The name of the connection: source and sink full names, `.`-joined.
+
+        This is the FASM feature of the pip nextpnr sees for it.
+        """
+        ends = (self.source, self.sink)
+        pins = [end[1] if isinstance(end, tuple) else end for end in ends]
+        return ".".join(pin.full_name() for pin in pins)
+
 
 @dataclass(frozen=True)
 class FixedConnection[E](Connection[E]):
@@ -47,9 +58,31 @@ class FixedConnection[E](Connection[E]):
 
     Attributes
     ----------
-    declaration : ChannelDeclaration | SwitchMatrixPort | JumpWire
+    declaration : ChannelDeclaration | SwitchMatrixPort | SwitchMatrix | JumpWire
         The declaration this connection is expanded from; for a switch
-        matrix boundary, the matrix port.
+        matrix boundary, the matrix port; inside a matrix (an output with a
+        single input), the matrix.
     """
 
-    declaration: ChannelDeclaration | SwitchMatrixPort | JumpWire
+    declaration: ChannelDeclaration | SwitchMatrixPort | SwitchMatrix | JumpWire
+
+
+@dataclass(frozen=True)
+class Pip[E](Connection[E]):
+    """A programmable connection: an input of a switch matrix mux.
+
+    Attributes
+    ----------
+    mux : Mux
+        The mux the pip is an input of.
+    index : int
+        Which of the mux's inputs the pip is.
+    """
+
+    mux: Mux
+    index: int
+
+    @property
+    def bits(self) -> tuple[tuple[int, str], ...]:
+        """The `(config bit within the matrix, value)` pairs selecting the pip."""
+        return self.mux.select(self.index)
