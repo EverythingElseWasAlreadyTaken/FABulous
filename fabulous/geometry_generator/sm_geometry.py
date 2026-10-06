@@ -1,10 +1,13 @@
 """Switch matrix geometry definitions."""
 
-from dataclasses import replace
 from pathlib import Path
 
 from fabulous.fabric_definition.define import IO, Side
-from fabulous.fabric_definition.port import TilePort
+from fabulous.fabric_definition.port import (
+    NULL_PORT_NAME,
+    SwitchMatrixPort,
+    TilePort,
+)
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_definition.wire import JumpWire
 from fabulous.geometry_generator.bel_geometry import BelGeometry
@@ -35,14 +38,9 @@ class SmGeometry:
         X coordinate of the switch matrix, relative within the tile
     relY : int
         Y coordinate of the switch matrix, relative within the tile
-    northPorts : list[TilePort]
-        List of the ports of the switch matrix in north direction
-    southPorts : list[TilePort]
-        List of the ports of the switch matrix in south direction
-    eastPorts : list[TilePort]
-        List of the ports of the switch matrix in east direction
-    westPorts : list[TilePort]
-        List of the ports of the switch matrix in west direction
+    ports : dict[Side, list[SwitchMatrixPort]]
+        The matrix ports wired to the tile's routing ports, per side of the
+        tile, nearest neighbour first
     jump_wires : list[JumpWire]
         The tile's jump wires, each drawn as one port per bit
     portGeoms : list[PortGeometry]
@@ -68,10 +66,7 @@ class SmGeometry:
     height: int
     relX: int
     relY: int
-    northPorts: list[TilePort]
-    southPorts: list[TilePort]
-    eastPorts: list[TilePort]
-    westPorts: list[TilePort]
+    ports: dict[Side, list[SwitchMatrixPort]]
     jump_wires: list[JumpWire]
     portGeoms: list[PortGeometry]
     northWiresReservedWidth: int
@@ -89,10 +84,7 @@ class SmGeometry:
         self.height = 0
         self.relX = 0
         self.relY = 0
-        self.northPorts = []
-        self.southPorts = []
-        self.eastPorts = []
-        self.westPorts = []
+        self.ports = {}
         self.jump_wires = []
         self.portGeoms = []
         self.northWiresReservedWidth = 0
@@ -102,94 +94,26 @@ class SmGeometry:
         self.southPortsTopY = 0
         self.westPortsRightX = 0
 
-    def preprocessPorts(self, tileBorder: Border) -> None:
-        """Order the ports for downstream drawing.
+    @staticmethod
+    def _offset(sm_port: SwitchMatrixPort) -> int:
+        """Return the offset of the routing port a matrix port is wired to."""
+        declaration = sm_port.origin.declaration
+        if sm_port.origin.side_of_tile in (Side.NORTH, Side.SOUTH):
+            return declaration.y_offset
+        return declaration.x_offset
 
-        Ensure that ports are ordered correctly, merge connected jump ports and augment
-        ports for term tiles.
-        This step augments ports in border tiles.
-        This is needed, as these are not contained in the (north...west)SidePorts
-        in FABulous.
+    @staticmethod
+    def drawn_offset(sm_port: SwitchMatrixPort) -> int:
+        """Return the offset the wires of a matrix port are drawn with.
+
+        A line naming both ends and spanning several tiles is staged through
+        the tile and drawn as a stair. Any other spanning line (a terminator's
+        half) hands all its bits to the matrix, drawn as direct wires.
         """
-        # This step ensures correct ordering, this is important
-        # for the wire generation step.
-        self.northPorts = sorted(self.northPorts, key=lambda port: abs(port.y_offset))
-        self.southPorts = sorted(self.southPorts, key=lambda port: abs(port.y_offset))
-        self.eastPorts = sorted(self.eastPorts, key=lambda port: abs(port.x_offset))
-        self.westPorts = sorted(self.westPorts, key=lambda port: abs(port.x_offset))
-
-        # This step augments ports in border tiles.
-        # This is needed, as these are not contained
-        # in the (north...west)SidePorts in FABulous.
-        if tileBorder == Border.NORTHSOUTH or tileBorder == Border.CORNER:
-            augmentedSouthPorts = []
-            for southPort in self.southPorts:
-                if abs(southPort.y_offset) > 1:
-                    augmentedPort = TilePort(
-                        replace(
-                            southPort.declaration,
-                            x_offset=0,
-                            y_offset=1,
-                            wire_count=southPort.wire_count * abs(southPort.y_offset),
-                        ),
-                        southPort.io_direction,
-                    )
-                    augmentedSouthPorts.append(augmentedPort)
-                else:
-                    augmentedSouthPorts.append(southPort)
-            self.southPorts = augmentedSouthPorts
-
-            augmentedNorthPorts = []
-            for northPort in self.northPorts:
-                if abs(northPort.y_offset) > 1:
-                    augmentedPort = TilePort(
-                        replace(
-                            northPort.declaration,
-                            x_offset=0,
-                            y_offset=1,
-                            wire_count=northPort.wire_count * abs(northPort.y_offset),
-                        ),
-                        northPort.io_direction,
-                    )
-                    augmentedNorthPorts.append(augmentedPort)
-                else:
-                    augmentedNorthPorts.append(northPort)
-            self.northPorts = augmentedNorthPorts
-
-        if tileBorder == Border.EASTWEST or tileBorder == Border.CORNER:
-            augmentedEastPorts = []
-            for eastPort in self.eastPorts:
-                if abs(eastPort.x_offset) > 1:
-                    augmentedPort = TilePort(
-                        replace(
-                            eastPort.declaration,
-                            x_offset=1,
-                            y_offset=0,
-                            wire_count=eastPort.wire_count * abs(eastPort.x_offset),
-                        ),
-                        eastPort.io_direction,
-                    )
-                    augmentedEastPorts.append(augmentedPort)
-                else:
-                    augmentedEastPorts.append(eastPort)
-            self.eastPorts = augmentedEastPorts
-
-            augmentedWestPorts = []
-            for westPort in self.westPorts:
-                if abs(westPort.x_offset) > 1:
-                    augmentedPort = TilePort(
-                        replace(
-                            westPort.declaration,
-                            x_offset=1,
-                            y_offset=0,
-                            wire_count=westPort.wire_count * abs(westPort.x_offset),
-                        ),
-                        westPort.io_direction,
-                    )
-                    augmentedWestPorts.append(augmentedPort)
-                else:
-                    augmentedWestPorts.append(westPort)
-            self.westPorts = augmentedWestPorts
+        offset = SmGeometry._offset(sm_port)
+        declaration = sm_port.origin.declaration
+        staged = declaration.begin is not None and declaration.end is not None
+        return offset if staged or abs(offset) <= 1 else 1
 
     def generateGeometry(
         self, tile: Tile, tileBorder: Border, belGeoms: list[BelGeometry], padding: int
@@ -219,31 +143,40 @@ class SmGeometry:
         self.csv = tile.switch_matrix.matrix_file
 
         self.jump_wires = tile.jump_wires
-        self.northPorts = tile.getNorthSidePorts()
-        self.southPorts = tile.getSouthSidePorts()
-        self.eastPorts = tile.getEastSidePorts()
-        self.westPorts = tile.getWestSidePorts()
-        self.preprocessPorts(tileBorder)
+        routing = [
+            p for p in tile.switch_matrix.ports if isinstance(p.origin, TilePort)
+        ]
+        # Nearest neighbour first: the wire generation relies on this order.
+        self.ports = {
+            side: sorted(
+                (p for p in routing if p.origin.side_of_tile == side),
+                key=lambda p: abs(self._offset(p)),
+            )
+            for side in (Side.NORTH, Side.SOUTH, Side.EAST, Side.WEST)
+        }
 
-        # Counting the total number of wires for each direction
-        northWires = sum([port.wire_count for port in self.northPorts])
-        southWires = sum([port.wire_count for port in self.southPorts])
-        eastWires = sum([port.wire_count for port in self.eastPorts])
-        westWires = sum([port.wire_count for port in self.westPorts])
+        def wires(*sides: Side) -> int:
+            return sum(p.width for side in sides for p in self.ports[side])
+
+        def reserved(side: Side) -> int:
+            return sum(
+                abs(self._offset(p)) * p.origin.declaration.wire_count
+                for p in self.ports[side]
+            )
+
+        def stair_gap(*sides: Side) -> int:
+            return sum(
+                p.origin.declaration.wire_count
+                for side in sides
+                for p in self.ports[side]
+                if abs(self._offset(p)) > 1
+            )
+
         jumpWires = sum([wire.wire_count for wire in self.jump_wires])
-
-        self.northWiresReservedWidth = sum(
-            [abs(port.y_offset) * port.wire_count for port in self.northPorts]
-        )
-        self.southWiresReservedWidth = sum(
-            [abs(port.y_offset) * port.wire_count for port in self.southPorts]
-        )
-        self.eastWiresReservedHeight = sum(
-            [abs(port.x_offset) * port.wire_count for port in self.eastPorts]
-        )
-        self.westWiresReservedHeight = sum(
-            [abs(port.x_offset) * port.wire_count for port in self.westPorts]
-        )
+        self.northWiresReservedWidth = reserved(Side.NORTH)
+        self.southWiresReservedWidth = reserved(Side.SOUTH)
+        self.eastWiresReservedHeight = reserved(Side.EAST)
+        self.westWiresReservedHeight = reserved(Side.WEST)
 
         self.relX = (
             max(self.northWiresReservedWidth, self.southWiresReservedWidth)
@@ -257,35 +190,24 @@ class SmGeometry:
         if tileBorder == Border.NORTHSOUTH or tileBorder == Border.CORNER:
             portsGapWest = 0
         else:
-            portsGapWest = sum(
-                [
-                    port.wire_count
-                    for port in (self.northPorts + self.southPorts)
-                    if abs(port.y_offset) > 1
-                ]
-            )
-            portsGapWest += padding
+            portsGapWest = stair_gap(Side.NORTH, Side.SOUTH) + padding
 
         if tileBorder == Border.EASTWEST or tileBorder == Border.CORNER:
             portsGapSouth = 0
         else:
-            portsGapSouth = sum(
-                [
-                    port.wire_count
-                    for port in (self.eastPorts + self.westPorts)
-                    if abs(port.x_offset) > 1
-                ]
-            )
-            portsGapSouth += padding
+            portsGapSouth = stair_gap(Side.EAST, Side.WEST) + padding
 
         belsHeightTotal = sum([belGeom.height for belGeom in belGeoms])
         belPadding = padding // 2
         belsPaddingTotal = (len(belGeoms) + 1) * belPadding
         belsReservedSpace = belsHeightTotal + belsPaddingTotal
 
-        self.width = max(eastWires + westWires + portsGapSouth, jumpWires) + 2 * padding
+        self.width = (
+            max(wires(Side.EAST, Side.WEST) + portsGapSouth, jumpWires) + 2 * padding
+        )
         self.height = max(
-            southWires + northWires + portsGapWest + 2 * padding, belsReservedSpace
+            wires(Side.NORTH, Side.SOUTH) + portsGapWest + 2 * padding,
+            belsReservedSpace,
         )
         self.generatePortsGeometry(padding)
 
@@ -339,101 +261,37 @@ class SmGeometry:
                 self.portGeoms.append(portGeom)
                 jumpPortX += 1
 
-        northPortX = 0
-        northPortY = padding
-        for port in self.northPorts:
-            for i in range(port.wire_count):
-                portGeom = PortGeometry()
-                portGeom.generateGeometry(
-                    f"{port.name}{i}",
-                    f"{port.source_name}{i}",
-                    f"{port.destination_name}{i}",
-                    PortType.SWITCH_MATRIX,
-                    port.io_direction,
-                    northPortX,
-                    northPortY,
-                )
-                portGeom.side_of_tile = port.side_of_tile
-                portGeom.offset = port.y_offset
-                portGeom.wire_direction = port.wire_direction
-                portGeom.groupId = PortGeometry.nextId
-                portGeom.groupWires = port.wire_count
-
-                self.portGeoms.append(portGeom)
-                northPortY += 1
-            PortGeometry.nextId += 1
-
-        southPortX = 0
-        southPortY = self.height - padding
-        for port in self.southPorts:
-            for i in range(port.wire_count):
-                portGeom = PortGeometry()
-                portGeom.generateGeometry(
-                    f"{port.name}{i}",
-                    f"{port.source_name}{i}",
-                    f"{port.destination_name}{i}",
-                    PortType.SWITCH_MATRIX,
-                    port.io_direction,
-                    southPortX,
-                    southPortY,
-                )
-                portGeom.side_of_tile = port.side_of_tile
-                portGeom.offset = port.y_offset
-                portGeom.wire_direction = port.wire_direction
-                portGeom.groupId = PortGeometry.nextId
-                portGeom.groupWires = port.wire_count
-
-                self.portGeoms.append(portGeom)
-                southPortY -= 1
-            PortGeometry.nextId += 1
-
-        eastPortX = self.width - padding
-        eastPortY = self.height
-        for port in self.eastPorts:
-            for i in range(port.wire_count):
-                portGeom = PortGeometry()
-                portGeom.generateGeometry(
-                    f"{port.name}{i}",
-                    f"{port.source_name}{i}",
-                    f"{port.destination_name}{i}",
-                    PortType.SWITCH_MATRIX,
-                    port.io_direction,
-                    eastPortX,
-                    eastPortY,
-                )
-                portGeom.side_of_tile = port.side_of_tile
-                portGeom.offset = port.x_offset
-                portGeom.wire_direction = port.wire_direction
-                portGeom.groupId = PortGeometry.nextId
-                portGeom.groupWires = port.wire_count
-
-                self.portGeoms.append(portGeom)
-                eastPortX -= 1
-            PortGeometry.nextId += 1
-
-        westPortX = padding
-        westPortY = self.height
-        for port in self.westPorts:
-            for i in range(port.wire_count):
-                portGeom = PortGeometry()
-                portGeom.generateGeometry(
-                    f"{port.name}{i}",
-                    f"{port.source_name}{i}",
-                    f"{port.destination_name}{i}",
-                    PortType.SWITCH_MATRIX,
-                    port.io_direction,
-                    westPortX,
-                    westPortY,
-                )
-                portGeom.side_of_tile = port.side_of_tile
-                portGeom.offset = port.x_offset
-                portGeom.wire_direction = port.wire_direction
-                portGeom.groupId = PortGeometry.nextId
-                portGeom.groupWires = port.wire_count
-
-                self.portGeoms.append(portGeom)
-                westPortX += 1
-            PortGeometry.nextId += 1
+        # Start position and step of each side's ports along the matrix edge.
+        layout = {
+            Side.NORTH: (0, padding, 0, 1),
+            Side.SOUTH: (0, self.height - padding, 0, -1),
+            Side.EAST: (self.width - padding, self.height, -1, 0),
+            Side.WEST: (padding, self.height, 1, 0),
+        }
+        for side, (x, y, dx, dy) in layout.items():
+            for sm_port in self.ports[side]:
+                declaration = sm_port.origin.declaration
+                begin = declaration.begin or NULL_PORT_NAME
+                end = declaration.end or NULL_PORT_NAME
+                for i, pin in enumerate(sm_port.pins):
+                    portGeom = PortGeometry()
+                    portGeom.generateGeometry(
+                        pin.name(),
+                        f"{begin}{i}",
+                        f"{end}{i}",
+                        PortType.SWITCH_MATRIX,
+                        sm_port.io_direction,
+                        x,
+                        y,
+                    )
+                    portGeom.side_of_tile = side
+                    portGeom.offset = self.drawn_offset(sm_port)
+                    portGeom.wire_direction = declaration.direction
+                    portGeom.groupId = PortGeometry.nextId
+                    portGeom.groupWires = sm_port.width
+                    self.portGeoms.append(portGeom)
+                    x, y = x + dx, y + dy
+                PortGeometry.nextId += 1
 
     def generateBelPorts(self, belGeomList: list[BelGeometry]) -> None:
         """Generate port geometries for BEL connections to the switch matrix.

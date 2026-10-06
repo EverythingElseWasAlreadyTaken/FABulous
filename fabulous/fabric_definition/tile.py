@@ -361,16 +361,6 @@ class Tile:
             if p.wire_direction == Direction.WEST and p.io_direction == io
         ]
 
-    def getTileInputNames(self) -> list[str]:
-        """Get all input port destination names for the tile.
-
-        Returns
-        -------
-        list[str]
-            List of destination names for input ports.
-        """
-        return [p.destination_name for p in self.portsInfo if p.is_input]
-
     def getTileOutputNames(self) -> list[str]:
         """Get all output port source names for the tile.
 
