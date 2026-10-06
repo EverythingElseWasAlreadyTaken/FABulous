@@ -204,12 +204,14 @@ class Tile:
         reads the first `wire_count` bits of `N4END`. Every switch matrix port
         with an `origin` is joined to it at the module boundary: to the tile
         port's matrix-facing bits, to the BEL port or to the SJUMP port. A jump
-        wire loops a matrix output back into a matrix input.
+        wire loops a matrix output back into a matrix input, and a matrix output
+        with a single input is a hard wire inside the matrix.
 
         Returns
         -------
         list[FixedConnection[Pin]]
-            The connections: channel staging, matrix boundary, jump wires.
+            The connections: channel staging, matrix boundary, inside the
+            matrix, jump wires.
         """
         ports = {(p.declaration, p.io_direction): p for p in self.portsInfo}
         connections = []
@@ -235,6 +237,7 @@ class Tile:
             else:
                 pairs = zip(outer, sm_port.pins, strict=True)
             connections += [FixedConnection(src, dst, sm_port) for src, dst in pairs]
+        connections += self.switch_matrix.fixed_connections
         for jump in self.jump_wires:
             if jump.source is None or jump.destination is None:
                 continue

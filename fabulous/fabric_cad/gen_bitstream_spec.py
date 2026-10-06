@@ -171,29 +171,11 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
                             ] = {encodeDict[curBitOffset + v]: keyDict[entry][v]}
                         curBitOffset += len(keyDict[entry])
 
-            # A pip is named by its wires, as in the nextpnr model.
-            for mux_out, mux_ins in tile.switch_matrix.connections.items():
-                source = mux_out.full_name()
-                sinkList = [pin.full_name() for pin in mux_ins]
-                controlWidth = 0
-                for i, sink in enumerate(reversed(sinkList)):
-                    controlWidth = (len(sinkList) - 1).bit_length()
-                    controlValue = f"{len(sinkList) - 1 - i:0{controlWidth}b}"
-                    pip = f"{sink}.{source}"
-                    if len(sinkList) < 2:
-                        curTileMap[pip] = {}
-                        curTileMapNoMask[pip] = {}
-                        continue
-
-                    for c, curChar in enumerate(controlValue[::-1]):
-                        if pip not in curTileMap:
-                            curTileMap[pip] = {}
-                            curTileMapNoMask[pip] = {}
-
-                        curTileMap[pip][encodeDict[curBitOffset + c]] = curChar
-                        curTileMapNoMask[pip][encodeDict[curBitOffset + c]] = curChar
-
-                curBitOffset += controlWidth
+            # The switch matrix's config bits follow the BEL bits.
+            for pip in tile.switch_matrix.pips:
+                bits = {encodeDict[curBitOffset + o]: v for o, v in pip.bits}
+                curTileMap[pip.feature] = bits
+                curTileMapNoMask[pip.feature] = dict(bits)
 
             specData["TileSpecs"][f"X{x}Y{y}"] = curTileMap
             specData["TileSpecs_No_Mask"][f"X{x}Y{y}"] = curTileMapNoMask
@@ -201,10 +183,9 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
     # Fixed connections get an empty bit mapping in the tile they start in, as
     # nextpnr sees them as pips.
     for connection in fabric.fixed_connections():
-        (src_at, src), (_, dst) = connection.source, connection.sink
-        pip = f"{src.full_name()}.{dst.full_name()}"
+        src_at = connection.source[0]
         for key in ("TileSpecs", "TileSpecs_No_Mask"):
-            specData[key][f"X{src_at.x}Y{src_at.y}"][pip] = {}
+            specData[key][f"X{src_at.x}Y{src_at.y}"][connection.feature] = {}
 
     # Supertile bitstream features. A supertile's config bits physically live in
     # its master tile's frame column (the master tile's own ConfigMem leaves those
@@ -236,14 +217,10 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
                             fabric.frameBitsPerRow - 1 - i
                         ) + fabric.frameBitsPerRow * cfm.frameIndex
 
-        # A pip is named by its wires, as in the nextpnr model; the SJUMP
-        # wires are fixed connections, mapped with the tiles above.
-        sm_connections: dict[str, list[str]] = {}
-        if super_tile.switch_matrix is not None:
-            sm_connections = {
-                out.full_name(): [pin.full_name() for pin in ins]
-                for out, ins in super_tile.switch_matrix.connections.items()
-            }
+        # The SJUMP wires and single-input matrix outputs are fixed
+        # connections, mapped with the tiles above.
+        muxes = super_tile.switch_matrix.muxes if super_tile.switch_matrix else ()
+        pips = super_tile.switch_matrix.pips if super_tile.switch_matrix else ()
 
         for placement in fabric.super_tile_instances:
             if placement.super_tile is not super_tile:
@@ -264,27 +241,16 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
                 f"X{ftx}Y{fty}", {}
             )
 
-            curBitOffset = 0
-            for source, sinkList in sm_connections.items():
-                controlWidth = (len(sinkList) - 1).bit_length()
-                if st_config_bits == 0:
-                    # No config bits — all connections are passthrough.
-                    for sink in sinkList:
-                        for t in (curTileMap, curTileMapNoMask):
-                            t[f"{sink}.{source}"] = {}
-                    continue
-                for i, sink in enumerate(reversed(sinkList)):
-                    pip = f"{sink}.{source}"
-                    if len(sinkList) < 2:
-                        for t in (curTileMap, curTileMapNoMask):
-                            t[pip] = {}
-                        continue
-                    controlValue = f"{len(sinkList) - 1 - i:0{controlWidth}b}"
-                    for c, curChar in enumerate(controlValue[::-1]):
-                        for t in (curTileMap, curTileMapNoMask):
-                            t.setdefault(pip, {})
-                            t[pip][st_encode_dict[curBitOffset + c]] = curChar
-                curBitOffset += controlWidth
+            # The switch matrix's config bits come first, then the BEL bits.
+            # Without config bits every pip is a passthrough.
+            for pip in pips:
+                for t in (curTileMap, curTileMapNoMask):
+                    t[pip.feature] = (
+                        {}
+                        if st_config_bits == 0
+                        else {st_encode_dict[o]: v for o, v in pip.bits}
+                    )
+            curBitOffset = 0 if st_config_bits == 0 else sum(m.width for m in muxes)
 
             bel_coord = (ftx, fty)
             bel_offset = len(master_tile.bels) + st_bel_count.get(bel_coord, 0)

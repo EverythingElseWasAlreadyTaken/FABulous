@@ -356,8 +356,9 @@ class TestGenBitstreamSpecSupertileMux:
         # bits of its own.
         top_mat = tmp_path / "DSP_top_switch_matrix.csv"
         bot_mat = tmp_path / "DSP_bot_switch_matrix.csv"
-        top_mat.write_text("DSP_top\n")
-        bot_mat.write_text("DSP_bot\n")
+        # Each child matrix drives its SJUMP output (from a constant).
+        top_mat.write_text("DSP_top,GND0\ntop2bot0,1\ntop2bot1,1\n")
+        bot_mat.write_text("DSP_bot,GND0\nA0,1\n")
 
         # Supertile matrix: one 4-input multiplexed connection feeding the BEL
         # input SUPER_A0. "<destination>,[<sources>]" -> 2 mux-select bits.

@@ -277,12 +277,13 @@ class SuperTile:
         Every matrix port with an `origin` is joined to it: to a supertile BEL
         port, at the master tile where the matrix and BELs sit, or to a child
         tile's SJUMP port, at that child's `tileMap` position. The wrapper
-        signal between them is not a node of its own.
+        signal between them is not a node of its own. A matrix output with a
+        single input is a hard wire inside the matrix, at the master.
 
         Returns
         -------
         list[FixedConnection[LocalPin]]
-            The connections, in matrix port order.
+            The connections: the boundary in matrix port order, then inside.
         """
         if self.switch_matrix is None:
             return []
@@ -298,6 +299,10 @@ class SuperTile:
                 ends = ((master, sm_pin), (at, pin))
                 source, sink = ends if sm_port.is_output else ends[::-1]
                 connections.append(FixedConnection(source, sink, sm_port))
+        connections += [
+            FixedConnection((master, c.source), (master, c.sink), c.declaration)
+            for c in self.switch_matrix.fixed_connections
+        ]
         return connections
 
     @property

@@ -239,6 +239,8 @@ def _write_matrix(path: Path, sources: list[str]) -> None:
     lines = [f"{_TILE_NAME}," + ",".join(_DESTS)]
     for source in sources:
         lines.append(f"{source}," + ",".join(["1"] * len(_DESTS)))
+    # The jump wires' sources are matrix outputs too, so they need a driver.
+    lines += ["W_A0,1,0", "W_C0,1,0"]
     path.write_text("\n".join(lines) + "\n")
 
 
