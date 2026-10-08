@@ -16,11 +16,16 @@ optimisation pipeline, so any drift in their semantics propagates silently.
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
 from pytest_mock import MockerFixture
 
-from fabulous.fabric_definition.define import Side
+from fabulous.fabric_definition.bel import Bel
+from fabulous.fabric_definition.define import IO, Side
+from fabulous.fabric_definition.port import BelConfigPort
 from fabulous.fabric_definition.supertile import SuperTile
+from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
+from tests.conftest import make_muladd_bel
 from tests.fabric_definition.conftest import make_empty_tile, make_side_port
 
 
@@ -201,3 +206,49 @@ class TestSuperTileMinDieArea:
         )
         assert w == Decimal("4.0")
         assert h == Decimal("1.0")
+
+
+def _configurable_bels(*bits: int) -> list[Bel]:
+    """BELs with the given config bit counts (0: no config port)."""
+    return [
+        make_muladd_bel(
+            [],
+            prefix=f"B{i}_",
+            config_port=BelConfigPort("ConfigBits", IO.INPUT, n, {}) if n else None,
+        )
+        for i, n in enumerate(bits)
+    ]
+
+
+class TestConfigBitRanges:
+    """Where each BEL and switch matrix sits in the (supertile) ConfigBits."""
+
+    def test_tile_puts_the_bels_first(self) -> None:
+        tile = make_empty_tile("T", config_bits=5)
+        bels = _configurable_bels(3, 0, 2)
+        tile.add_bels(bels)
+
+        assert tile.config_bit_ranges == {
+            bels[0]: range(3),
+            bels[1]: range(3, 3),
+            bels[2]: range(3, 5),
+            tile.switch_matrix: range(5, 10),
+        }
+
+    @pytest.mark.parametrize("matrix_bits", [None, 4], ids=["no matrix", "hdl"])
+    def test_supertile_puts_the_matrix_first(self, matrix_bits: int | None) -> None:
+        """A hand-written matrix's declared bits come before the BELs too."""
+        t = make_empty_tile("T")
+        bels = _configurable_bels(3, 2)
+        matrix = None
+        if matrix_bits is not None:
+            matrix = SwitchMatrix(Path("ST.v"), (), {}, "ST", hdl_config_bits=4)
+        st = SuperTile("ST", Path(), [t], [[t]], bels, matrix)
+
+        start = matrix_bits or 0
+        expected = {} if matrix is None else {matrix: range(start)}
+        expected |= {
+            bels[0]: range(start, start + 3),
+            bels[1]: range(start + 3, start + 5),
+        }
+        assert st.config_bit_ranges == expected

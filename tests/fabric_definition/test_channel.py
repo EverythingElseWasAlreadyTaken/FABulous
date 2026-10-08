@@ -9,15 +9,17 @@ import pytest
 
 from fabulous.custom_exception import InvalidFabricDefinition
 from fabulous.fabric_cad.gen_bitstream_spec import generate_bitstream_spec
+from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.channel import (
     ChannelDeclaration,
     RoutingChannel,
     resolve_channels,
 )
 from fabulous.fabric_definition.configmem import empty_config_mem
-from fabulous.fabric_definition.define import IO, Direction
+from fabulous.fabric_definition.define import IO, BelPortKind, Direction
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.instance import TileInstance
+from fabulous.fabric_definition.port import BelPort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix, switch_matrix_ports
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.parser.parse_csv import parse_port_line
@@ -210,3 +212,55 @@ class TestRoutingChannelProblems:
         self._column(make_fabric, [None, "BOT"])
 
         assert "has nothing receiving it at X0Y0" in caplog.text
+
+    def test_signal_names_the_tile_rtl_signal(self) -> None:
+        """A hard wire is the signal of its tile port, BEL pin or jump source."""
+        ports, _ = parse_port_line("NORTH,A,0,-2,B,1")
+        jumps = [parse_port_line("JUMP,J_BEG,0,0,J_END,1")[1]]
+        bel = make_muladd_bel([("I0", IO.INPUT), ("O0", IO.OUTPUT)])
+        tile = Tile(
+            name="T",
+            ports=ports,
+            bels=[bel],
+            tileDir=Path(),
+            switch_matrix=SwitchMatrix(
+                Path(), switch_matrix_ports(ports, [bel], jumps), {}, "T"
+            ),
+            config_mem=empty_config_mem(Path("ConfigMem.csv")),
+            gen_ios=[],
+            pinOrderConfig={},
+            jump_wires=jumps,
+        )
+        staging, *wires = tile.fixed_connections
+
+        assert [c.signal for c in wires] == ["A[1]", "B[0]", "I0", "O0", "J_BEG[0]"]
+        with pytest.raises(ValueError, match="buffer cells"):
+            _ = staging.signal
+        placed = TileInstance(0, 0, tile).fixed_connections[1]
+        with pytest.raises(TypeError, match="not inside a tile"):
+            _ = placed.signal
+
+    def test_bel_external_ports_wire_external_bel_ports_out(self) -> None:
+        """An EXTERNAL BEL port is wired to a tile-module port named like it."""
+
+        def io_bel() -> Bel:
+            ports = [
+                BelPort("O_top", IO.OUTPUT, 1, BelPortKind.EXTERNAL, prefix="A_"),
+                BelPort("C", IO.INPUT, 2, BelPortKind.EXTERNAL, prefix="A_"),
+            ]
+            return Bel(Path("IO.v"), "A_", "IO", ports)
+
+        tile = make_empty_tile("T")
+        tile.add_bels([io_bel()])
+
+        assert [p.name for p in tile.bel_external_ports] == ["A_C", "A_O_top"]
+        assert [
+            (c.source.full_name(), c.sink.full_name(), c.signal)
+            for c in tile.fixed_connections
+        ] == [
+            ("A_C0", "Inst_A_IO__C0", "A_C0"),
+            ("A_C1", "Inst_A_IO__C1", "A_C1"),
+            ("Inst_A_IO__O_top", "A_O_top", "A_O_top"),
+        ]
+        with pytest.raises(RuntimeError, match="already derived"):
+            tile.add_bels([io_bel()])

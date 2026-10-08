@@ -7,7 +7,7 @@ functionalities into a single, reusable block.
 """
 
 from collections.abc import Generator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from functools import cached_property
 from pathlib import Path
@@ -322,7 +322,7 @@ class SuperTile:
                 source, sink = ends if sm_port.is_output else ends[::-1]
                 connections.append(FixedConnection(source, sink, sm_port))
         connections += [
-            FixedConnection((master, c.source), (master, c.sink), c.declaration)
+            replace(c, source=(master, c.source), sink=(master, c.sink))
             for c in self.switch_matrix.fixed_connections
         ]
         return connections
@@ -331,6 +331,29 @@ class SuperTile:
     def total_config_bits(self) -> int:
         """Return the supertile's config bits: switch matrix bits plus BEL bits."""
         return self.supertile_matrix_config_bits + sum(b.configBit for b in self.bels)
+
+    @property
+    def config_bit_ranges(self) -> dict[Bel | SwitchMatrix, range]:
+        """Where each configurable element's bits sit in the `ST_ConfigBits`.
+
+        The switch matrix first (if any), then the BELs in order. The supertile
+        RTL slices `ST_ConfigBits` and the bitstream spec places the features
+        by these ranges.
+
+        Returns
+        -------
+        dict[Bel | SwitchMatrix, range]
+            The range of the switch matrix and of each BEL.
+        """
+        ranges: dict[Bel | SwitchMatrix, range] = {}
+        start = 0
+        if self.switch_matrix is not None:
+            start = self.switch_matrix.no_config_bits
+            ranges[self.switch_matrix] = range(start)
+        for bel in self.bels:
+            ranges[bel] = range(start, start + bel.configBit)
+            start += bel.configBit
+        return ranges
 
     @property
     def supertile_matrix_dir(self) -> Path | None:

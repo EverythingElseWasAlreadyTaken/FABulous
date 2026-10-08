@@ -13,6 +13,7 @@ from loguru import logger
 from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.define import ConfigBitMode
 from fabulous.fabric_definition.fabric import Fabric
+from fabulous.fabric_definition.port import BelExternalPort
 
 
 def border_rows_have_config_bits(fabric: Fabric) -> bool:
@@ -149,11 +150,12 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
                     for frame in memory.frames
                 }
 
-            bit_offset = 0
             tile_specs = {}
             tile_specs_no_mask = {}
+            config_bit_ranges = tile.config_bit_ranges
 
             for i, bel in enumerate(tile.bels):
+                bit_offset = config_bit_ranges[bel].start
                 for feature, feature_bits in bel.belFeatureMap.items():
                     for entry in (k for k in feature_bits if isinstance(k, int)):
                         for v in feature_bits[entry]:
@@ -165,9 +167,9 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
                             ] = {positions[bit_offset + v]: feature_bits[entry][v]}
                         bit_offset += len(feature_bits[entry])
 
-            # The switch matrix's config bits follow the BEL bits.
+            sm_start = config_bit_ranges[tile.switch_matrix].start
             for pip in tile.switch_matrix.pips:
-                bits = {positions[bit_offset + o]: v for o, v in pip.bits}
+                bits = {positions[sm_start + o]: v for o, v in pip.bits}
                 tile_specs[pip.feature] = bits
                 tile_specs_no_mask[pip.feature] = dict(bits)
 
@@ -175,18 +177,21 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
             spec_data["TileSpecs_No_Mask"][f"X{x}Y{y}"] = tile_specs_no_mask
 
     # Fixed connections get an empty bit mapping in the tile they start in, as
-    # nextpnr sees them as pips.
+    # nextpnr sees them as pips (all but the BEL EXTERNAL ports, see
+    # gen_npnr_model).
     for connection in fabric.fixed_connections():
+        if isinstance(connection.declaration, BelExternalPort):
+            continue
         src_at = connection.source[0]
         for key in ("TileSpecs", "TileSpecs_No_Mask"):
             spec_data[key][f"X{src_at.x}Y{src_at.y}"][connection.feature] = {}
 
     # Supertile bitstream features. A supertile's config bits physically live in
     # its master tile's frame column (the master tile's own ConfigMem leaves those
-    # bits free). Within the supertile config space the bit order is
-    # [switch-matrix bits][BEL bits], matching genSuperTile()'s ST_ConfigBits
-    # slicing. The BEL and switch-matrix features are added to the master tile's
-    # TileSpecs entry alongside the master tile's own features.
+    # bits free). Within the supertile config space the elements sit at their
+    # `config_bit_ranges`, as the supertile RTL slices ST_ConfigBits. The BEL
+    # and switch-matrix features are added to the master tile's TileSpecs entry
+    # alongside the master tile's own features.
     st_bel_count: dict[tuple[int, int], int] = {}
     for super_tile in fabric.superTileDic.values():
         if not super_tile.bels and super_tile.supertile_matrix_dir is None:
@@ -217,8 +222,13 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
 
         # The SJUMP wires and single-input matrix outputs are fixed
         # connections, mapped with the tiles above.
-        muxes = super_tile.switch_matrix.muxes if super_tile.switch_matrix else ()
+        config_bit_ranges = super_tile.config_bit_ranges
         pips = super_tile.switch_matrix.pips if super_tile.switch_matrix else ()
+        sm_start = (
+            config_bit_ranges[super_tile.switch_matrix].start
+            if super_tile.switch_matrix
+            else 0
+        )
 
         for placement in fabric.super_tile_instances:
             if placement.super_tile is not super_tile:
@@ -239,21 +249,20 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
                 f"X{ftx}Y{fty}", {}
             )
 
-            # The switch matrix's config bits come first, then the BEL bits.
             # Without config bits every pip is a passthrough.
             for pip in pips:
                 for t in (tile_specs, tile_specs_no_mask):
                     t[pip.feature] = (
                         {}
                         if st_config_bits == 0
-                        else {st_positions[o]: v for o, v in pip.bits}
+                        else {st_positions[sm_start + o]: v for o, v in pip.bits}
                     )
-            bit_offset = 0 if st_config_bits == 0 else sum(m.width for m in muxes)
 
             bel_coord = (ftx, fty)
             bel_offset = len(master_tile.bels) + st_bel_count.get(bel_coord, 0)
             for i, bel in enumerate(super_tile.bels):
                 letter = string.ascii_uppercase[bel_offset + i]
+                bit_offset = config_bit_ranges[bel].start
                 for feature, feature_bits in bel.belFeatureMap.items():
                     for entry in feature_bits:
                         if not isinstance(entry, int):

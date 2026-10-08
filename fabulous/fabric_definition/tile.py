@@ -11,12 +11,15 @@ from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.connection import FixedConnection
 from fabulous.fabric_definition.define import (
     IO,
+    BelPortKind,
     Direction,
     PinSortMode,
     Side,
 )
+from fabulous.fabric_definition.fabric_cell_library import FabricCellFunction
 from fabulous.fabric_definition.gen_io import Gen_IO
 from fabulous.fabric_definition.port import (
+    BelExternalPort,
     Pin,
     SJumpPort,
     TilePort,
@@ -183,7 +186,19 @@ class Tile:
         ----------
         bels : list[Bel]
             The BELs, appended in order.
+
+        Raises
+        ------
+        RuntimeError
+            If the tile's connections are already derived from its BELs.
         """
+        # The hard wires are derived from the BELs once; a BEL added later
+        # would silently be missing from them.
+        if {"fixed_connections", "bel_external_ports"} & self.__dict__.keys():
+            raise RuntimeError(
+                f"Cannot add BELs to tile {self.name}: its connections are "
+                "already derived from its BELs."
+            )
         for bel in bels:
             bel.owner = self
         self.bels += bels
@@ -231,23 +246,41 @@ class Tile:
         return any(bel.withUserCLK for bel in self.bels)
 
     @cached_property
+    def bel_external_ports(self) -> tuple[BelExternalPort, ...]:
+        """The tile-module ports exporting the BELs' `EXTERNAL` ports.
+
+        Returns
+        -------
+        tuple[BelExternalPort, ...]
+            BEL by BEL, inputs then outputs, as the tile RTL declares them.
+        """
+        return tuple(
+            BelExternalPort(port)
+            for bel in self.bels
+            for io in (IO.INPUT, IO.OUTPUT)
+            for port in bel.get_ports(BelPortKind.EXTERNAL, io)
+        )
+
+    @cached_property
     def fixed_connections(self) -> list[FixedConnection[Pin]]:
         """The hard wires inside the tile.
 
         A routing channel line naming both ends stages its bits through the
-        tile as the RTL does: `N4BEG[i]` is driven by `N4END[i + wire_count]`,
-        and the switch matrix drives the last `wire_count` bits of `N4BEG` and
-        reads the first `wire_count` bits of `N4END`. Every switch matrix port
+        tile as the RTL does: `N4BEG[i]` is driven by `N4END[i + wire_count]`
+        through a buffer at the tile entry and one at the exit, and the switch
+        matrix drives the last `wire_count` bits of `N4BEG` and reads the first
+        `wire_count` bits of `N4END`. Every switch matrix port
         with an `origin` is joined to it at the module boundary: to the tile
         port's matrix-facing bits, to the BEL port or to the SJUMP port. A jump
         wire loops a matrix output back into a matrix input, and a matrix output
-        with a single input is a hard wire inside the matrix.
+        with a single input is a hard wire inside the matrix. A BEL's
+        `EXTERNAL` port is wired to the tile-module port exporting it.
 
         Returns
         -------
         list[FixedConnection[Pin]]
             The connections: channel staging, matrix boundary, inside the
-            matrix, jump wires.
+            matrix, jump wires, BEL external ports.
         """
         ports = {(p.declaration, p.io_direction): p for p in self.portsInfo}
         connections = []
@@ -257,7 +290,12 @@ class Tile:
             into = ports[(declaration, IO.INPUT)]
             count = declaration.wire_count
             connections += [
-                FixedConnection(into[i + count], out[i], declaration)
+                FixedConnection(
+                    into[i + count],
+                    out[i],
+                    declaration,
+                    (FabricCellFunction.BUFFER, FabricCellFunction.BUFFER),
+                )
                 for i in range(out.width - count)
             ]
         for sm_port in self.switch_matrix.ports:
@@ -279,6 +317,11 @@ class Tile:
                 continue
             pairs = zip(jump.source.pins, jump.destination.pins, strict=True)
             connections += [FixedConnection(src, dst, jump) for src, dst in pairs]
+        for external in self.bel_external_ports:
+            pairs = zip(external.bel_port.pins, external.pins, strict=True)
+            for bel_pin, pin in pairs:
+                source, sink = (pin, bel_pin) if external.is_input else (bel_pin, pin)
+                connections.append(FixedConnection(source, sink, external))
         return connections
 
     def getWestSidePorts(self) -> list[TilePort]:
@@ -417,6 +460,27 @@ class Tile:
             What `tile_directory` returns for this tile.
         """
         return tile_directory(self.name, self.tileDir, self.switch_matrix.matrix_file)
+
+    @property
+    def config_bit_ranges(self) -> dict[Bel | SwitchMatrix, range]:
+        """Where each configurable element's bits sit in the tile's `ConfigBits`.
+
+        The BELs in order, then the switch matrix. The tile RTL slices
+        `ConfigBits` and the bitstream spec places the features by these ranges.
+
+        Returns
+        -------
+        dict[Bel | SwitchMatrix, range]
+            The range of each BEL and of the switch matrix.
+        """
+        ranges: dict[Bel | SwitchMatrix, range] = {}
+        start = 0
+        for bel in self.bels:
+            ranges[bel] = range(start, start + bel.configBit)
+            start += bel.configBit
+        sm_bits = self.switch_matrix.no_config_bits
+        ranges[self.switch_matrix] = range(start, start + sm_bits)
+        return ranges
 
     @property
     def globalConfigBits(self) -> int:

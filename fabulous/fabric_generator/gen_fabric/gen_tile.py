@@ -431,7 +431,7 @@ def generateTile(
         writer.addComment("BEL component instantiations", onNewLine=True)
 
     belCounter = 0
-    belConfigBitsCounter = 0
+    config_bit_ranges = tile.config_bit_ranges
     for bel in tile.bels:
         ports_pairs = []
         portList = []
@@ -457,11 +457,11 @@ def generateTile(
 
         if config_bit_mode == ConfigBitMode.FRAME_BASED:
             if bel.config_port is not None:
+                bits = config_bit_ranges[bel]
                 ports_pairs.append(
                     (
                         bel.config_port.name,
-                        f"ConfigBits[{belConfigBitsCounter + bel.configBit}-1:"
-                        f"{belConfigBitsCounter}]",
+                        f"ConfigBits[{bits.stop}-1:{bits.start}]",
                     )
                 )
         elif config_bit_mode == ConfigBitMode.FLIPFLOP_CHAIN:
@@ -478,7 +478,6 @@ def generateTile(
 
         # FIXME: Why is the belCounter increased here by 2 and afterwards by 1?
         belCounter += 2
-        belConfigBitsCounter += bel.configBit
 
         # for the next BEL (if any) for cascading configuration chain
         # (this information is also needed for chaining the switch matrix)
@@ -555,17 +554,10 @@ def generateTile(
         ports_pairs.append(("CLK", "CLK"))
 
     if config_bit_mode == ConfigBitMode.FRAME_BASED and tile.globalConfigBits > 0:
+        bits = config_bit_ranges[tile.switch_matrix]
+        ports_pairs.append(("ConfigBits", f"ConfigBits[{bits.stop}-1:{bits.start}]"))
         ports_pairs.append(
-            (
-                "ConfigBits",
-                f"ConfigBits[{tile.globalConfigBits}-1:{belConfigBitsCounter}]",
-            )
-        )
-        ports_pairs.append(
-            (
-                "ConfigBits_N",
-                f"ConfigBits_N[{tile.globalConfigBits}-1:{belConfigBitsCounter}]",
-            )
+            ("ConfigBits_N", f"ConfigBits_N[{bits.stop}-1:{bits.start}]")
         )
 
     writer.addInstantiation(
@@ -1058,17 +1050,12 @@ def generateSuperTile(
             superTile.supertile_matrix_config_bits > 0
             and config_bit_mode == ConfigBitMode.FRAME_BASED
         ):
+            bits = superTile.config_bit_ranges[superTile.switch_matrix]
             sm_ports_pairs.append(
-                (
-                    "ConfigBits",
-                    f"ST_ConfigBits[{superTile.supertile_matrix_config_bits}-1:0]",
-                )
+                ("ConfigBits", f"ST_ConfigBits[{bits.stop}-1:{bits.start}]")
             )
             sm_ports_pairs.append(
-                (
-                    "ConfigBits_N",
-                    f"ST_ConfigBits_N[{superTile.supertile_matrix_config_bits}-1:0]",
-                )
+                ("ConfigBits_N", f"ST_ConfigBits_N[{bits.stop}-1:{bits.start}]")
             )
         writer.addInstantiation(
             compName=superTile.switch_matrix.module_name,
@@ -1077,7 +1064,7 @@ def generateSuperTile(
         )
 
     # Instantiate supertile BELs
-    st_bel_config_offset = superTile.supertile_matrix_config_bits
+    config_bit_ranges = superTile.config_bit_ranges
     for bel in superTile.bels:
         # The signals are the supertile SM outputs / BEL inputs.
         bel_ports_pairs = _bel_bus_pairs(bel)
@@ -1092,14 +1079,10 @@ def generateSuperTile(
                 bel_user_clk = f"Tile_X{mx}Y{my}_UserCLK"
             bel_ports_pairs.append(("UserCLK", bel_user_clk))
         if bel.config_port is not None and config_bit_mode == ConfigBitMode.FRAME_BASED:
+            bits = config_bit_ranges[bel]
             bel_ports_pairs.append(
-                (
-                    bel.config_port.name,
-                    f"ST_ConfigBits[{st_bel_config_offset + bel.configBit}"
-                    f"-1:{st_bel_config_offset}]",
-                )
+                (bel.config_port.name, f"ST_ConfigBits[{bits.stop}-1:{bits.start}]")
             )
-        st_bel_config_offset += bel.configBit
         writer.addInstantiation(
             compName=bel.name,
             compInsName=bel.instance_name,

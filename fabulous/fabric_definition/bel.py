@@ -18,7 +18,8 @@ if TYPE_CHECKING:
     from fabulous.fabric_definition.tile import Tile
 
 
-@dataclass
+# Compared by identity, like ports: a BEL is one object of the model.
+@dataclass(eq=False)
 class Bel:
     """Information about a single BEL.
 

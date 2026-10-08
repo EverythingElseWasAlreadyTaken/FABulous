@@ -752,6 +752,56 @@ class BelPort(Port):
         }
 
 
+class BelExternalPort(Port):
+    """A tile-module port exporting a BEL's `EXTERNAL` port out of the tile.
+
+    It mirrors the BEL port: same name, direction and width, and its pins carry
+    the BEL pins' flat names (`A_O_top`, `C_bit0`), which the tile RTL declares
+    as scalar module ports. It is a port of the tile module, not of the BEL, so
+    it refers to its `BelPort` instead of being one.
+
+    Parameters
+    ----------
+    bel_port : BelPort
+        The exported BEL port.
+    """
+
+    _bel_port: BelPort
+
+    def __init__(self, bel_port: BelPort) -> None:
+        super().__init__(bel_port.name, bel_port.io_direction, bel_port.width)
+        self._bel_port = bel_port
+
+    @property
+    def bel_port(self) -> BelPort:
+        """The exported BEL port."""
+        return self._bel_port
+
+    def pin_name(self, index: int, indexed: bool = False, prefix: str = "") -> str:
+        """Return the HDL wire name of bit `index`: the BEL pin's.
+
+        Parameters
+        ----------
+        index : int
+            The bit index.
+        indexed : bool, optional
+            Bracket notation when True, by default False.
+        prefix : str, optional
+            A prefix to prepend, by default "".
+
+        Returns
+        -------
+        str
+            The wire name.
+        """
+        return self._bel_port.pin_name(index, indexed, prefix)
+
+    def __repr__(self) -> str:
+        """Return a string representation of the BelExternalPort."""
+        io, msb = self.io_direction.value, self.width - 1
+        return f"BelExternalPort({io} {self.name}[{msb}:0])"
+
+
 class ConfigPort(Port):
     """A port that carries configuration bits into a generated module.
 

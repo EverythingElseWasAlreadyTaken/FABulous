@@ -13,7 +13,7 @@
       "type": "string"
     },
     "CellSpec": {
-      "description": "A standard cell and the ports a cell-mapping tool needs to use it.\n\n``cell`` is the standard-cell name; ``input_ports`` and ``output_ports`` list\nits ports (a buffer has one of each, a tie cell only an output, and cells\nwith several inputs/outputs list them all). Add further fields -- drive\nstrength, area, ... -- as more cell metadata is needed.",
+      "description": "A cell and its ports.\n\n``cell`` is the module name, a PDK standard cell or a fabric cell;\n``input_ports`` and ``output_ports`` list its ports (a buffer has one of\neach, a tie cell only an output, and cells with several inputs/outputs list\nthem all). Add further fields -- drive strength, area, ... -- as more cell\nmetadata is needed.",
       "properties": {
         "cell": {
           "title": "Cell",

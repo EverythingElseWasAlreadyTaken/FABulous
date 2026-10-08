@@ -167,7 +167,8 @@ class Mux:
         return tuple((self.offset + i, v) for i, v in enumerate(values))
 
 
-@dataclass(frozen=True)
+# Compared by identity, like ports: a matrix is one object of the model.
+@dataclass(frozen=True, eq=False)
 class SwitchMatrix:
     """Encapsulates a tile's switch matrix: its ports and their connectivity.
 
@@ -180,8 +181,8 @@ class SwitchMatrix:
         Source file for the switch matrix (`.csv`, `.list`, or hand-written
         HDL).
     ports : tuple[SwitchMatrixPort, ...]
-        The matrix module's ports in canonical order (`switch_matrix_ports`).
-        Empty for hand-written HDL.
+        The matrix module's ports in canonical order (`switch_matrix_ports`),
+        for hand-written HDL too.
     connections : dict[Pin, tuple[Pin, ...]]
         Mux output pin -> its mux input pins. Every mux output pin has an
         entry, possibly empty. Empty for hand-written HDL.
@@ -319,8 +320,8 @@ class SwitchMatrix:
         `preserve_list_order`). A `.csv` is authored in its final order and
         kept as is. Every name in the file is resolved to a pin of `ports`; an
         unknown name raises. Hand-written HDL (`.v`/`.sv`/`.vhdl`/
-        `.vhd`) is an escape hatch: only its `NumberOfConfigBits` is read and
-        the ports and connectivity are left empty.
+        `.vhd`) is an escape hatch: it gets `ports` like any matrix, but only
+        its `NumberOfConfigBits` is read and the connectivity is left empty.
 
         Parameters
         ----------
@@ -375,16 +376,17 @@ class SwitchMatrix:
             case ".v" | ".sv" | ".vhdl" | ".vhd":
                 logger.warning(
                     f"Switch matrix for tile {tile_name!r} is read from HDL "
-                    f"{path.name}: only NumberOfConfigBits is extracted - the "
-                    "connectivity is NOT parsed. This tile therefore contributes "
-                    "no tile-internal pips to the nextpnr model and no switch-"
-                    "matrix bit mapping to the bitstream (its config bits are "
-                    "still reserved). nextpnr cannot route through it; you are "
-                    "responsible for ensuring the HDL matches the fabric's ports."
+                    f"{path.name}: its ports are taken from the tile and only "
+                    "NumberOfConfigBits is extracted - the connectivity is NOT "
+                    "parsed. This tile therefore contributes no tile-internal "
+                    "pips to the nextpnr model and no switch-matrix bit mapping "
+                    "to the bitstream (its config bits are still reserved). "
+                    "nextpnr cannot route through it; you are responsible for "
+                    "ensuring the HDL matches the tile's switch matrix ports."
                 )
                 return cls(
                     matrix_file=path,
-                    ports=(),
+                    ports=tuple(ports),
                     connections={},
                     name=tile_name,
                     preserve_list_order=preserve_list_order,
