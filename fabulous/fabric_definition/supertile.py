@@ -7,7 +7,7 @@ functionalities into a single, reusable block.
 """
 
 from collections.abc import Generator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from functools import cached_property
 from pathlib import Path
@@ -300,7 +300,7 @@ class SuperTile:
                 source, sink = ends if sm_port.is_output else ends[::-1]
                 connections.append(FixedConnection(source, sink, sm_port))
         connections += [
-            FixedConnection((master, c.source), (master, c.sink), c.declaration)
+            replace(c, source=(master, c.source), sink=(master, c.sink))
             for c in self.switch_matrix.fixed_connections
         ]
         return connections

@@ -8,12 +8,11 @@ Instances compare by identity.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from fabulous.fabric_definition.connection import FixedConnection, InstancePin
-
 if TYPE_CHECKING:
+    from fabulous.fabric_definition.connection import FixedConnection, InstancePin
     from fabulous.fabric_definition.supertile import SuperTile
     from fabulous.fabric_definition.tile import Tile
 
@@ -46,7 +45,7 @@ class TileInstance:
             The tile type's `fixed_connections`, both ends at this instance.
         """
         return [
-            FixedConnection((self, c.source), (self, c.sink), c.declaration)
+            replace(c, source=(self, c.source), sink=(self, c.sink))
             for c in self.tile_type.fixed_connections
         ]
 
@@ -103,5 +102,5 @@ class SuperTileInstance:
         for c in self.super_tile.fixed_connections:
             (src_at, src), (dst_at, dst) = c.source, c.sink
             source, sink = (self.tiles[src_at], src), (self.tiles[dst_at], dst)
-            connections.append(FixedConnection(source, sink, c.declaration))
+            connections.append(replace(c, source=source, sink=sink))
         return connections

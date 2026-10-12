@@ -14,6 +14,7 @@ from fabulous.fabric_definition.define import (
     PinSortMode,
     Side,
 )
+from fabulous.fabric_definition.fabric_cell_library import FabricCellFunction
 from fabulous.fabric_definition.gen_io import Gen_IO
 from fabulous.fabric_definition.port import (
     Pin,
@@ -199,9 +200,10 @@ class Tile:
         """The hard wires inside the tile.
 
         A routing channel line naming both ends stages its bits through the
-        tile as the RTL does: `N4BEG[i]` is driven by `N4END[i + wire_count]`,
-        and the switch matrix drives the last `wire_count` bits of `N4BEG` and
-        reads the first `wire_count` bits of `N4END`. Every switch matrix port
+        tile as the RTL does: `N4BEG[i]` is driven by `N4END[i + wire_count]`
+        through a buffer at the tile entry and one at the exit, and the switch
+        matrix drives the last `wire_count` bits of `N4BEG` and reads the first
+        `wire_count` bits of `N4END`. Every switch matrix port
         with an `origin` is joined to it at the module boundary: to the tile
         port's matrix-facing bits, to the BEL port or to the SJUMP port. A jump
         wire loops a matrix output back into a matrix input, and a matrix output
@@ -221,7 +223,12 @@ class Tile:
             into = ports[(declaration, IO.INPUT)]
             count = declaration.wire_count
             connections += [
-                FixedConnection(into[i + count], out[i], declaration)
+                FixedConnection(
+                    into[i + count],
+                    out[i],
+                    declaration,
+                    (FabricCellFunction.BUFFER, FabricCellFunction.BUFFER),
+                )
                 for i in range(out.width - count)
             ]
         for sm_port in self.switch_matrix.ports:

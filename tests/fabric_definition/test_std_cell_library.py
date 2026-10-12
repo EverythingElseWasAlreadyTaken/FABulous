@@ -13,9 +13,9 @@ import pytest
 import yaml
 
 import fabulous
-from fabulous.fabric_definition.cell_spec import (
+from fabulous.fabric_definition.cell_spec import CellSpec
+from fabulous.fabric_definition.std_cell_library import (
     CellFunction,
-    CellSpec,
     StdCellLibrary,
     StdCellLibraryFile,
 )

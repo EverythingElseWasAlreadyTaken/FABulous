@@ -6,9 +6,8 @@ tile's fixed connections form. Both sides are seen as sets of port bits: the
 tile module's ports and the ports of the switch matrix and BEL instances.
 Connections inside the switch matrix module are not part of the tile module.
 
-Known difference until the buffers are modelled: the RTL stages a routing
-channel through `my_buf` cells and `*_i` signals, which split the net the model
-draws directly from `N4END[i + wire_count]` to `N4BEG[i]`.
+The buffer cells of the fabric cell library pass their signal on, so a net runs
+through them; every connection must pass as many of them as it has `buffers`.
 """
 
 import json
@@ -17,8 +16,12 @@ from pathlib import Path
 
 import pytest
 
-from fabulous.fabric_definition.channel import ChannelDeclaration
+from fabulous.fabric_definition.connection import FixedConnection
 from fabulous.fabric_definition.define import IO, BelPortKind
+from fabulous.fabric_definition.fabric_cell_library import (
+    FabricCellFunction,
+    FabricCellLibrary,
+)
 from fabulous.fabric_definition.port import (
     BelPort,
     Pin,
@@ -65,6 +68,13 @@ def _modelled(tile: Tile) -> set[Endpoint]:
     return {_endpoint(pin) for pin in pins}
 
 
+def _model_connections(tile: Tile) -> list[FixedConnection[Pin]]:
+    """The tile's fixed connections, without those inside the switch matrix."""
+    return [
+        c for c in tile.fixed_connections if not isinstance(c.declaration, SwitchMatrix)
+    ]
+
+
 def _model_nets(tile: Tile, universe: set[Endpoint]) -> set[Net]:
     parent: dict[Endpoint, Endpoint] = {}
 
@@ -73,61 +83,109 @@ def _model_nets(tile: Tile, universe: set[Endpoint]) -> set[Net]:
             e = parent[e]
         return e
 
-    for c in tile.fixed_connections:
-        if not isinstance(c.declaration, SwitchMatrix):
-            parent[root(_endpoint(c.source))] = root(_endpoint(c.sink))
+    for c in _model_connections(tile):
+        parent[root(_endpoint(c.source))] = root(_endpoint(c.sink))
     nets: dict[Endpoint, set[Endpoint]] = {}
     for e in universe:
         nets.setdefault(root(e), set()).add(e)
     return {frozenset(net) for net in nets.values()}
 
 
-def _rtl_nets(
-    tile: Tile, project: Path, universe: set[Endpoint], workdir: Path
-) -> set[Net]:
-    tile_dir = tile.tileDir.parent
-    black_boxes = [
-        tile_dir / f"{tile.name}_switch_matrix.v",
-        tile_dir / f"{tile.name}_ConfigMem.v",
-        project / "Fabric" / "models_pack.v",
-        *(bel.src for bel in tile.bels),
-    ]
-    netlist = workdir / f"{tile.name}.json"
-    reads = "".join(f"read_verilog -sv -lib {f}; " for f in black_boxes if f.exists())
-    YosysTool.run(
-        args=[
-            "-q",
-            "-p",
-            f"{reads}read_verilog -sv {tile_dir / f'{tile.name}.v'}; "
-            f"hierarchy -top {tile.name}; proc; opt_clean -purge; "
-            f"write_json {netlist}",
+class _Rtl:
+    """A tile module's nets, read by yosys, with the buffer cells passed through.
+
+    Parameters
+    ----------
+    tile : Tile
+        The tile whose generated module is read.
+    project : Path
+        The project directory, for `models_pack.v`.
+    cells : FabricCellLibrary
+        The library naming the buffer cells.
+    workdir : Path
+        Where yosys writes the netlist.
+
+    Attributes
+    ----------
+    bit : dict[Endpoint, int]
+        The yosys bit of each port bit of the module and its instances.
+    through : dict[int, int]
+        The bit a buffer cell drives from each bit it reads.
+    """
+
+    bit: dict[Endpoint, int]
+    through: dict[int, int]
+
+    def __init__(
+        self, tile: Tile, project: Path, cells: FabricCellLibrary, workdir: Path
+    ) -> None:
+        tile_dir = tile.tileDir.parent
+        black_boxes = [
+            tile_dir / f"{tile.name}_switch_matrix.v",
+            tile_dir / f"{tile.name}_ConfigMem.v",
+            project / "Fabric" / "models_pack.v",
+            *(bel.src for bel in tile.bels),
         ]
-    )
-    module = json.loads(netlist.read_text())["modules"][tile.name]
-    bits: dict[int, set[Endpoint]] = {}
-    for name, port in module["ports"].items():
-        for i, bit in enumerate(port["bits"]):
-            bits.setdefault(bit, set()).add(("", name, i))
-    for instance, cell in module["cells"].items():
-        for name, port_bits in cell["connections"].items():
-            for i, bit in enumerate(port_bits):
-                bits.setdefault(bit, set()).add((instance, name, i))
-    nets = {
-        frozenset(e for e in endpoints if e in universe)
-        for bit, endpoints in bits.items()
-        if not isinstance(bit, str)  # a constant
-    } - {frozenset()}
-    unconnected = universe - set().union(*nets)
-    return nets | {frozenset([e]) for e in unconnected}
+        netlist = workdir / f"{tile.name}.json"
+        reads = "".join(
+            f"read_verilog -sv -lib {f}; " for f in black_boxes if f.exists()
+        )
+        YosysTool.run(
+            args=[
+                "-q",
+                "-p",
+                f"{reads}read_verilog -sv {tile_dir / f'{tile.name}.v'}; "
+                f"hierarchy -top {tile.name}; proc; opt_clean -purge; "
+                f"write_json {netlist}",
+            ]
+        )
+        module = json.loads(netlist.read_text())["modules"][tile.name]
+        buffers = {spec.cell: spec for spec in cells.cells[FabricCellFunction.BUFFER]}
+        self.bit = {}
+        self.through = {}
+        for name, port in module["ports"].items():
+            for i, bit in enumerate(port["bits"]):
+                self.bit[("", name, i)] = bit
+        for instance, cell in module["cells"].items():
+            ports = cell["connections"]
+            if spec := buffers.get(cell["type"]):
+                (a,) = ports[spec.input_ports[0]]
+                (x,) = ports[spec.output_ports[0]]
+                # ponytail: one buffer per driving bit, enough for the staging
+                assert a not in self.through, f"{a} drives two buffers"
+                self.through[a] = x
+                continue
+            for name, port_bits in ports.items():
+                for i, bit in enumerate(port_bits):
+                    self.bit[(instance, name, i)] = bit
 
+    def buffers_between(self, source: Endpoint, sink: Endpoint) -> int | None:
+        """Count the buffer cells from `source` to `sink`, None if not joined."""
+        bit, count = self.bit[source], 0
+        while bit != self.bit[sink]:
+            if bit not in self.through:
+                return None
+            bit, count = self.through[bit], count + 1
+        return count
 
-def _staging(tile: Tile) -> set[Net]:
-    """The pass-through pairs the RTL splits with buffers (not modelled yet)."""
-    return {
-        frozenset([_endpoint(c.source), _endpoint(c.sink)])
-        for c in tile.fixed_connections
-        if isinstance(c.declaration, ChannelDeclaration)
-    }
+    def nets(self, universe: set[Endpoint]) -> set[Net]:
+        """The nets over `universe`, a buffer cell joining its input and output."""
+        driven_by = {x: a for a, x in self.through.items()}
+
+        def root(bit: int | str) -> int | str:
+            while bit in driven_by:
+                bit = driven_by[bit]
+            return bit
+
+        nets: dict[int | str, set[Endpoint]] = {}
+        unconnected = []
+        for e in universe:
+            bit = self.bit.get(e)
+            if bit is None or isinstance(bit, str):  # unconnected or a constant
+                unconnected.append(frozenset([e]))
+            else:
+                nets.setdefault(root(bit), set()).add(e)
+        return {frozenset(net) for net in nets.values()} | set(unconnected)
 
 
 @pytest.mark.slow
@@ -135,19 +193,27 @@ def _staging(tile: Tile) -> set[Net]:
 def test_tile_rtl_matches_the_model(
     cli: FABulousREPL, fabulous_project: Path, tmp_path: Path
 ) -> None:
-    """Every tile module's nets are the model's, apart from the buffered staging."""
+    """Every tile module has the model's nets and buffers."""
     run_cmd(cli, "gen_fabric")
+    cells = FabricCellLibrary.load(fabulous_project)
     problems = []
     for tile in cli.fabulousAPI.fabric.tileDic.values():
         universe = _modelled(tile)
         model = _model_nets(tile, universe)
-        rtl = _rtl_nets(tile, fabulous_project, universe, tmp_path)
-        staging = _staging(tile)
-        split = {frozenset([e]) for pair in staging for e in pair}
-        if model - rtl != staging or rtl - model != split:
+        rtl = _Rtl(tile, fabulous_project, cells, tmp_path)
+        rtl_nets = rtl.nets(universe)
+        if model != rtl_nets:
             problems.append(
                 f"{tile.name}: only in the model "
-                f"{sorted(map(sorted, (model - rtl) - staging))[:5]}, only in the "
-                f"RTL {sorted(map(sorted, (rtl - model) - split))[:5]}"
+                f"{sorted(map(sorted, model - rtl_nets))[:5]}, only in the "
+                f"RTL {sorted(map(sorted, rtl_nets - model))[:5]}"
             )
+        miscounted = [
+            c.feature
+            for c in _model_connections(tile)
+            if rtl.buffers_between(_endpoint(c.source), _endpoint(c.sink))
+            != len(c.buffers)
+        ]
+        if miscounted:
+            problems.append(f"{tile.name}: buffers differ on {miscounted[:5]}")
     assert not problems, "\n".join(problems)

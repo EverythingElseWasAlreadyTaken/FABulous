@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from fabulous.fabric_definition.channel import ChannelDeclaration
+    from fabulous.fabric_definition.fabric_cell_library import FabricCellFunction
     from fabulous.fabric_definition.instance import TileInstance
     from fabulous.fabric_definition.port import Pin, SwitchMatrixPort
     from fabulous.fabric_definition.switch_matrix import Mux, SwitchMatrix
@@ -62,9 +63,13 @@ class FixedConnection[E](Connection[E]):
         The declaration this connection is expanded from; for a switch
         matrix boundary, the matrix port; inside a matrix (an output with a
         single input), the matrix.
+    buffers : tuple[FabricCellFunction, ...]
+        The buffer cells the signal passes from source to sink, empty for a
+        plain wire.
     """
 
     declaration: ChannelDeclaration | SwitchMatrixPort | SwitchMatrix | JumpWire
+    buffers: tuple[FabricCellFunction, ...] = ()
 
 
 @dataclass(frozen=True)
