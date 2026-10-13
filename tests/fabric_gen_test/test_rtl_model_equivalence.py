@@ -107,14 +107,17 @@ class _Rtl:
 
     Attributes
     ----------
-    bit : dict[Endpoint, int]
-        The yosys bit of each port bit of the module and its instances.
+    net_id : dict[Endpoint, int]
+        The yosys net id of each port bit of the module and its instances.
     through : dict[int, int]
-        The bit a buffer cell drives from each bit it reads.
+        The net id a buffer cell drives from each net id it reads.
+    signal_net_ids : dict[str, list[int | str]]
+        The net ids of each named signal of the module, by bit.
     """
 
-    bit: dict[Endpoint, int]
+    net_id: dict[Endpoint, int]
     through: dict[int, int]
+    signal_net_ids: dict[str, list[int | str]]
 
     def __init__(
         self, tile: Tile, project: Path, cells: FabricCellLibrary, workdir: Path
@@ -141,50 +144,59 @@ class _Rtl:
         )
         module = json.loads(netlist.read_text())["modules"][tile.name]
         buffers = {spec.cell: spec for spec in cells.cells[FabricCellFunction.BUFFER]}
-        self.bit = {}
+        self.net_id = {}
         self.through = {}
+        self.signal_net_ids = {
+            name: net["bits"] for name, net in module["netnames"].items()
+        }
         for name, port in module["ports"].items():
-            for i, bit in enumerate(port["bits"]):
-                self.bit[("", name, i)] = bit
+            for i, net_id in enumerate(port["bits"]):
+                self.net_id[("", name, i)] = net_id
         for instance, cell in module["cells"].items():
             ports = cell["connections"]
             if spec := buffers.get(cell["type"]):
                 (a,) = ports[spec.input_ports[0]]
                 (x,) = ports[spec.output_ports[0]]
-                # ponytail: one buffer per driving bit, enough for the staging
-                assert a not in self.through, f"{a} drives two buffers"
+                # ponytail: one buffer per driving net, enough for the staging
+                assert a not in self.through, f"net {a} drives two buffers"
                 self.through[a] = x
                 continue
-            for name, port_bits in ports.items():
-                for i, bit in enumerate(port_bits):
-                    self.bit[(instance, name, i)] = bit
+            for name, net_ids in ports.items():
+                for i, net_id in enumerate(net_ids):
+                    self.net_id[(instance, name, i)] = net_id
 
     def buffers_between(self, source: Endpoint, sink: Endpoint) -> int | None:
         """Count the buffer cells from `source` to `sink`, None if not joined."""
-        bit, count = self.bit[source], 0
-        while bit != self.bit[sink]:
-            if bit not in self.through:
+        net_id, count = self.net_id[source], 0
+        while net_id != self.net_id[sink]:
+            if net_id not in self.through:
                 return None
-            bit, count = self.through[bit], count + 1
+            net_id, count = self.through[net_id], count + 1
         return count
+
+    def net_id_of(self, signal: str) -> int | str | None:
+        """The net id of `signal` (`N4END[3]` or `LA_I`), None if no such signal."""
+        name, _, index = signal.rstrip("]").partition("[")
+        net_ids = self.signal_net_ids.get(name)
+        return None if net_ids is None else net_ids[int(index or 0)]
 
     def nets(self, universe: set[Endpoint]) -> set[Net]:
         """The nets over `universe`, a buffer cell joining its input and output."""
         driven_by = {x: a for a, x in self.through.items()}
 
-        def root(bit: int | str) -> int | str:
-            while bit in driven_by:
-                bit = driven_by[bit]
-            return bit
+        def root(net_id: int | str) -> int | str:
+            while net_id in driven_by:
+                net_id = driven_by[net_id]
+            return net_id
 
         nets: dict[int | str, set[Endpoint]] = {}
         unconnected = []
         for e in universe:
-            bit = self.bit.get(e)
-            if bit is None or isinstance(bit, str):  # unconnected or a constant
+            net_id = self.net_id.get(e)
+            if net_id is None or isinstance(net_id, str):  # unconnected or constant
                 unconnected.append(frozenset([e]))
             else:
-                nets.setdefault(root(bit), set()).add(e)
+                nets.setdefault(root(net_id), set()).add(e)
         return {frozenset(net) for net in nets.values()} | set(unconnected)
 
 
@@ -193,7 +205,7 @@ class _Rtl:
 def test_tile_rtl_matches_the_model(
     cli: FABulousREPL, fabulous_project: Path, tmp_path: Path
 ) -> None:
-    """Every tile module has the model's nets and buffers."""
+    """Every tile module has the model's nets, buffers and signal names."""
     run_cmd(cli, "gen_fabric")
     cells = FabricCellLibrary.load(fabulous_project)
     problems = []
@@ -216,4 +228,12 @@ def test_tile_rtl_matches_the_model(
         ]
         if miscounted:
             problems.append(f"{tile.name}: buffers differ on {miscounted[:5]}")
+        misnamed = [
+            f"{c.feature} as {c.signal}"
+            for c in _model_connections(tile)
+            if not c.buffers
+            and rtl.net_id_of(c.signal) != rtl.net_id[_endpoint(c.source)]
+        ]
+        if misnamed:
+            problems.append(f"{tile.name}: signals differ on {misnamed[:5]}")
     assert not problems, "\n".join(problems)

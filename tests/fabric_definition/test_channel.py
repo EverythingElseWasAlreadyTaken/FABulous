@@ -207,3 +207,29 @@ class TestRoutingChannelProblems:
         self._column(make_fabric, [None, "BOT"])
 
         assert "has nothing receiving it at X0Y0" in caplog.text
+
+    def test_signal_names_the_tile_rtl_signal(self) -> None:
+        """A hard wire is the signal of its tile port, BEL pin or jump source."""
+        ports, _ = parse_port_line("NORTH,A,0,-2,B,1")
+        jumps = [parse_port_line("JUMP,J_BEG,0,0,J_END,1")[1]]
+        bel = make_muladd_bel([("I0", IO.INPUT), ("O0", IO.OUTPUT)])
+        tile = Tile(
+            name="T",
+            ports=ports,
+            bels=[bel],
+            tileDir=Path(),
+            switch_matrix=SwitchMatrix(
+                Path(), switch_matrix_ports(ports, [bel], jumps), {}, "T"
+            ),
+            gen_ios=[],
+            pinOrderConfig={},
+            jump_wires=jumps,
+        )
+        staging, *wires = tile.fixed_connections
+
+        assert [c.signal for c in wires] == ["A[1]", "B[0]", "I0", "O0", "J_BEG[0]"]
+        with pytest.raises(ValueError, match="buffer cells"):
+            _ = staging.signal
+        placed = TileInstance(0, 0, tile).fixed_connections[1]
+        with pytest.raises(TypeError, match="not inside a tile"):
+            _ = placed.signal
