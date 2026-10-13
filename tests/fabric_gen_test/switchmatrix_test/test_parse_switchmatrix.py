@@ -408,3 +408,24 @@ class TestMuxesAndPips:
         self._matrix({"I0": ["O0"], "I1": ["O1"]})
 
         assert "unused: ['O2', 'O3', 'O4']" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("suffix", "header"),
+    [(".v", "// NumberOfConfigBits: 7"), (".vhdl", "-- NumberOfConfigBits: 7")],
+)
+def test_hand_written_matrix_gets_the_model_ports(
+    tmp_path: Path, suffix: str, header: str
+) -> None:
+    """A hand-written HDL matrix has the tile's ports, but no connectivity."""
+    bel = make_muladd_bel([("I0", IO.INPUT), ("O0", IO.OUTPUT)])
+    make_empty_tile("T").add_bels([bel])
+    ports = tuple(switch_matrix_ports([], [bel]))
+    hdl = tmp_path / f"T_switch_matrix{suffix}"
+    hdl.write_text(header)
+
+    sm = SwitchMatrix.from_file(hdl, "T", ports)
+
+    assert sm.ports == ports
+    assert all(port.matrix is sm for port in sm.ports)
+    assert (sm.connections, sm.no_config_bits) == ({}, 7)
