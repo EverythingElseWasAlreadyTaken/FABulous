@@ -29,6 +29,7 @@ from fabulous.fabric_cad.timing_model.models import (
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import ConfigBitMode, Side
 from fabulous.fabric_definition.fabric import Fabric
+from fabulous.fabric_definition.fabric_cell_library import FabricCellLibrary
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.code_generator import CodeGenerator
@@ -286,6 +287,7 @@ class FABulous_API:
                 max_frame_per_col or self.fabric.maxFramesPerCol,
                 disable_user_clk or self.fabric.disableUserCLK,
                 config_bit_mode or self.fabric.configBitMode,
+                cells=FabricCellLibrary.load(get_context().proj_dir),
             )
         else:
             raise ValueError(f"Tile {tileName} not found")

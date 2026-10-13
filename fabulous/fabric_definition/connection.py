@@ -12,11 +12,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from fabulous.fabric_definition.channel import ChannelDeclaration
 from fabulous.fabric_definition.port import BelExternalPort, BelPort, SwitchMatrixPort
 from fabulous.fabric_definition.wire import JumpWire
 
 if TYPE_CHECKING:
-    from fabulous.fabric_definition.channel import ChannelDeclaration
     from fabulous.fabric_definition.fabric_cell_library import FabricCellFunction
     from fabulous.fabric_definition.instance import TileInstance
     from fabulous.fabric_definition.port import Pin
@@ -78,6 +78,19 @@ class FixedConnection[E](Connection[E]):
 
     declaration: Declaration
     buffers: tuple[FabricCellFunction, ...] = ()
+
+    @property
+    def is_staging(self) -> bool:
+        """Whether the connection stages a channel line through one tile.
+
+        Between placed tiles a channel line also declares the hops; those
+        join two tiles and are no staging.
+        """
+        if not isinstance(self.declaration, ChannelDeclaration):
+            return False
+        if isinstance(self.source, tuple):
+            return self.source[0] == self.sink[0]
+        return True
 
     @property
     def signal(self) -> str:

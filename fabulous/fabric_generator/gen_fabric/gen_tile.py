@@ -13,9 +13,12 @@ Key features:
 - External I/O port handling and clock distribution
 """
 
+from itertools import groupby
+from operator import attrgetter
 from pathlib import Path
 
 from fabulous.fabric_definition.bel import Bel
+from fabulous.fabric_definition.cell_spec import CellSpec
 from fabulous.fabric_definition.define import (
     IO,
     USER_CLK_PREDECESSOR,
@@ -23,6 +26,10 @@ from fabulous.fabric_definition.define import (
     ConfigBitMode,
     Side,
     grid_at,
+)
+from fabulous.fabric_definition.fabric_cell_library import (
+    FabricCellFunction,
+    FabricCellLibrary,
 )
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
@@ -69,6 +76,34 @@ def _bel_bus_pairs(bel: Bel) -> list[tuple[str, str]]:
     return pairs
 
 
+def _add_buffer(
+    writer: CodeGenerator, cell: CellSpec, name: str, signal_in: str, signal_out: str
+) -> None:
+    """Instantiate the buffer `cell` from `signal_in` to `signal_out`.
+
+    Parameters
+    ----------
+    writer : CodeGenerator
+        The code generator.
+    cell : CellSpec
+        The buffer cell.
+    name : str
+        The instance name.
+    signal_in : str
+        The signal the buffer reads.
+    signal_out : str
+        The signal the buffer drives.
+    """
+    writer.addInstantiation(
+        cell.cell,
+        name,
+        portsPairs=[
+            (cell.input_ports[0], signal_in),
+            (cell.output_ports[0], signal_out),
+        ],
+    )
+
+
 def generateTile(
     writer: CodeGenerator,
     tile: Tile,
@@ -76,6 +111,8 @@ def generateTile(
     max_frame_per_col: int = 20,
     disable_user_clk: bool = False,
     config_bit_mode: ConfigBitMode = ConfigBitMode.FRAME_BASED,
+    *,
+    cells: FabricCellLibrary,
 ) -> None:
     """Generate the RTL code for a tile given the tile object.
 
@@ -123,13 +160,23 @@ def generateTile(
         If True, the UserCLK port will not be generated or connected
     config_bit_mode : ConfigBitMode
         The configuration bit mode to use (frame-based or FlipFlop chain)
+    cells : FabricCellLibrary
+        The fabric cells the buffers are instantiated from.
 
     Raises
     ------
     FileNotFoundError
         Only raised for VHDL output. If required component files
         (e.g., switch matrix or config memory) are missing.
+    NotImplementedError
+        If a staged bit passes other buffers than one at the tile entry and
+        one at the exit; where buffers sit is not modelled yet.
     """
+    # The connections of each line staged through the tile; a line's
+    # connections follow each other.
+    staged = (c for c in tile.fixed_connections if c.is_staging)
+    staging = [list(line) for _, line in groupby(staged, attrgetter("declaration"))]
+    buffer = cells.cells[FabricCellFunction.BUFFER][0]
     writer.addHeader(f"{tile.name}")
     writer.addParameterStart(indentLevel=1)
     if isinstance(writer, VerilogCodeGenerator):  # emulation only in Verilog
@@ -308,18 +355,12 @@ def generateTile(
     writer.addConnectionVector("FrameStrobe_i", "MaxFramesPerCol-1", 0)
     writer.addConnectionVector("FrameStrobe_O_i", "MaxFramesPerCol-1", 0)
 
-    added = set()
-    for port in tile.portsInfo:
-        span = abs(port.x_offset) + abs(port.y_offset)
-        if (port.source_name, port.destination_name) in added:
-            continue
-        if span >= 2 and not port.is_null_terminated:
-            high_bound_index = span * port.wire_count - 1
-            writer.addConnectionVector(f"{port.destination_name}_i", high_bound_index)
-            writer.addConnectionVector(
-                f"{port.source_name}_i", high_bound_index - port.wire_count
-            )
-            added.add((port.source_name, port.destination_name))
+    # A staged line passes an entry buffer into `<source>_i` and an exit
+    # buffer out of `<sink>_i`.
+    for line in staging:
+        source, sink = line[0].source.port, line[0].sink.port
+        writer.addConnectionVector(f"{source.name}_i", source.width - 1)
+        writer.addConnectionVector(f"{sink.name}_i", line[-1].sink.index)
 
     writer.addNewLine()
     writer.addLogicStart()
@@ -328,76 +369,77 @@ def generateTile(
     writer.addAssignScalar("FrameData_O_i", "FrameData_i")
     writer.addNewLine()
     for i in range(frame_bits_per_row):
-        writer.addInstantiation(
-            "my_buf",
-            f"data_inbuf_{i}",
-            portsPairs=[("A", f"FrameData[{i}]"), ("X", f"FrameData_i[{i}]")],
+        _add_buffer(
+            writer, buffer, f"data_inbuf_{i}", f"FrameData[{i}]", f"FrameData_i[{i}]"
         )
     for i in range(frame_bits_per_row):
-        writer.addInstantiation(
-            "my_buf",
+        _add_buffer(
+            writer,
+            buffer,
             f"data_outbuf_{i}",
-            portsPairs=[
-                ("A", f"FrameData_O_i[{i}]"),
-                ("X", f"FrameData_O[{i}]"),
-            ],
+            f"FrameData_O_i[{i}]",
+            f"FrameData_O[{i}]",
         )
 
     # strobe is always added even when config bits are 0
     writer.addAssignScalar("FrameStrobe_O_i", "FrameStrobe_i")
     writer.addNewLine()
     for i in range(max_frame_per_col):
-        writer.addInstantiation(
-            "my_buf",
+        _add_buffer(
+            writer,
+            buffer,
             f"strobe_inbuf_{i}",
-            portsPairs=[("A", f"FrameStrobe[{i}]"), ("X", f"FrameStrobe_i[{i}]")],
+            f"FrameStrobe[{i}]",
+            f"FrameStrobe_i[{i}]",
         )
 
     for i in range(max_frame_per_col):
-        writer.addInstantiation(
-            "my_buf",
+        _add_buffer(
+            writer,
+            buffer,
             f"strobe_outbuf_{i}",
-            portsPairs=[
-                ("A", f"FrameStrobe_O_i[{i}]"),
-                ("X", f"FrameStrobe_O[{i}]"),
-            ],
+            f"FrameStrobe_O_i[{i}]",
+            f"FrameStrobe_O[{i}]",
         )
 
-    added = set()
-    for port in tile.portsInfo:
-        span = abs(port.x_offset) + abs(port.y_offset)
-        if (port.source_name, port.destination_name) in added:
-            continue
-        if span >= 2 and not port.is_null_terminated:
-            high_bound_index = span * port.wire_count - 1
-            # using scalar assignment to connect the two vectors
-            # could replace with assign as vector,
-            # but will lose the - wire_count readability
+    for line in staging:
+        source, sink = line[0].source.port, line[0].sink.port
+        for c in line:
+            if c.buffers != (FabricCellFunction.BUFFER, FabricCellFunction.BUFFER):
+                raise NotImplementedError(
+                    f"{c.feature} passes the buffers {c.buffers}; only an entry "
+                    "and an exit buffer can be placed so far."
+                )
+        # Bits that follow each other on both sides share one vector assignment.
+        runs = []
+        for c in line:
+            prev = runs[-1][-1] if runs else None
+            if prev and (c.source.index, c.sink.index) == (
+                prev.source.index + 1,
+                prev.sink.index + 1,
+            ):
+                runs[-1].append(c)
+            else:
+                runs.append([c])
+        for run in runs:
+            first, last = run[0], run[-1]
+            shift = first.source.index - first.sink.index
+            sink_high = f"{last.source.index}-{shift}" if shift else last.sink.index
             writer.addAssignScalar(
-                f"{port.source_name}_i[{high_bound_index}-{port.wire_count}:0]",
-                f"{port.destination_name}_i[{high_bound_index}:{port.wire_count}]",
+                f"{sink.name}_i[{sink_high}:{first.sink.index}]",
+                f"{source.name}_i[{last.source.index}:{first.source.index}]",
             )
-            writer.addNewLine()
-            for i in range(high_bound_index - port.wire_count + 1):
-                writer.addInstantiation(
-                    "my_buf",
-                    f"{port.destination_name}_inbuf_{i}",
-                    portsPairs=[
-                        ("A", f"{port.destination_name}[{i + port.wire_count}]"),
-                        ("X", f"{port.destination_name}_i[{i + port.wire_count}]"),
-                    ],
-                )
-            for i in range(high_bound_index - port.wire_count + 1):
-                writer.addInstantiation(
-                    "my_buf",
-                    f"{port.source_name}_outbuf_{i}",
-                    portsPairs=[
-                        ("A", f"{port.source_name}_i[{i}]"),
-                        ("X", f"{port.source_name}[{i}]"),
-                    ],
-                )
-
-            added.add((port.source_name, port.destination_name))
+        writer.addNewLine()
+        for c in line:
+            entry = cells.cells[c.buffers[0]][0]
+            name = f"{source.name}_inbuf_{c.sink.index}"
+            out = f"{source.name}_i[{c.source.index}]"
+            _add_buffer(writer, entry, name, c.source.name(indexed=True), out)
+        for c in line:
+            exit_ = cells.cells[c.buffers[-1]][0]
+            name = f"{sink.name}_outbuf_{c.sink.index}"
+            into = f"{sink.name}_i[{c.sink.index}]"
+            _add_buffer(writer, exit_, name, into, c.sink.name(indexed=True))
 
     if not disable_user_clk:
         writer.addInstantiation(

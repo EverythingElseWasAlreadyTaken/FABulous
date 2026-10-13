@@ -15,6 +15,7 @@ from fabulous.fabric_definition.channel import (
     RoutingChannel,
     resolve_channels,
 )
+from fabulous.fabric_definition.connection import FixedConnection
 from fabulous.fabric_definition.define import IO, BelPortKind, Direction
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.instance import TileInstance
@@ -209,6 +210,28 @@ class TestRoutingChannelProblems:
         self._column(make_fabric, [None, "BOT"])
 
         assert "has nothing receiving it at X0Y0" in caplog.text
+
+    def test_is_staging_inside_one_tile_only(self) -> None:
+        """Staging stays in a tile; a hop of the same line joins two tiles."""
+        ports, _ = parse_port_line("NORTH,A,0,-2,B,1")
+        tile = Tile(
+            name="T",
+            ports=ports,
+            bels=[],
+            tileDir=Path(),
+            switch_matrix=SwitchMatrix(Path(), switch_matrix_ports(ports, []), {}, "T"),
+            gen_ios=[],
+            pinOrderConfig={},
+        )
+        staging, *boundary = tile.fixed_connections
+        here, there = TileInstance(0, 1, tile), TileInstance(0, 0, tile)
+        out, into = ports
+        hop = FixedConnection((here, out[0]), (there, into[0]), staging.declaration)
+
+        assert staging.is_staging
+        assert TileInstance(0, 0, tile).fixed_connections[0].is_staging
+        assert not any(c.is_staging for c in boundary)
+        assert not hop.is_staging
 
     def test_signal_names_the_tile_rtl_signal(self) -> None:
         """A hard wire is the signal of its tile port, BEL pin or jump source."""
