@@ -7,9 +7,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from fabulous.fabric_definition.connection import TilePortConnection
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
+from fabulous.fabric_generator.parser.parse_csv import parse_port_line
 from tests.fabric_definition.conftest import make_empty_tile
 
 
@@ -123,14 +125,15 @@ class TestSubtileBackReference:
             SuperTile(name="SUPER_Y", tileDir=Path(), tiles=[a], tileMap=[[a]])
 
 
+def _column_super_tile(top: Tile, bot: Tile) -> SuperTile:
+    """A supertile of `top` over `bot`."""
+    return SuperTile(
+        name="COL", tileDir=Path(), tiles=[top, bot], tileMap=[[top], [bot]]
+    )
+
+
 class TestSuperTilePlacement:
     """A subtile type only exists as part of its supertile's arrangement."""
-
-    @staticmethod
-    def _column_super_tile(top: Tile, bot: Tile) -> SuperTile:
-        return SuperTile(
-            name="COL", tileDir=Path(), tiles=[top, bot], tileMap=[[top], [bot]]
-        )
 
     @pytest.mark.parametrize(
         "grid_names",
@@ -143,7 +146,7 @@ class TestSuperTilePlacement:
         self, make_fabric: Callable[..., Fabric], grid_names: list[list[str]]
     ) -> None:
         tiles = {n: make_empty_tile(n) for n in ("TOP", "BOT")}
-        super_tile = self._column_super_tile(tiles["TOP"], tiles["BOT"])
+        super_tile = _column_super_tile(tiles["TOP"], tiles["BOT"])
         grid = [[tiles[n] for n in row] for row in grid_names]
 
         with pytest.raises(ValueError, match="not placed in its supertile"):
@@ -154,7 +157,7 @@ class TestSuperTilePlacement:
     ) -> None:
         """`[[A], [A]]` in a column of three A: the third A is not placed."""
         a = make_empty_tile("A")
-        super_tile = self._column_super_tile(a, a)
+        super_tile = _column_super_tile(a, a)
 
         with pytest.raises(ValueError, match="X0Y2"):
             make_fabric(tile=[[a], [a], [a]], superTileDic={"COL": super_tile})
@@ -164,7 +167,7 @@ class TestSuperTilePlacement:
     ) -> None:
         """Every cell is an instance of the shared type; a placement maps its cells."""
         top, bot, plain = (make_empty_tile(n) for n in ("TOP", "BOT", "PLAIN"))
-        super_tile = self._column_super_tile(top, bot)
+        super_tile = _column_super_tile(top, bot)
         fabric = make_fabric(
             tile=[[top, plain], [bot, plain]], superTileDic={"COL": super_tile}
         )
@@ -177,6 +180,43 @@ class TestSuperTilePlacement:
             (0, 0): fabric.instances[0][0],
             (0, 1): fabric.instances[1][0],
         }
+
+
+class TestSuperTileLines:
+    """A supertile wires its subtiles by itself; a fabric checks it agrees."""
+
+    @staticmethod
+    def _tile(name: str, line: str) -> Tile:
+        return make_empty_tile(name, parse_port_line(line)[0])
+
+    def test_supertile_wires_its_subtiles_without_a_fabric(self) -> None:
+        line = "NORTH,A,0,-1,B,1"
+        top, bot = self._tile("TOP", line), self._tile("BOT", line)
+        super_tile = _column_super_tile(top, bot)
+
+        assert [
+            (hop.source[0], hop.source[1].name, hop.sink[0], hop.sink[1].name)
+            for hop in super_tile.port_connections
+            if isinstance(hop, TilePortConnection)
+        ] == [((0, 1), "A", (0, 0), "B")]
+
+    def test_fabric_reports_a_supertile_wired_differently(
+        self, make_fabric: Callable[..., Fabric]
+    ) -> None:
+        """Two NULL halves pair only through a full line in another tile type."""
+        top = self._tile("TOP", "NORTH,NULL,0,-1,N1END,1")
+        bot = self._tile("BOT", "NORTH,N1BEG,0,-1,NULL,1")
+        full = self._tile("FULL", "NORTH,N1BEG,0,-1,N1END,1")
+        super_tile = _column_super_tile(top, bot)
+        fabric = make_fabric(
+            tile=[[top, full], [bot, full]], superTileDic={"COL": super_tile}
+        )
+
+        assert super_tile.port_connections == []
+        assert any(
+            "Supertile 'COL' at X0Y0 wires its subtiles differently" in problem
+            for problem in fabric.routing_channel_problems()
+        )
 
 
 class TestSuperTileBelLimit:

@@ -2,7 +2,7 @@
 
 This module contains the port class hierarchy for representing different types of ports
 in the FPGA fabric:
-- Pin: A single bit of a port; the node of the routing graph
+- Pin: A single wire of a port; the node of the routing graph
 - Port: Base class for all port types
 - TilePort: Port on a tile at one end of a routing channel
 - SJumpPort: Tile port facing the switch matrix of the surrounding supertile
@@ -37,18 +37,18 @@ NULL_PORT_NAME = "NULL"
 
 @dataclass(frozen=True)
 class Pin:
-    """A single bit of a `Port`.
+    """A single wire of a `Port`.
 
     Pins are the nodes in the FABulous routing graph: a wire or a pip always joins
     exactly one pin to another. Two pins are equal when they index the same
-    bit of the same port object, so they can be used as dictionary keys.
+    pin of the same port object, so they can be used as dictionary keys.
 
     Attributes
     ----------
     port : Port
-        The port this pin is a bit of.
+        The port this pin belongs to.
     index : int
-        The bit index within the port, 0 is the least significant bit.
+        The pin index within the port, 0 is the least significant pin.
     """
 
     port: Port
@@ -60,7 +60,7 @@ class Pin:
         Parameters
         ----------
         indexed : bool, optional
-            If True, use bracket notation (`port[3]`, a bit of a vector).
+            If True, use bracket notation (`port[3]`, a pin of a vector).
             If False, use flat concatenation (`port3`, a scalar switch-matrix
             port). Defaults to False.
         prefix : str, optional
@@ -94,7 +94,7 @@ class Port:
     io_direction : IO
         The I/O direction (INPUT, OUTPUT, INOUT).
     width : int
-        The bit width of the port.
+        The width of the port, its number of pins.
     is_clock : bool
         Whether the port carries a clock. Defaults to False.
     is_global : bool
@@ -164,7 +164,7 @@ class Port:
 
     @property
     def width(self) -> int:
-        """Return the bit width."""
+        """Return the width, the number of pins."""
         return self._width
 
     @property
@@ -198,14 +198,14 @@ class Port:
         return self._net
 
     def pin_name(self, index: int, indexed: bool = False, prefix: str = "") -> str:
-        """Return the HDL wire name of bit `index` of this port.
+        """Return the HDL wire name of pin `index` of this port.
 
         Parameters
         ----------
         index : int
-            The bit index.
+            The pin index.
         indexed : bool, optional
-            If True, use bracket notation (`port[3]`, a bit of a vector).
+            If True, use bracket notation (`port[3]`, a pin of a vector).
             If False, use flat concatenation (`port3`, a scalar switch-matrix
             port). Defaults to False.
         prefix : str, optional
@@ -221,7 +221,7 @@ class Port:
         return f"{prefix}{self.name}{index}"
 
     def full_name(self, index: int) -> str:
-        """Return the model name of bit `index`, unique within its tile.
+        """Return the model name of pin `index`, unique within its tile.
 
         A port of the tile itself keeps its flat RTL name; ports of instances
         inside the tile prefix it with the instance (see `HIERARCHY_SEPARATOR`).
@@ -229,7 +229,7 @@ class Port:
         Parameters
         ----------
         index : int
-            The bit index.
+            The pin index.
 
         Returns
         -------
@@ -240,11 +240,11 @@ class Port:
 
     @cached_property
     def pins(self) -> tuple[Pin, ...]:
-        """One `Pin` per bit, least significant first."""
+        """One `Pin` per wire, least significant first."""
         return tuple(Pin(self, i) for i in range(self.width))
 
     def __getitem__(self, index: int) -> Pin:
-        """Return the pin for bit `index`."""
+        """Return the pin at `index`."""
         return self.pins[index]
 
     def expand(self) -> list[str]:
@@ -446,7 +446,7 @@ class TilePort(Port):
 
         A NULL-terminated spanning wire has no partner tile to hand the wire
         on to, so every hop's slice is driven or read locally. A named wire
-        only exposes its first `wire_count` bits; the remaining slices pass
+        only exposes its first `wire_count` pins; the remaining slices pass
         through the tile untouched.
         """
         if self.is_null_terminated:
@@ -458,7 +458,7 @@ class TilePort(Port):
         """The pins that face the neighbouring tile at the fabric top level.
 
         The mirror image of `sm_pins`: a named spanning wire hands its last
-        `wire_count` bits to the neighbour, everything else stays inside.
+        `wire_count` pins to the neighbour, everything else stays inside.
         """
         if self.is_null_terminated:
             return self._spanned_pins
@@ -532,7 +532,7 @@ class SJumpPort(Port):
 
     An SJUMP wire is one-way and never leaves the supertile, so it is not part
     of a routing channel: it has no side, no offset and no partner port, and
-    every bit faces both the tile's own switch matrix and the supertile's.
+    every pin faces both the tile's own switch matrix and the supertile's.
     `SJumpWire` pairs it with the supertile matrix port it reaches.
 
     Parameters
@@ -560,8 +560,8 @@ class BelPort(Port):
     """A port on a BEL (Basic Element of Logic).
 
     One `BelPort` mirrors one port of the BEL's HDL module; its `pins` are the
-    individual bits. A multi-bit port's pins are named the flat way the tile HDL
-    unrolls them (`A0`, `A1`, ...), a single-bit port's pin keeps the bare name.
+    individual wires. A multi-pin port's pins are named the flat way the tile HDL
+    unrolls them (`A0`, `A1`, ...), a one-pin port's pin keeps the bare name.
 
     Parameters
     ----------
@@ -570,7 +570,7 @@ class BelPort(Port):
     io_direction : IO
         The I/O direction (INPUT, OUTPUT, INOUT).
     width : int
-        The bit width of the port.
+        The width of the port, its number of pins.
     kind : BelPortKind
         The role of the port. Defaults to `BelPortKind.INTERNAL`.
     prefix : str
@@ -660,12 +660,12 @@ class BelPort(Port):
         return f"{self.prefix}{self._name}"
 
     def pin_name(self, index: int, indexed: bool = False, prefix: str = "") -> str:
-        """Return the HDL wire name of bit `index` of this port.
+        """Return the HDL wire name of pin `index` of this port.
 
         Parameters
         ----------
         index : int
-            The bit index.
+            The pin index.
         indexed : bool, optional
             Bracket notation when True, by default False.
         prefix : str, optional
@@ -674,7 +674,7 @@ class BelPort(Port):
         Returns
         -------
         str
-            The wire name; a single-bit port keeps its bare name.
+            The wire name; a one-pin port keeps its bare name.
         """
         if self.width == 1:
             return f"{prefix}{self.name}"
@@ -691,12 +691,12 @@ class BelPort(Port):
         return [pin.name(indexed=True) for pin in self.pins]
 
     def full_name(self, index: int) -> str:
-        """Return the model name of bit `index`: the BEL instance and the pin.
+        """Return the model name of pin `index`: the BEL instance and the pin.
 
         Parameters
         ----------
         index : int
-            The bit index.
+            The pin index.
 
         Returns
         -------
@@ -750,12 +750,12 @@ class BelExternalPort(Port):
         return self._bel_port
 
     def pin_name(self, index: int, indexed: bool = False, prefix: str = "") -> str:
-        """Return the HDL wire name of bit `index`: the BEL pin's.
+        """Return the HDL wire name of pin `index`: the BEL pin's.
 
         Parameters
         ----------
         index : int
-            The bit index.
+            The pin index.
         indexed : bool, optional
             Bracket notation when True, by default False.
         prefix : str, optional
@@ -862,7 +862,7 @@ class SwitchMatrixPort(Port):
         The I/O direction as seen from the switch matrix: a mux output is
         `IO.OUTPUT`, a mux input is `IO.INPUT`.
     width : int
-        The bit width of the port. Defaults to 1.
+        The width of the port, its number of pins. Defaults to 1.
     origin : TilePort | SJumpPort | BelPort | None
         The tile or BEL port this port wires to, or None for a constant.
         Defaults to None.
@@ -967,7 +967,7 @@ class SwitchMatrixPort(Port):
         self._matrix = matrix
 
     def full_name(self, index: int) -> str:
-        """Return the model name of bit `index`.
+        """Return the model name of pin `index`.
 
         A module port of the matrix is named by the matrix instance and its
         pin (`Inst_LUT4AB_switch_matrix__N4BEG0`); a constant is no module port
@@ -976,7 +976,7 @@ class SwitchMatrixPort(Port):
         Parameters
         ----------
         index : int
-            The bit index.
+            The pin index.
 
         Returns
         -------
@@ -997,12 +997,12 @@ class SwitchMatrixPort(Port):
         )
 
     def pin_name(self, index: int, indexed: bool = False, prefix: str = "") -> str:
-        """Return the HDL wire name of bit `index`.
+        """Return the HDL wire name of pin `index`.
 
         Parameters
         ----------
         index : int
-            The bit index.
+            The pin index.
         indexed : bool, optional
             Bracket notation when True, by default False.
         prefix : str, optional

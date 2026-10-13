@@ -12,7 +12,11 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from fabulous.fabric_definition.connection import FixedConnection, InstancePin
+    from fabulous.fabric_definition.connection import (
+        FixedConnection,
+        InstancePin,
+        PortConnection,
+    )
     from fabulous.fabric_definition.port import Port
     from fabulous.fabric_definition.supertile import SuperTile
     from fabulous.fabric_definition.tile import Tile
@@ -55,6 +59,20 @@ class TileInstance:
             `Tile_X{x}Y{y}_{port}`, a vector as wide as the port.
         """
         return f"{self.name}_{port.name}"
+
+    @property
+    def port_connections(self) -> list[PortConnection[tuple[TileInstance, Port]]]:
+        """The tile type's port connections, placed at this instance.
+
+        Returns
+        -------
+        list[PortConnection[tuple[TileInstance, Port]]]
+            The tile type's `port_connections`, both ends at this instance.
+        """
+        return [
+            replace(pc, source=(self, pc.source), sink=(self, pc.sink))
+            for pc in self.tile_type.port_connections
+        ]
 
     @property
     def fixed_connections(self) -> list[FixedConnection[InstancePin]]:
@@ -108,6 +126,25 @@ class SuperTileInstance:
         The fabric instantiates the supertile wrapper at this cell.
         """
         return next(iter(self.tiles.values()))
+
+    @property
+    def port_connections(self) -> list[PortConnection[tuple[TileInstance, Port]]]:
+        """The supertile type's port connections, placed onto its tile instances.
+
+        Returns
+        -------
+        list[PortConnection[tuple[TileInstance, Port]]]
+            The supertile's `port_connections`, each `tileMap` position
+            replaced by the tile instance covering it.
+        """
+        return [
+            replace(
+                pc,
+                source=(self.tiles[pc.source[0]], pc.source[1]),
+                sink=(self.tiles[pc.sink[0]], pc.sink[1]),
+            )
+            for pc in self.super_tile.port_connections
+        ]
 
     @property
     def fixed_connections(self) -> list[FixedConnection[InstancePin]]:
