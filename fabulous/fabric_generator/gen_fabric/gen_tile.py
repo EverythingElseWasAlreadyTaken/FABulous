@@ -25,6 +25,7 @@ from fabulous.fabric_definition.define import (
     grid_at,
 )
 from fabulous.fabric_definition.supertile import SuperTile
+from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.code_generator.code_generator import CodeGenerator
 from fabulous.fabric_generator.code_generator.code_generator_Verilog import (
@@ -32,6 +33,9 @@ from fabulous.fabric_generator.code_generator.code_generator_Verilog import (
 )
 from fabulous.fabric_generator.code_generator.code_generator_VHDL import (
     VHDLCodeGenerator,
+)
+from fabulous.fabric_generator.gen_fabric.gen_switchmatrix import (
+    tile_matrix_module_ports,
 )
 
 
@@ -434,8 +438,6 @@ def generateTile(
     config_bit_ranges = tile.config_bit_ranges
     for bel in tile.bels:
         ports_pairs = []
-        portList = []
-        signal = []
         userclk_pair = None
 
         # Shared ports
@@ -483,69 +485,18 @@ def generateTile(
         # (this information is also needed for chaining the switch matrix)
         belCounter += 1
 
-    ports_pairs = []
-    # normal input wire
-    for i in tile.portsInfo:
-        if i.is_input:
-            ports_pairs += list(
-                zip(
-                    i.expand_port_info_by_name(),
-                    i.expand_port_info_by_name(indexed=True),
-                    strict=False,
-                )
-            )
-    # bel input wire (bel output is input to switch matrix)
-    for bel in tile.bels:
-        for p in bel.pin_names(BelPortKind.INTERNAL, IO.OUTPUT):
-            ports_pairs.append((p, p))
-
-    # jump input wire: the matrix reads back what it drove on the source
-    for wire in tile.jump_wires:
-        if wire.source is not None and wire.destination is not None:
-            for dst, src in zip(wire.destination.pins, wire.source.pins, strict=True):
-                ports_pairs.append((dst.name(), src.name(indexed=True)))
-
-    # normal output wire
-    for i in tile.portsInfo:
-        if i.is_output:
-            ports_pairs += list(
-                zip(
-                    i.expand_port_info_by_name(),
-                    i.expand_port_info_by_name_top(indexed=True),
-                    strict=False,
-                )
-            )
-
-    # bel output wire (bel input is input to switch matrix)
-    for bel in tile.bels:
-        for p in bel.pin_names(BelPortKind.INTERNAL, IO.INPUT):
-            ports_pairs.append((p, p))
-
-    # jump output wire
-    for wire in tile.jump_wires:
-        if wire.source is not None and wire.destination is not None:
-            for pin in wire.source.pins:
-                ports_pairs.append((pin.name(), pin.name(indexed=True)))
-
-    # sjump output wire - SM drives SJUMP OUTPUT signals exiting to supertile SM
-    port, signal = [], []
-    for i in tile.sjump_ports:
-        if i.is_output:
-            port += [pin.name() for pin in i.pins]
-            signal += [pin.name(indexed=True) for pin in i.pins]
-
-    ports_pairs += list(zip(port, signal, strict=True))
-
-    # sjump input wire - SJUMP INPUT signals enter SM as sources from supertile SM.
-    # The tile port is a vector, so index into it (Q[0]) rather than using the
-    # scalar SM-port name (Q0), which would be a floating implicit wire.
-    port, signal = [], []
-    for i in tile.sjump_ports:
-        if i.is_input:
-            port += [pin.name() for pin in i.pins]
-            signal += [pin.name(indexed=True) for pin in i.pins]
-
-    ports_pairs += list(zip(port, signal, strict=True))
+    # Each matrix pin is mapped to the tile signal of its hard wire, in the
+    # order the matrix module declares its ports.
+    signals = {}
+    for c in tile.fixed_connections:
+        if not c.buffers and not isinstance(c.declaration, SwitchMatrix):
+            signals[c.source] = signals[c.sink] = c.signal
+    ports_pairs = [
+        (pin.name(), signals[pin])
+        for ports in tile_matrix_module_ports(tile.switch_matrix)
+        for port in ports
+        for pin in port.pins
+    ]
 
     if config_bit_mode == ConfigBitMode.FLIPFLOP_CHAIN:
         ports_pairs.append(("MODE", "Mode"))
