@@ -6,7 +6,7 @@ fabric is the top-level container for all tiles, BELs, and routing resources.
 """
 
 from collections.abc import Generator, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cached_property
 from pathlib import Path
 
@@ -19,13 +19,17 @@ from fabulous.fabric_definition.channel import (
     RoutingChannel,
     resolve_channels,
 )
-from fabulous.fabric_definition.connection import FixedConnection, InstancePin
+from fabulous.fabric_definition.connection import (
+    ChannelHop,
+    FixedConnection,
+    InstancePin,
+    channel_hops,
+)
 from fabulous.fabric_definition.define import (
     IO,
     ConfigBitMode,
     MultiplexerStyle,
     Side,
-    grid_at,
 )
 from fabulous.fabric_definition.instance import SuperTileInstance, TileInstance
 from fabulous.fabric_definition.port import TilePort
@@ -263,44 +267,23 @@ class Fabric:
         return placements
 
     @cached_property
-    def channel_tile_hops(
-        self,
-    ) -> dict[tuple[TileInstance, TilePort], tuple[TileInstance, TilePort]]:
-        """Map each placed input port a channel line reaches to its driver.
+    def channel_hops(self) -> list[ChannelHop[tuple[TileInstance, TilePort]]]:
+        """The channel lines hopping from each placed tile to the next.
 
-        A channel line runs from a tile's begin port to the same channel's end
-        port one tile along. A line leading out of the grid, into an empty
-        cell or into a tile without its end port dangles and has no hop; such
-        a fabric is reported by `check_routing_channels`.
+        See `channel_hops`: a dangling line has no hop; such a fabric is
+        reported by `check_routing_channels`.
 
         Returns
         -------
-        dict[tuple[TileInstance, TilePort], tuple[TileInstance, TilePort]]
-            `(instance, input port)` -> `(instance, output port)` driving it.
+        list[ChannelHop[tuple[TileInstance, TilePort]]]
+            The hops, their ends at the tile instances.
         """
-        hops = {}
-        for row in self.instances:
-            for instance in row:
-                if instance is None:
-                    continue
-                for out in instance.tile_type.portsInfo:
-                    if not out.is_output:
-                        continue
-                    channel = self.channels[out.declaration]
-                    dx, dy = channel.step
-                    target = grid_at(self.instances, instance.x + dx, instance.y + dy)
-                    if target is None:
-                        continue
-                    end = next(
-                        (
-                            p
-                            for p in target.tile_type.portsInfo
-                            if p.is_input and self.channels[p.declaration] is channel
-                        ),
-                        None,
-                    )
-                    if end is not None:
-                        hops[(target, end)] = (instance, out)
+        hops = []
+        for hop in channel_hops(self.tile, self.channels):
+            (sx, sy), source = hop.source
+            (tx, ty), sink = hop.sink
+            source_at, sink_at = self.instances[sy][sx], self.instances[ty][tx]
+            hops.append(replace(hop, source=(source_at, source), sink=(sink_at, sink)))
         return hops
 
     def fixed_connections(self) -> Iterator[FixedConnection[InstancePin]]:
@@ -309,7 +292,7 @@ class Fabric:
         Each placement contributes its own: every tile instance its tile type's
         connections, every supertile placement its supertile's. Then come the
         routing channel hops, from each begin port to the same channel's end
-        port one tile along (`channel_tile_hops`), bit by bit. A hop keeps the
+        port one tile along (`channel_hops`), bit by bit. A hop keeps the
         bit index; the staging is inside the tiles.
 
         Yields
@@ -322,15 +305,8 @@ class Fabric:
             yield from instance.fixed_connections
         for placement in self.super_tile_instances:
             yield from placement.fixed_connections
-        for (target, end), (instance, out) in self.channel_tile_hops.items():
-            declaration = out.declaration
-            # A start tap drives every slice it spans; with no span, none.
-            if declaration.end is None:
-                bits = range(declaration.wire_count * declaration.distance)
-            else:
-                bits = range(out.width)
-            for i in bits:
-                yield FixedConnection((instance, out[i]), (target, end[i]), declaration)
+        for hop in self.channel_hops:
+            yield from hop.pin_connections
 
     def check_routing_channels(self) -> None:
         """Refuse a fabric whose routing channels are inconsistent.
@@ -384,6 +360,25 @@ class Fabric:
                     f"Routing channel {channel.begin} -> {channel.end} of tile "
                     f"'{instance.tile_type.name}' at X{x}Y{y} {problem} at "
                     f"X{px}Y{py}."
+                )
+        # A supertile wires its subtiles by its own channel resolution, so it
+        # can be generated without a fabric; the fabric's must agree.
+        for placement in self.super_tile_instances:
+            at = {instance: xy for xy, instance in placement.tiles.items()}
+            inside = {
+                ((at[hop.source[0]], hop.source[1]), (at[hop.sink[0]], hop.sink[1]))
+                for hop in self.channel_hops
+                if hop.source[0] in at and hop.sink[0] in at
+            }
+            own = {(hop.source, hop.sink) for hop in placement.super_tile.channel_hops}
+            if inside != own:
+                differ = sorted(
+                    f"X{x}Y{y}.{port.name}" for _, ((x, y), port) in inside ^ own
+                )
+                problems.append(
+                    f"Supertile '{placement.super_tile.name}' at "
+                    f"X{placement.x}Y{placement.y} wires its subtiles differently "
+                    f"than the fabric's routing channels: {differ}"
                 )
         return problems
 

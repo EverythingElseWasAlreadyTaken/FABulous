@@ -7,7 +7,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fabulous.fabric_definition.bel import Bel
-from fabulous.fabric_definition.connection import FixedConnection
+from fabulous.fabric_definition.connection import (
+    FixedConnection,
+    PortConnection,
+    StagingConnection,
+)
 from fabulous.fabric_definition.define import (
     IO,
     BelPortKind,
@@ -226,14 +230,43 @@ class Tile:
         )
 
     @cached_property
-    def fixed_connections(self) -> list[FixedConnection[Pin]]:
-        """The hard wires inside the tile.
+    def port_connections(self) -> list[PortConnection[TilePort]]:
+        """The port-to-port wiring inside the tile.
 
         A routing channel line naming both ends stages its bits through the
         tile as the RTL does: `N4BEG[i]` is driven by `N4END[i + wire_count]`
-        through a buffer at the tile entry and one at the exit, and the switch
-        matrix drives the last `wire_count` bits of `N4BEG` and reads the first
-        `wire_count` bits of `N4END`. Every switch matrix port
+        through a buffer at the tile entry and one at the exit.
+
+        Returns
+        -------
+        list[PortConnection[TilePort]]
+            One `StagingConnection` per staged line.
+        """
+        ports = {(p.declaration, p.io_direction): p for p in self.portsInfo}
+        staging = []
+        for (declaration, io), out in ports.items():
+            if io != IO.OUTPUT or declaration.end is None or declaration.distance < 2:
+                continue
+            count = declaration.wire_count
+            staging.append(
+                StagingConnection(
+                    ports[(declaration, IO.INPUT)],
+                    out,
+                    declaration,
+                    out.width - count,
+                    source_offset=count,
+                    buffers=(FabricCellFunction.BUFFER, FabricCellFunction.BUFFER),
+                )
+            )
+        return staging
+
+    @cached_property
+    def fixed_connections(self) -> list[FixedConnection[Pin]]:
+        """The hard wires inside the tile.
+
+        The bits of the `port_connections` (the staged lines), then: the
+        switch matrix drives the last `wire_count` bits of `N4BEG` and reads
+        the first `wire_count` bits of `N4END`. Every switch matrix port
         with an `origin` is joined to it at the module boundary: to the tile
         port's matrix-facing bits, to the BEL port or to the SJUMP port. A jump
         wire loops a matrix output back into a matrix input, and a matrix output
@@ -246,22 +279,7 @@ class Tile:
             The connections: channel staging, matrix boundary, inside the
             matrix, jump wires, BEL external ports.
         """
-        ports = {(p.declaration, p.io_direction): p for p in self.portsInfo}
-        connections = []
-        for (declaration, io), out in ports.items():
-            if io != IO.OUTPUT or declaration.end is None or declaration.distance < 2:
-                continue
-            into = ports[(declaration, IO.INPUT)]
-            count = declaration.wire_count
-            connections += [
-                FixedConnection(
-                    into[i + count],
-                    out[i],
-                    declaration,
-                    (FabricCellFunction.BUFFER, FabricCellFunction.BUFFER),
-                )
-                for i in range(out.width - count)
-            ]
+        connections = [c for pc in self.port_connections for c in pc.pin_connections]
         for sm_port in self.switch_matrix.ports:
             origin = sm_port.origin
             if origin is None:

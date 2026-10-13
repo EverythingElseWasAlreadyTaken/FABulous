@@ -13,12 +13,11 @@ Key features:
 - External I/O port handling and clock distribution
 """
 
-from itertools import groupby
-from operator import attrgetter
 from pathlib import Path
 
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.cell_spec import CellSpec
+from fabulous.fabric_definition.connection import StagingConnection
 from fabulous.fabric_definition.define import (
     IO,
     USER_CLK_PREDECESSOR,
@@ -172,10 +171,7 @@ def generateTile(
         If a staged bit passes other buffers than one at the tile entry and
         one at the exit; where buffers sit is not modelled yet.
     """
-    # The connections of each line staged through the tile; a line's
-    # connections follow each other.
-    staged = (c for c in tile.fixed_connections if c.is_staging)
-    staging = [list(line) for _, line in groupby(staged, attrgetter("declaration"))]
+    staging = [pc for pc in tile.port_connections if isinstance(pc, StagingConnection)]
     buffer = cells.cells[FabricCellFunction.BUFFER][0]
     writer.addHeader(f"{tile.name}")
     writer.addParameterStart(indentLevel=1)
@@ -356,9 +352,10 @@ def generateTile(
     # A staged line passes an entry buffer into `<source>_i` and an exit
     # buffer out of `<sink>_i`.
     for line in staging:
-        source, sink = line[0].source.port, line[0].sink.port
-        writer.addConnectionVector(f"{source.name}_i", source.width - 1)
-        writer.addConnectionVector(f"{sink.name}_i", line[-1].sink.index)
+        writer.addConnectionVector(f"{line.source.name}_i", line.source.width - 1)
+        writer.addConnectionVector(
+            f"{line.sink.name}_i", line.sink_offset + line.width - 1
+        )
 
     writer.addNewLine()
     writer.addLogicStart()
@@ -401,40 +398,27 @@ def generateTile(
         )
 
     for line in staging:
-        source, sink = line[0].source.port, line[0].sink.port
-        for c in line:
-            if c.buffers != (FabricCellFunction.BUFFER, FabricCellFunction.BUFFER):
-                raise NotImplementedError(
-                    f"{c.feature} passes the buffers {c.buffers}; only an entry "
-                    "and an exit buffer can be placed so far."
-                )
-        # Bits that follow each other on both sides share one vector assignment.
-        runs = []
-        for c in line:
-            prev = runs[-1][-1] if runs else None
-            if prev and (c.source.index, c.sink.index) == (
-                prev.source.index + 1,
-                prev.sink.index + 1,
-            ):
-                runs[-1].append(c)
-            else:
-                runs.append([c])
-        for run in runs:
-            first, last = run[0], run[-1]
-            shift = first.source.index - first.sink.index
-            sink_high = f"{last.source.index}-{shift}" if shift else last.sink.index
-            writer.addAssignScalar(
-                f"{sink.name}_i[{sink_high}:{first.sink.index}]",
-                f"{source.name}_i[{last.source.index}:{first.source.index}]",
+        source, sink = line.source, line.sink
+        if line.buffers != (FabricCellFunction.BUFFER, FabricCellFunction.BUFFER):
+            raise NotImplementedError(
+                f"{source.name} -> {sink.name} passes the buffers {line.buffers}; "
+                "only an entry and an exit buffer can be placed so far."
             )
+        source_high = line.source_offset + line.width - 1
+        shift = line.source_offset - line.sink_offset
+        sink_high = f"{source_high}-{shift}" if shift else source_high
+        writer.addAssignScalar(
+            f"{sink.name}_i[{sink_high}:{line.sink_offset}]",
+            f"{source.name}_i[{source_high}:{line.source_offset}]",
+        )
         writer.addNewLine()
-        for c in line:
-            entry = cells.cells[c.buffers[0]][0]
+        entry = cells.cells[line.buffers[0]][0]
+        exit_ = cells.cells[line.buffers[-1]][0]
+        for c in line.pin_connections:
             name = f"{source.name}_inbuf_{c.sink.index}"
             out = f"{source.name}_i[{c.source.index}]"
             _add_buffer(writer, entry, name, c.source.name(indexed=True), out)
-        for c in line:
-            exit_ = cells.cells[c.buffers[-1]][0]
+        for c in line.pin_connections:
             name = f"{sink.name}_outbuf_{c.sink.index}"
             into = f"{sink.name}_i[{c.sink.index}]"
             _add_buffer(writer, exit_, name, into, c.sink.name(indexed=True))

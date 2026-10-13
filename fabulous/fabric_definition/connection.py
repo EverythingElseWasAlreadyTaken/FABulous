@@ -4,7 +4,9 @@ A connection joins a source pin to a sink pin, one bit, directed. Inside a tile
 or switch matrix type the ends are plain `Pin`s; between placed tiles they are
 `(TileInstance, Pin)`. Connections are not stored: the declarations they come
 from (a routing channel line, a switch matrix port, a jump wire) are, and
-expand into them.
+expand into them. A `PortConnection` is the port-level view: one declaration
+wiring a run of bits of one port to another, which expands into its pin
+connections.
 """
 
 from __future__ import annotations
@@ -13,14 +15,19 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from fabulous.fabric_definition.channel import ChannelDeclaration
+from fabulous.fabric_definition.define import grid_at
 from fabulous.fabric_definition.port import BelExternalPort, BelPort, SwitchMatrixPort
 from fabulous.fabric_definition.wire import JumpWire
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from fabulous.fabric_definition.channel import RoutingChannel
     from fabulous.fabric_definition.fabric_cell_library import FabricCellFunction
     from fabulous.fabric_definition.instance import TileInstance
-    from fabulous.fabric_definition.port import Pin
+    from fabulous.fabric_definition.port import Pin, TilePort
     from fabulous.fabric_definition.switch_matrix import Mux, SwitchMatrix
+    from fabulous.fabric_definition.tile import Tile
 
 type InstancePin = tuple[TileInstance, Pin]
 """A pin of a placed tile."""
@@ -74,32 +81,13 @@ class FixedConnection[E](Connection[E]):
     buffers : tuple[FabricCellFunction, ...]
         The buffer cells the signal passes from source to sink, empty for a
         plain wire.
+    port_connection : PortConnection | None
+        The port connection the wire is a bit of, None for a single wire.
     """
 
     declaration: Declaration
     buffers: tuple[FabricCellFunction, ...] = ()
-
-    @property
-    def is_staging(self) -> bool:
-        """Whether the connection stages a channel line through one tile.
-
-        Between placed tiles a channel line also declares the hops; those
-        join two tiles and are no staging.
-        """
-        if not isinstance(self.declaration, ChannelDeclaration):
-            return False
-        if isinstance(self.source, tuple):
-            return self.source[0] == self.sink[0]
-        return True
-
-    @property
-    def is_hop(self) -> bool:
-        """Whether the connection carries a channel line to the next placed tile."""
-        return (
-            isinstance(self.declaration, ChannelDeclaration)
-            and isinstance(self.source, tuple)
-            and self.source[0] != self.sink[0]
-        )
+    port_connection: PortConnection | None = None
 
     @property
     def signal(self) -> str:
@@ -126,7 +114,7 @@ class FixedConnection[E](Connection[E]):
         """
         if isinstance(self.source, tuple):
             at, pin = self.source
-            if not self.is_hop:
+            if not isinstance(self.port_connection, ChannelHop):
                 raise TypeError(f"{self.feature} is no hop between placed tiles")
             return f"{at.port_signal(pin.port)}[{pin.index}]"
         if self.buffers:
@@ -141,6 +129,132 @@ class FixedConnection[E](Connection[E]):
                 return outer.name()
             return outer.name(indexed=True)
         raise ValueError(f"{self.feature} is not a signal of the tile module")
+
+
+@dataclass(frozen=True)
+class PortConnection[E]:
+    """Wires `width` bits of a source port to a sink port, bit by bit.
+
+    Source bit `source_offset + i` drives sink bit `sink_offset + i`. It is
+    one declaration's whole wiring between two ports, which its
+    `pin_connections` expand into.
+
+    Attributes
+    ----------
+    source : E
+        The driving port: a `Port`, or placed `(TileInstance, Port)` or
+        `((x, y), Port)`.
+    sink : E
+        The driven port, of the same kind as `source`.
+    declaration : Declaration
+        The declaration the connection is expanded from.
+    width : int
+        How many bits are wired.
+    source_offset : int
+        The first source bit. Default 0.
+    sink_offset : int
+        The first sink bit. Default 0.
+    buffers : tuple[FabricCellFunction, ...]
+        The buffer cells each bit passes from source to sink. Default none.
+    """
+
+    source: E
+    sink: E
+    declaration: Declaration
+    width: int
+    source_offset: int = 0
+    sink_offset: int = 0
+    buffers: tuple[FabricCellFunction, ...] = ()
+
+    @property
+    def pin_connections(self) -> tuple[FixedConnection, ...]:
+        """The pin-to-pin connections, in source bit order."""
+
+        def pin(end: E, index: int) -> object:
+            if isinstance(end, tuple):
+                at, port = end
+                return (at, port[index])
+            return end[index]
+
+        return tuple(
+            FixedConnection(
+                pin(self.source, self.source_offset + i),
+                pin(self.sink, self.sink_offset + i),
+                self.declaration,
+                self.buffers,
+                self,
+            )
+            for i in range(self.width)
+        )
+
+
+@dataclass(frozen=True)
+class StagingConnection[E](PortConnection[E]):
+    """A channel line staged through a tile: `END[count:]` -> `BEG[:-count]`."""
+
+
+@dataclass(frozen=True)
+class ChannelHop[E](PortConnection[E]):
+    """A channel line from a tile's begin port to the partner end port one tile on."""
+
+
+def channel_hops(
+    tiles: list[list[Tile | None]],
+    channels: Mapping[ChannelDeclaration, RoutingChannel],
+) -> list[ChannelHop[tuple[tuple[int, int], TilePort]]]:
+    """Find where the channel lines hop from tile to tile across a grid.
+
+    A line runs from a tile's begin port to the same channel's end port one
+    tile along. A line leading out of the grid, into an empty cell or into a
+    tile without its end port dangles and has no hop.
+
+    Parameters
+    ----------
+    tiles : list[list[Tile | None]]
+        The grid of tile types, `None` for an empty cell.
+    channels : Mapping[ChannelDeclaration, RoutingChannel]
+        The channel of each declaration of the tiles.
+
+    Returns
+    -------
+    list[ChannelHop[tuple[tuple[int, int], TilePort]]]
+        The hops with their ends at grid positions, row by row.
+    """
+    hops = []
+    for y, row in enumerate(tiles):
+        for x, tile in enumerate(row):
+            if tile is None:
+                continue
+            for out in tile.portsInfo:
+                if not out.is_output:
+                    continue
+                channel = channels[out.declaration]
+                dx, dy = channel.step
+                target = grid_at(tiles, x + dx, y + dy)
+                if target is None:
+                    continue
+                end = next(
+                    (
+                        p
+                        for p in target.portsInfo
+                        if p.is_input and channels[p.declaration] is channel
+                    ),
+                    None,
+                )
+                if end is None:
+                    continue
+                declaration = out.declaration
+                # A start tap drives every slice it spans; with no span, none.
+                if declaration.end is None:
+                    width = declaration.wire_count * declaration.distance
+                else:
+                    width = out.width
+                hops.append(
+                    ChannelHop(
+                        ((x, y), out), ((x + dx, y + dy), end), declaration, width
+                    )
+                )
+    return hops
 
 
 @dataclass(frozen=True)

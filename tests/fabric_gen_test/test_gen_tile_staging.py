@@ -39,16 +39,7 @@ def _rtl(tile: Tile, tmp_path: Path) -> str:
     return writer.outFileName.read_text()
 
 
-def _drop_staged_bit(tile: Tile, index: int) -> None:
-    """Remove the staging connection driving `A[index]`."""
-    tile.__dict__["fixed_connections"] = [
-        c
-        for c in tile.fixed_connections
-        if not (c.is_staging and c.sink.index == index)
-    ]
-
-
-def test_contiguous_bits_share_one_assignment(tmp_path: Path) -> None:
+def test_a_staged_line_is_one_assignment(tmp_path: Path) -> None:
     rtl = _rtl(_tile(), tmp_path)
 
     assert "assign A_i[5-2:0] = B_i[5:2];" in rtl
@@ -56,22 +47,11 @@ def test_contiguous_bits_share_one_assignment(tmp_path: Path) -> None:
     assert "my_buf A_outbuf_3" in rtl
 
 
-def test_a_gap_splits_the_assignment(tmp_path: Path) -> None:
-    tile = _tile()
-    _drop_staged_bit(tile, 1)
-
-    rtl = _rtl(tile, tmp_path)
-
-    assert "assign A_i[2-2:0] = B_i[2:2];" in rtl
-    assert "assign A_i[5-2:2] = B_i[5:4];" in rtl
-
-
 def test_other_buffer_chains_are_not_placed_yet(tmp_path: Path) -> None:
     tile = _tile()
     single = (FabricCellFunction.BUFFER,)
-    tile.__dict__["fixed_connections"] = [
-        replace(c, buffers=single) if c.is_staging else c
-        for c in tile.fixed_connections
+    tile.__dict__["port_connections"] = [
+        replace(pc, buffers=single) for pc in tile.port_connections
     ]
 
     with pytest.raises(NotImplementedError, match="entry and an exit buffer"):

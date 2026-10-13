@@ -15,7 +15,7 @@ from fabulous.fabric_definition.channel import (
     RoutingChannel,
     resolve_channels,
 )
-from fabulous.fabric_definition.connection import FixedConnection
+from fabulous.fabric_definition.connection import ChannelHop, StagingConnection
 from fabulous.fabric_definition.define import IO, BelPortKind, Direction
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.instance import TileInstance
@@ -97,8 +97,11 @@ class TestRoutingChannelProblems:
         """A line leading nowhere has no hop, and never wraps around the grid."""
         fabric = self._column(make_fabric, names)
 
-        assert fabric.channel_tile_hops == {}
-        assert [c for c in fabric.fixed_connections() if c.is_hop] == []
+        assert fabric.channel_hops == []
+        assert not any(
+            isinstance(c.port_connection, ChannelHop)
+            for c in fabric.fixed_connections()
+        )
 
     def test_start_below_end_is_consistent(
         self, make_fabric: Callable[..., Fabric]
@@ -151,10 +154,10 @@ class TestRoutingChannelProblems:
                 if c.source[0] is instance
             }
 
-        assert {
-            (end_at.y, end.name): (out_at.y, out.name)
-            for (end_at, end), (out_at, out) in fabric.channel_tile_hops.items()
-        } == {(0, "B"): (1, "A"), (1, "B"): (2, "A")}
+        assert [
+            (hop.source[0].y, hop.source[1].name, hop.sink[0].y, hop.sink[1].name)
+            for hop in fabric.channel_hops
+        ] == [(1, "A", 0, "B"), (2, "A", 1, "B")]
         assert named(fabric.instances[1][0]) == {
             (1, "B1", 1, "A0"),  # staging: END[i + wire_count] -> BEG[i]
             (1, "A0", 0, "B0"),  # hops keep the bit index
@@ -229,7 +232,7 @@ class TestRoutingChannelProblems:
 
         assert "has nothing receiving it at X0Y0" in caplog.text
 
-    def test_is_staging_inside_one_tile_only(self) -> None:
+    def test_staging_and_hops_are_port_connections(self) -> None:
         """Staging stays in a tile; a hop of the same line joins two tiles."""
         ports, _ = parse_port_line("NORTH,A,0,-2,B,1")
         tile = Tile(
@@ -241,17 +244,25 @@ class TestRoutingChannelProblems:
             gen_ios=[],
             pinOrderConfig={},
         )
+        (line,) = tile.port_connections
         staging, *boundary = tile.fixed_connections
         here, there = TileInstance(0, 1, tile), TileInstance(0, 0, tile)
         out, into = ports
-        hop = FixedConnection((here, out[0]), (there, into[0]), staging.declaration)
+        (hop,) = ChannelHop(
+            (here, out), (there, into), line.declaration, 1
+        ).pin_connections
 
-        assert staging.is_staging
-        assert TileInstance(0, 0, tile).fixed_connections[0].is_staging
-        assert not any(c.is_staging for c in boundary)
-        assert not hop.is_staging
-        assert hop.is_hop
-        assert not TileInstance(0, 0, tile).fixed_connections[0].is_hop
+        assert isinstance(line, StagingConnection)
+        assert (line.source, line.sink, line.source_offset, line.width) == (
+            into,
+            out,
+            1,
+            1,
+        )
+        assert staging.port_connection is line
+        assert TileInstance(0, 0, tile).fixed_connections[0].port_connection is line
+        assert all(c.port_connection is None for c in boundary)
+        assert isinstance(hop.port_connection, ChannelHop)
         assert hop.signal == "Tile_X0Y1_A[0]"
 
     def test_signal_names_the_tile_rtl_signal(self) -> None:

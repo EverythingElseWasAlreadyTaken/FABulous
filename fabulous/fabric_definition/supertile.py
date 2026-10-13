@@ -13,7 +13,13 @@ from functools import cached_property
 from pathlib import Path
 
 from fabulous.fabric_definition.bel import Bel
-from fabulous.fabric_definition.connection import FixedConnection, LocalPin
+from fabulous.fabric_definition.channel import resolve_channels
+from fabulous.fabric_definition.connection import (
+    ChannelHop,
+    FixedConnection,
+    LocalPin,
+    channel_hops,
+)
 from fabulous.fabric_definition.define import (
     IO,
     SWITCH_MATRIX_CONSTANTS,
@@ -309,6 +315,25 @@ class SuperTile:
     def total_config_bits(self) -> int:
         """Return the supertile's config bits: switch matrix bits plus BEL bits."""
         return self.supertile_matrix_config_bits + sum(b.configBit for b in self.bels)
+
+    @cached_property
+    def channel_hops(self) -> list[ChannelHop[tuple[tuple[int, int], TilePort]]]:
+        """The channel lines hopping between the subtiles.
+
+        Their ends sit at `tileMap` positions (`channel_hops`). The channels
+        are resolved from the subtiles alone, so a supertile is wired without
+        a fabric; a fabric checks that its own resolution agrees
+        (`check_routing_channels`).
+
+        Returns
+        -------
+        list[ChannelHop[tuple[tuple[int, int], TilePort]]]
+            The hops between the subtiles.
+        """
+        channels = resolve_channels(
+            p.declaration for tile in self.tiles for p in tile.portsInfo
+        )
+        return channel_hops(self.tileMap, channels)
 
     @property
     def config_bit_ranges(self) -> dict[Bel | SwitchMatrix, range]:

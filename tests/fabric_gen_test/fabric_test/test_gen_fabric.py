@@ -31,6 +31,7 @@ def test_generate_fabric_uses_fabric_name(mocker: MockerFixture) -> None:
     fabric.name = "test_fabric"
     fabric.tile = []
     fabric.instances = []
+    fabric.channel_hops = []
     fabric.super_tile_instances = []
     fabric.configBitMode = ConfigBitMode.FLIPFLOP_CHAIN
     fabric.maxFramesPerCol = 20

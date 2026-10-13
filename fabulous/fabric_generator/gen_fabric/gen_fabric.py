@@ -213,6 +213,7 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
                 f"MaxFramesPerCol*{x}",
             )
 
+    drivers = {hop.sink: hop.source for hop in fabric.channel_hops}
     instantiatedPosition = []
     # Tile instantiations
     for y, row in enumerate(fabric.tile):
@@ -270,7 +271,7 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
                         continue
                     ports = get_side_ports(here, IO.INPUT)
                     for port, local in zip(ports, _local_names(ports), strict=True):
-                        driver = fabric.channel_tile_hops.get((here_at, port))
+                        driver = drivers.get((here_at, port))
                         signal = (
                             "" if driver is None else driver[0].port_signal(driver[1])
                         )
