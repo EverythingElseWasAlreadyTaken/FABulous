@@ -311,6 +311,29 @@ class SuperTile:
         return self.supertile_matrix_config_bits + sum(b.configBit for b in self.bels)
 
     @property
+    def config_bit_ranges(self) -> dict[Bel | SwitchMatrix, range]:
+        """Where each configurable element's bits sit in the `ST_ConfigBits`.
+
+        The switch matrix first (if any), then the BELs in order. The supertile
+        RTL slices `ST_ConfigBits` and the bitstream spec places the features
+        by these ranges.
+
+        Returns
+        -------
+        dict[Bel | SwitchMatrix, range]
+            The range of the switch matrix and of each BEL.
+        """
+        ranges: dict[Bel | SwitchMatrix, range] = {}
+        start = 0
+        if self.switch_matrix is not None:
+            start = self.switch_matrix.no_config_bits
+            ranges[self.switch_matrix] = range(start)
+        for bel in self.bels:
+            ranges[bel] = range(start, start + bel.configBit)
+            start += bel.configBit
+        return ranges
+
+    @property
     def supertile_matrix_dir(self) -> Path | None:
         """Return the supertile switch matrix file, or None if there is none."""
         return None if self.switch_matrix is None else self.switch_matrix.matrix_file

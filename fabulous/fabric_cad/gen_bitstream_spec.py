@@ -156,11 +156,12 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
                 specData["FrameMap"][tile.name] = {}
                 specData["FrameMapEncode"][tile.name] = {}
 
-            curBitOffset = 0
             curTileMap = {}
             curTileMapNoMask = {}
+            config_bit_ranges = tile.config_bit_ranges
 
             for i, bel in enumerate(tile.bels):
+                curBitOffset = config_bit_ranges[bel].start
                 for featureKey, keyDict in bel.belFeatureMap.items():
                     for entry in (k for k in keyDict if isinstance(k, int)):
                         for v in keyDict[entry]:
@@ -172,9 +173,9 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
                             ] = {encodeDict[curBitOffset + v]: keyDict[entry][v]}
                         curBitOffset += len(keyDict[entry])
 
-            # The switch matrix's config bits follow the BEL bits.
+            sm_start = config_bit_ranges[tile.switch_matrix].start
             for pip in tile.switch_matrix.pips:
-                bits = {encodeDict[curBitOffset + o]: v for o, v in pip.bits}
+                bits = {encodeDict[sm_start + o]: v for o, v in pip.bits}
                 curTileMap[pip.feature] = bits
                 curTileMapNoMask[pip.feature] = dict(bits)
 
@@ -193,10 +194,10 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
 
     # Supertile bitstream features. A supertile's config bits physically live in
     # its master tile's frame column (the master tile's own ConfigMem leaves those
-    # bits free). Within the supertile config space the bit order is
-    # [switch-matrix bits][BEL bits], matching genSuperTile()'s ST_ConfigBits
-    # slicing. The BEL and switch-matrix features are added to the master tile's
-    # TileSpecs entry alongside the master tile's own features.
+    # bits free). Within the supertile config space the elements sit at their
+    # `config_bit_ranges`, as the supertile RTL slices ST_ConfigBits. The BEL
+    # and switch-matrix features are added to the master tile's TileSpecs entry
+    # alongside the master tile's own features.
     st_bel_count: dict[tuple[int, int], int] = {}
     for super_tile in fabric.superTileDic.values():
         if not super_tile.bels and super_tile.supertile_matrix_dir is None:
@@ -223,8 +224,13 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
 
         # The SJUMP wires and single-input matrix outputs are fixed
         # connections, mapped with the tiles above.
-        muxes = super_tile.switch_matrix.muxes if super_tile.switch_matrix else ()
+        config_bit_ranges = super_tile.config_bit_ranges
         pips = super_tile.switch_matrix.pips if super_tile.switch_matrix else ()
+        sm_start = (
+            config_bit_ranges[super_tile.switch_matrix].start
+            if super_tile.switch_matrix
+            else 0
+        )
 
         for placement in fabric.super_tile_instances:
             if placement.super_tile is not super_tile:
@@ -245,21 +251,20 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
                 f"X{ftx}Y{fty}", {}
             )
 
-            # The switch matrix's config bits come first, then the BEL bits.
             # Without config bits every pip is a passthrough.
             for pip in pips:
                 for t in (curTileMap, curTileMapNoMask):
                     t[pip.feature] = (
                         {}
                         if st_config_bits == 0
-                        else {st_encode_dict[o]: v for o, v in pip.bits}
+                        else {st_encode_dict[sm_start + o]: v for o, v in pip.bits}
                     )
-            curBitOffset = 0 if st_config_bits == 0 else sum(m.width for m in muxes)
 
             bel_coord = (ftx, fty)
             bel_offset = len(master_tile.bels) + st_bel_count.get(bel_coord, 0)
             for i, bel in enumerate(super_tile.bels):
                 letter = string.ascii_uppercase[bel_offset + i]
+                curBitOffset = config_bit_ranges[bel].start
                 for featureKey, keyDict in bel.belFeatureMap.items():
                     for entry in keyDict:
                         if not isinstance(entry, int):

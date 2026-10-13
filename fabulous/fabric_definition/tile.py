@@ -415,6 +415,27 @@ class Tile:
         return [p.source_name for p in self.portsInfo if p.is_output]
 
     @property
+    def config_bit_ranges(self) -> dict[Bel | SwitchMatrix, range]:
+        """Where each configurable element's bits sit in the tile's `ConfigBits`.
+
+        The BELs in order, then the switch matrix. The tile RTL slices
+        `ConfigBits` and the bitstream spec places the features by these ranges.
+
+        Returns
+        -------
+        dict[Bel | SwitchMatrix, range]
+            The range of each BEL and of the switch matrix.
+        """
+        ranges: dict[Bel | SwitchMatrix, range] = {}
+        start = 0
+        for bel in self.bels:
+            ranges[bel] = range(start, start + bel.configBit)
+            start += bel.configBit
+        sm_bits = self.switch_matrix.no_config_bits
+        ranges[self.switch_matrix] = range(start, start + sm_bits)
+        return ranges
+
+    @property
     def globalConfigBits(self) -> int:
         """Get the total number of global configuration bits.
 

@@ -167,7 +167,8 @@ class Mux:
         return tuple((self.offset + i, v) for i, v in enumerate(values))
 
 
-@dataclass(frozen=True)
+# Compared by identity, like ports: a matrix is one object of the model.
+@dataclass(frozen=True, eq=False)
 class SwitchMatrix:
     """Encapsulates a tile's switch matrix: its ports and their connectivity.
 
