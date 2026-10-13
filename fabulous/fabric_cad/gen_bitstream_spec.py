@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from fabulous.fabric_definition.fabric import Fabric
+from fabulous.fabric_definition.port import BelExternalPort
 from fabulous.fabric_generator.parser.parse_configmem import parseConfigMem
 from fabulous.fabulous_settings import get_context
 
@@ -181,8 +182,11 @@ def generateBitstreamSpec(fabric: Fabric) -> dict[str, dict]:
             specData["TileSpecs_No_Mask"][f"X{x}Y{y}"] = curTileMapNoMask
 
     # Fixed connections get an empty bit mapping in the tile they start in, as
-    # nextpnr sees them as pips.
+    # nextpnr sees them as pips (all but the BEL EXTERNAL ports, see
+    # gen_npnr_model).
     for connection in fabric.fixed_connections():
+        if isinstance(connection.declaration, BelExternalPort):
+            continue
         src_at = connection.source[0]
         for key in ("TileSpecs", "TileSpecs_No_Mask"):
             specData[key][f"X{src_at.x}Y{src_at.y}"][connection.feature] = {}

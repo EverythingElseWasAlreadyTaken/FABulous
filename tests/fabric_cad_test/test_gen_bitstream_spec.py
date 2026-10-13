@@ -23,10 +23,11 @@ from fabulous.fabric_cad.gen_bitstream_spec import (
     border_rows_have_config_bits,
     generateBitstreamSpec,
 )
+from fabulous.fabric_cad.gen_npnr_model import genNextpnrModel
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import IO
 from fabulous.fabric_definition.fabric import Fabric
-from fabulous.fabric_definition.port import BelConfigPort, BelPort
+from fabulous.fabric_definition.port import BelConfigPort, BelExternalPort, BelPort
 from fabulous.fabric_definition.switch_matrix import (
     SwitchMatrix,
     switch_matrix_ports,
@@ -145,6 +146,24 @@ def test_spec_is_internally_consistent(generated_fabric: Fabric) -> None:
                 assert 0 <= bit_index < max_bit, (
                     f"{loc}.{feature} maps to invalid frame bit {bit_index}"
                 )
+
+
+def test_bel_external_wires_are_no_pips(generated_fabric: Fabric) -> None:
+    """A BEL's EXTERNAL port leaves the fabric: no pip, no spec feature."""
+    external = {
+        c.feature
+        for c in generated_fabric.fixed_connections()
+        if isinstance(c.declaration, BelExternalPort)
+    }
+    pips = genNextpnrModel(generated_fabric)[0]
+    spec = generateBitstreamSpec(generated_fabric)
+
+    pip_features = {
+        line.rsplit(",", 1)[1] for line in pips.splitlines() if line[0] != "#"
+    }
+    spec_features = {f for specs in spec["TileSpecs"].values() for f in specs}
+    assert external  # the demo has IO BELs
+    assert not external & (pip_features | spec_features)
 
 
 def test_border_rows_excluded_for_demo_fabric(generated_fabric: Fabric) -> None:
