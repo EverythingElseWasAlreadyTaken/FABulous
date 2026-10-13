@@ -7,6 +7,7 @@ fabric is the top-level container for all tiles, BELs, and routing resources.
 
 from collections.abc import Generator, Iterator
 from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
 
 from loguru import logger
@@ -24,8 +25,10 @@ from fabulous.fabric_definition.define import (
     ConfigBitMode,
     MultiplexerStyle,
     Side,
+    grid_at,
 )
 from fabulous.fabric_definition.instance import SuperTileInstance, TileInstance
+from fabulous.fabric_definition.port import TilePort
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
 
@@ -259,15 +262,55 @@ class Fabric:
                     placements.append(SuperTileInstance(base_fx, base_fy, st, tiles))
         return placements
 
+    @cached_property
+    def channel_tile_hops(
+        self,
+    ) -> dict[tuple[TileInstance, TilePort], tuple[TileInstance, TilePort]]:
+        """Map each placed input port a channel line reaches to its driver.
+
+        A channel line runs from a tile's begin port to the same channel's end
+        port one tile along. A line leading out of the grid, into an empty
+        cell or into a tile without its end port dangles and has no hop; such
+        a fabric is reported by `check_routing_channels`.
+
+        Returns
+        -------
+        dict[tuple[TileInstance, TilePort], tuple[TileInstance, TilePort]]
+            `(instance, input port)` -> `(instance, output port)` driving it.
+        """
+        hops = {}
+        for row in self.instances:
+            for instance in row:
+                if instance is None:
+                    continue
+                for out in instance.tile_type.portsInfo:
+                    if not out.is_output:
+                        continue
+                    channel = self.channels[out.declaration]
+                    dx, dy = channel.step
+                    target = grid_at(self.instances, instance.x + dx, instance.y + dy)
+                    if target is None:
+                        continue
+                    end = next(
+                        (
+                            p
+                            for p in target.tile_type.portsInfo
+                            if p.is_input and self.channels[p.declaration] is channel
+                        ),
+                        None,
+                    )
+                    if end is not None:
+                        hops[(target, end)] = (instance, out)
+        return hops
+
     def fixed_connections(self) -> Iterator[FixedConnection[InstancePin]]:
         """Yield every hard wire of the fabric.
 
         Each placement contributes its own: every tile instance its tile type's
         connections, every supertile placement its supertile's. Then come the
         routing channel hops, from each begin port to the same channel's end
-        port one tile along. A hop keeps the bit index; the staging is inside
-        the tiles. Needs consistent routing channels
-        (`check_routing_channels`).
+        port one tile along (`channel_tile_hops`), bit by bit. A hop keeps the
+        bit index; the staging is inside the tiles.
 
         Yields
         ------
@@ -279,28 +322,15 @@ class Fabric:
             yield from instance.fixed_connections
         for placement in self.super_tile_instances:
             yield from placement.fixed_connections
-        for instance in placed:
-            for out in instance.tile_type.portsInfo:
-                if not out.is_output:
-                    continue
-                declaration = out.declaration
-                channel = self.channels[declaration]
-                dx, dy = channel.step
-                target = self.instances[instance.y + dy][instance.x + dx]
-                end = next(
-                    p
-                    for p in target.tile_type.portsInfo
-                    if p.is_input and self.channels[p.declaration] is channel
-                )
-                # A start tap drives every slice it spans; with no span, none.
-                if declaration.end is None:
-                    bits = range(declaration.wire_count * declaration.distance)
-                else:
-                    bits = range(out.width)
-                for i in bits:
-                    yield FixedConnection(
-                        (instance, out[i]), (target, end[i]), declaration
-                    )
+        for (target, end), (instance, out) in self.channel_tile_hops.items():
+            declaration = out.declaration
+            # A start tap drives every slice it spans; with no span, none.
+            if declaration.end is None:
+                bits = range(declaration.wire_count * declaration.distance)
+            else:
+                bits = range(out.width)
+            for i in bits:
+                yield FixedConnection((instance, out[i]), (target, end[i]), declaration)
 
     def check_routing_channels(self) -> None:
         """Refuse a fabric whose routing channels are inconsistent.

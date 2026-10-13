@@ -86,6 +86,20 @@ class TestRoutingChannelProblems:
         tiles = {n: make_empty_tile(n, parse_port_line(lines[n])[0]) for n in lines}
         return make_fabric(tile=[[tiles.get(n)] for n in names])
 
+    @pytest.mark.parametrize(
+        "names",
+        [["BOT", "TOP"], ["TOP", None, "BOT"]],
+        ids=["out of the grid", "into an empty cell"],
+    )
+    def test_dangling_line_has_no_hop(
+        self, make_fabric: Callable[..., Fabric], names: list[str | None]
+    ) -> None:
+        """A line leading nowhere has no hop, and never wraps around the grid."""
+        fabric = self._column(make_fabric, names)
+
+        assert fabric.channel_tile_hops == {}
+        assert [c for c in fabric.fixed_connections() if c.is_hop] == []
+
     def test_start_below_end_is_consistent(
         self, make_fabric: Callable[..., Fabric]
     ) -> None:
@@ -137,6 +151,10 @@ class TestRoutingChannelProblems:
                 if c.source[0] is instance
             }
 
+        assert {
+            (end_at.y, end.name): (out_at.y, out.name)
+            for (end_at, end), (out_at, out) in fabric.channel_tile_hops.items()
+        } == {(0, "B"): (1, "A"), (1, "B"): (2, "A")}
         assert named(fabric.instances[1][0]) == {
             (1, "B1", 1, "A0"),  # staging: END[i + wire_count] -> BEG[i]
             (1, "A0", 0, "B0"),  # hops keep the bit index
@@ -232,6 +250,9 @@ class TestRoutingChannelProblems:
         assert TileInstance(0, 0, tile).fixed_connections[0].is_staging
         assert not any(c.is_staging for c in boundary)
         assert not hop.is_staging
+        assert hop.is_hop
+        assert not TileInstance(0, 0, tile).fixed_connections[0].is_hop
+        assert hop.signal == "Tile_X0Y1_A[0]"
 
     def test_signal_names_the_tile_rtl_signal(self) -> None:
         """A hard wire is the signal of its tile port, BEL pin or jump source."""
@@ -256,7 +277,7 @@ class TestRoutingChannelProblems:
         with pytest.raises(ValueError, match="buffer cells"):
             _ = staging.signal
         placed = TileInstance(0, 0, tile).fixed_connections[1]
-        with pytest.raises(TypeError, match="not inside a tile"):
+        with pytest.raises(TypeError, match="no hop between placed tiles"):
             _ = placed.signal
 
     def test_bel_external_ports_wire_external_bel_ports_out(self) -> None:

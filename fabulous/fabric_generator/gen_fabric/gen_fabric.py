@@ -61,20 +61,18 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
     )
     writer.addParameterEnd(indentLevel=1)
     writer.addPortStart(indentLevel=1)
-    for y, row in enumerate(fabric.tile):
-        for x, tile in enumerate(row):
-            if tile is not None:
-                for bel in tile.bels:
-                    for i in bel.pin_names(BelPortKind.EXTERNAL, IO.INPUT):
-                        writer.addPortScalar(
-                            f"Tile_X{x}Y{y}_{i}", IO.INPUT, indentLevel=2
-                        )
-                        writer.addComment("EXTERNAL", onNewLine=False)
-                    for i in bel.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT):
-                        writer.addPortScalar(
-                            f"Tile_X{x}Y{y}_{i}", IO.OUTPUT, indentLevel=2
-                        )
-                        writer.addComment("EXTERNAL", onNewLine=False)
+    for row in fabric.instances:
+        for instance in row:
+            if instance is None:
+                continue
+            for port in instance.tile_type.bel_external_ports:
+                for pin in port.pins:
+                    writer.addPortScalar(
+                        f"{instance.name}_{pin.name()}",
+                        port.io_direction,
+                        indentLevel=2,
+                    )
+                    writer.addComment("EXTERNAL", onNewLine=False)
 
     # supertile-level BEL external ports (the BEL lives in the wrapper, not a
     # child tile); declare them at the wrapper's anchor coordinates.
@@ -176,19 +174,14 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
                 )
 
     writer.addComment("tile-to-tile signal declarations", onNewLine=True)
-    for y, row in enumerate(fabric.tile):
-        for x, tile in enumerate(row):
-            if tile is not None:
-                seenPorts = set()
-                for p in tile.portsInfo:
-                    wireLength = (abs(p.x_offset) + abs(p.y_offset)) * p.wire_count - 1
-                    if not p.has_source:
-                        continue
-                    if p.source_name in seenPorts:
-                        continue
-                    seenPorts.add(p.source_name)
+    for row in fabric.instances:
+        for instance in row:
+            if instance is None:
+                continue
+            for port in instance.tile_type.portsInfo:
+                if port.is_output:
                     writer.addConnectionVector(
-                        f"Tile_X{x}Y{y}_{p.source_name}", wireLength
+                        instance.port_signal(port), port.width - 1
                     )
     writer.addNewLine()
     # VHDL architecture body
@@ -256,6 +249,7 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
             # if is a normal tile then the offset is (0, 0)
             for i, j in tileLocationOffset:
                 here = fabric.tile[y + j][x + i]
+                here_at = fabric.instances[y + j][x + i]
                 in_super = superTile is not None
 
                 def _local_names(
@@ -271,24 +265,16 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
                 # input connection from north side of the south tile
                 # (NORTH-direction wires entering this tile from south fabric neighbour)
                 for get_side_ports, dx, dy in _SIDE_INPUT_CONNECTIONS:
-                    neighbor_x, neighbor_y = x + i + dx, y + j + dy
-                    if (neighbor_x, neighbor_y) in superTileLoc:
+                    # Inside a supertile the wrapper wires the subtiles itself.
+                    if (x + i + dx, y + j + dy) in superTileLoc:
                         continue
-                    localPorts = _local_names(get_side_ports(here, IO.INPUT))
-                    if (
-                        0 <= neighbor_y < len(fabric.tile)
-                        and 0 <= neighbor_x < len(fabric.tile[0])
-                        and fabric.tile[neighbor_y][neighbor_x] is not None
-                    ):
-                        neighborInput = [
-                            f"Tile_X{neighbor_x}Y{neighbor_y}_{p.name}"
-                            for p in get_side_ports(
-                                fabric.tile[neighbor_y][neighbor_x], IO.OUTPUT
-                            )
-                        ]
-                        portsPairs += list(zip(localPorts, neighborInput, strict=False))
-                    else:
-                        portsPairs += [(p, "") for p in localPorts]
+                    ports = get_side_ports(here, IO.INPUT)
+                    for port, local in zip(ports, _local_names(ports), strict=True):
+                        driver = fabric.channel_tile_hops.get((here_at, port))
+                        signal = (
+                            "" if driver is None else driver[0].port_signal(driver[1])
+                        )
+                        portsPairs.append((local, signal))
 
             # output signal name is same as the output port name
             if superTile:
@@ -302,15 +288,18 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
                     for ports in around:
                         for port in ports:
                             if port.is_output:
+                                at = fabric.instances[y + int(j)][x + int(i)]
                                 portsPairs.append(
                                     (
                                         f"Tile_X{int(i)}Y{int(j)}_{port.name}",
-                                        f"Tile_X{x + int(i)}Y{y + int(j)}_{port.name}",
+                                        at.port_signal(port),
                                     )
                                 )
             else:
-                for i in tile.getTileOutputNames():
-                    portsPairs.append((i, f"Tile_X{x}Y{y}_{i}"))
+                at = fabric.instances[y][x]
+                for port in tile.portsInfo:
+                    if port.is_output:
+                        portsPairs.append((port.name, at.port_signal(port)))
 
             writer.addNewLine()
             writer.addComment(
@@ -319,12 +308,10 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
                 indentLevel=0,
             )
             for i, j in tileLocationOffset:
-                for b in fabric.tile[y + j][x + i].bels:
-                    for p in b.pin_names(BelPortKind.EXTERNAL, IO.INPUT):
-                        portsPairs.append((p, f"Tile_X{x + i}Y{y + j}_{p}"))
-
-                    for p in b.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT):
-                        portsPairs.append((p, f"Tile_X{x + i}Y{y + j}_{p}"))
+                at = fabric.instances[y + j][x + i]
+                for port in at.tile_type.bel_external_ports:
+                    for pin in port.pins:
+                        portsPairs.append((pin.name(), f"{at.name}_{pin.name()}"))
 
             # supertile-level BEL external ports: connect the wrapper's external
             # ports to the top-level nets declared at the anchor coordinates.
