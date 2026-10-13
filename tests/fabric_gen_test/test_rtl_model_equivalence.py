@@ -23,6 +23,7 @@ from fabulous.fabric_definition.fabric_cell_library import (
     FabricCellLibrary,
 )
 from fabulous.fabric_definition.port import (
+    BelExternalPort,
     BelPort,
     Pin,
     SJumpPort,
@@ -45,6 +46,8 @@ def _endpoint(pin: Pin) -> Endpoint:
     port = pin.port
     if isinstance(port, TilePort | SJumpPort):
         return ("", port.name, pin.index)
+    if isinstance(port, BelExternalPort):  # scalar module ports, one per pin
+        return ("", pin.name(), 0)
     if isinstance(port, SwitchMatrixPort):
         return (port.matrix.instance_name, pin.name(), 0)
     if isinstance(port, BelPort):
@@ -54,15 +57,17 @@ def _endpoint(pin: Pin) -> Endpoint:
 
 def _modelled(tile: Tile) -> set[Endpoint]:
     """The port bits the model knows: tile ports, matrix and BEL ports."""
-    pins = [pin for p in [*tile.portsInfo, *tile.sjump_ports] for pin in p.pins]
+    tile_ports = [*tile.portsInfo, *tile.sjump_ports, *tile.bel_external_ports]
+    pins = [pin for p in tile_ports for pin in p.pins]
     pins += [
         pin for p in tile.switch_matrix.ports if not p.is_constant for pin in p.pins
     ]
     pins += [
         pin
         for bel in tile.bels
+        for kind in (BelPortKind.INTERNAL, BelPortKind.EXTERNAL)
         for io in (IO.INPUT, IO.OUTPUT)
-        for p in bel.get_ports(BelPortKind.INTERNAL, io)
+        for p in bel.get_ports(kind, io)
         for pin in p.pins
     ]
     return {_endpoint(pin) for pin in pins}

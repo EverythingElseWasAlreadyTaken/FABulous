@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from fabulous.fabric_definition.port import BelPort, SwitchMatrixPort
+from fabulous.fabric_definition.port import BelExternalPort, BelPort, SwitchMatrixPort
 from fabulous.fabric_definition.wire import JumpWire
 
 if TYPE_CHECKING:
@@ -27,6 +27,11 @@ type InstancePin = tuple[TileInstance, Pin]
 
 type LocalPin = tuple[tuple[int, int], Pin]
 """A pin at an `(x, y)` position of a supertile's `tileMap`."""
+
+type Declaration = (
+    ChannelDeclaration | SwitchMatrixPort | SwitchMatrix | JumpWire | BelExternalPort
+)
+"""What a fixed connection is expanded from."""
 
 
 @dataclass(frozen=True)
@@ -61,16 +66,17 @@ class FixedConnection[E](Connection[E]):
 
     Attributes
     ----------
-    declaration : ChannelDeclaration | SwitchMatrixPort | SwitchMatrix | JumpWire
+    declaration : Declaration
         The declaration this connection is expanded from; for a switch
         matrix boundary, the matrix port; inside a matrix (an output with a
-        single input), the matrix.
+        single input), the matrix; for an exported BEL port, the tile port
+        exporting it.
     buffers : tuple[FabricCellFunction, ...]
         The buffer cells the signal passes from source to sink, empty for a
         plain wire.
     """
 
-    declaration: ChannelDeclaration | SwitchMatrixPort | SwitchMatrix | JumpWire
+    declaration: Declaration
     buffers: tuple[FabricCellFunction, ...] = ()
 
     @property
@@ -79,7 +85,8 @@ class FixedConnection[E](Connection[E]):
 
         Named after its end outside the switch matrix: a tile or SJUMP port
         bit (`N4END[3]`) or a BEL pin (`LA_I`); a jump wire after its source
-        bit (`JN2BEG[0]`).
+        bit (`JN2BEG[0]`); an exported BEL pin after its scalar tile-module
+        port (`A_O_top`).
 
         Returns
         -------
@@ -100,6 +107,8 @@ class FixedConnection[E](Connection[E]):
             raise ValueError(f"{self.feature} passes buffer cells: no single signal")
         if isinstance(self.declaration, JumpWire):
             return self.source.name(indexed=True)
+        if isinstance(self.declaration, BelExternalPort):
+            return self.source.name()
         if isinstance(self.declaration, SwitchMatrixPort):
             outer = self.sink if self.source.port is self.declaration else self.source
             if isinstance(outer.port, BelPort):

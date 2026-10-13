@@ -10,6 +10,7 @@ from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.connection import FixedConnection
 from fabulous.fabric_definition.define import (
     IO,
+    BelPortKind,
     Direction,
     PinSortMode,
     Side,
@@ -17,6 +18,7 @@ from fabulous.fabric_definition.define import (
 from fabulous.fabric_definition.fabric_cell_library import FabricCellFunction
 from fabulous.fabric_definition.gen_io import Gen_IO
 from fabulous.fabric_definition.port import (
+    BelExternalPort,
     Pin,
     SJumpPort,
     TilePort,
@@ -148,7 +150,19 @@ class Tile:
         ----------
         bels : list[Bel]
             The BELs, appended in order.
+
+        Raises
+        ------
+        RuntimeError
+            If the tile's connections are already derived from its BELs.
         """
+        # The hard wires are derived from the BELs once; a BEL added later
+        # would silently be missing from them.
+        if {"fixed_connections", "bel_external_ports"} & self.__dict__.keys():
+            raise RuntimeError(
+                f"Cannot add BELs to tile {self.name}: its connections are "
+                "already derived from its BELs."
+            )
         for bel in bels:
             bel.owner = self
         self.bels += bels
@@ -196,6 +210,22 @@ class Tile:
         return any(bel.withUserCLK for bel in self.bels)
 
     @cached_property
+    def bel_external_ports(self) -> tuple[BelExternalPort, ...]:
+        """The tile-module ports exporting the BELs' `EXTERNAL` ports.
+
+        Returns
+        -------
+        tuple[BelExternalPort, ...]
+            BEL by BEL, inputs then outputs, as the tile RTL declares them.
+        """
+        return tuple(
+            BelExternalPort(port)
+            for bel in self.bels
+            for io in (IO.INPUT, IO.OUTPUT)
+            for port in bel.get_ports(BelPortKind.EXTERNAL, io)
+        )
+
+    @cached_property
     def fixed_connections(self) -> list[FixedConnection[Pin]]:
         """The hard wires inside the tile.
 
@@ -207,13 +237,14 @@ class Tile:
         with an `origin` is joined to it at the module boundary: to the tile
         port's matrix-facing bits, to the BEL port or to the SJUMP port. A jump
         wire loops a matrix output back into a matrix input, and a matrix output
-        with a single input is a hard wire inside the matrix.
+        with a single input is a hard wire inside the matrix. A BEL's
+        `EXTERNAL` port is wired to the tile-module port exporting it.
 
         Returns
         -------
         list[FixedConnection[Pin]]
             The connections: channel staging, matrix boundary, inside the
-            matrix, jump wires.
+            matrix, jump wires, BEL external ports.
         """
         ports = {(p.declaration, p.io_direction): p for p in self.portsInfo}
         connections = []
@@ -250,6 +281,11 @@ class Tile:
                 continue
             pairs = zip(jump.source.pins, jump.destination.pins, strict=True)
             connections += [FixedConnection(src, dst, jump) for src, dst in pairs]
+        for external in self.bel_external_ports:
+            pairs = zip(external.bel_port.pins, external.pins, strict=True)
+            for bel_pin, pin in pairs:
+                source, sink = (pin, bel_pin) if external.is_input else (bel_pin, pin)
+                connections.append(FixedConnection(source, sink, external))
         return connections
 
     def getWestSidePorts(self) -> list[TilePort]:
