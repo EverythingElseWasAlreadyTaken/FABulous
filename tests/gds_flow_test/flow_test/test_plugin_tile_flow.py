@@ -160,7 +160,10 @@ class TestEmitTileVerilog:
         mocker.patch.object(
             plugin_tile_flow,
             "get_context",
-            return_value=mocker.MagicMock(switch_matrix_debug_signal=False),
+            # A real project directory: the fabric cell library is read from it.
+            return_value=mocker.MagicMock(
+                switch_matrix_debug_signal=False, proj_dir=tmp_path
+            ),
         )
 
         _emit_tile_verilog(

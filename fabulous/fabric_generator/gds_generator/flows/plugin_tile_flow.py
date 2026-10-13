@@ -22,6 +22,7 @@ from fabulous.fabric_definition.define import (
     MultiplexerStyle,
     Side,
 )
+from fabulous.fabric_definition.fabric_cell_library import FabricCellLibrary
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.code_generator.code_generator_Verilog import (
@@ -283,6 +284,7 @@ def _emit_regular_tile_verilog(
         tile,
         disable_user_clk=True,
         config_bit_mode=config_bit_mode,
+        cells=FabricCellLibrary.load(get_context().proj_dir),
     )
 
 

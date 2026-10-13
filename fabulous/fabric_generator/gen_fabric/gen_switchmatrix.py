@@ -30,6 +30,7 @@ from fabulous.fabric_definition.port import (
     TilePort,
 )
 from fabulous.fabric_definition.supertile import SuperTile
+from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.code_generator.code_generator import CodeGenerator
 from fabulous.fabric_generator.code_generator.code_generator_VHDL import (
@@ -100,6 +101,39 @@ def _ports_from(
         The matching ports.
     """
     return [p for p in ports if type(p.origin) is origin and p.io_direction == io]
+
+
+def tile_matrix_module_ports(
+    switch_matrix: SwitchMatrix,
+) -> tuple[list[SwitchMatrixPort], ...]:
+    """Return a tile matrix's module ports in declaration order, by group.
+
+    Inputs then outputs of the tile ports, BEL ports and jump wires, then the
+    SJUMP outputs to and inputs from the supertile matrix. Constants are
+    declared in the body, not as ports.
+
+    Parameters
+    ----------
+    switch_matrix : SwitchMatrix
+        The tile's switch matrix.
+
+    Returns
+    -------
+    tuple[list[SwitchMatrixPort], ...]
+        The port groups, in order.
+    """
+    sm_ports = switch_matrix.ports
+    jump = [p for p in sm_ports if p.origin is None and not p.is_constant]
+    return (
+        _ports_from(sm_ports, TilePort, IO.INPUT),
+        _ports_from(sm_ports, BelPort, IO.INPUT),
+        [p for p in jump if p.is_input],
+        _ports_from(sm_ports, TilePort, IO.OUTPUT),
+        _ports_from(sm_ports, BelPort, IO.OUTPUT),
+        [p for p in jump if p.is_output],
+        _ports_from(sm_ports, SJumpPort, IO.OUTPUT),
+        _ports_from(sm_ports, SJumpPort, IO.INPUT),
+    )
 
 
 def _add_port_pins(writer: CodeGenerator, ports: list[SwitchMatrixPort]) -> None:
@@ -185,22 +219,7 @@ def genTileSwitchMatrix(
         writer.addParameterEnd(indentLevel=1)
     writer.addPortStart(indentLevel=1)
 
-    # The module's ports are the matrix's own ports; constants are declared in
-    # the body. The ports without an origin that remain are the jump wires'.
-    sm_ports = tile.switch_matrix.ports
-    jump = [p for p in sm_ports if p.origin is None and not p.is_constant]
-    for ports in (
-        _ports_from(sm_ports, TilePort, IO.INPUT),
-        _ports_from(sm_ports, BelPort, IO.INPUT),
-        [p for p in jump if p.is_input],
-        _ports_from(sm_ports, TilePort, IO.OUTPUT),
-        _ports_from(sm_ports, BelPort, IO.OUTPUT),
-        [p for p in jump if p.is_output],
-        # SJUMP: the matrix drives signals out to the supertile matrix and
-        # receives signals back from it
-        _ports_from(sm_ports, SJumpPort, IO.OUTPUT),
-        _ports_from(sm_ports, SJumpPort, IO.INPUT),
-    ):
+    for ports in tile_matrix_module_ports(tile.switch_matrix):
         _add_port_pins(writer, ports)
 
     writer.addComment("global", onNewLine=True)

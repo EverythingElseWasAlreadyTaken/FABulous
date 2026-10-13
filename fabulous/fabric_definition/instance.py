@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from fabulous.fabric_definition.connection import FixedConnection, InstancePin
+    from fabulous.fabric_definition.port import Port
     from fabulous.fabric_definition.supertile import SuperTile
     from fabulous.fabric_definition.tile import Tile
 
@@ -34,6 +35,26 @@ class TileInstance:
     x: int
     y: int
     tile_type: Tile
+
+    @property
+    def name(self) -> str:
+        """The instance's name in the fabric RTL, `Tile_X{x}Y{y}`."""
+        return f"Tile_X{self.x}Y{self.y}"
+
+    def port_signal(self, port: Port) -> str:
+        """Return the fabric RTL signal a port of this instance is wired to.
+
+        Parameters
+        ----------
+        port : Port
+            A port of the instance's tile type.
+
+        Returns
+        -------
+        str
+            `Tile_X{x}Y{y}_{port}`, a vector as wide as the port.
+        """
+        return f"{self.name}_{port.name}"
 
     @property
     def fixed_connections(self) -> list[FixedConnection[InstancePin]]:

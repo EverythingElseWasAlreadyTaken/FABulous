@@ -337,9 +337,6 @@ class TestTilePortPins:
         assert [pin.index for pin in port.sm_pins] == sm
         assert [pin.index for pin in port.top_pins] == top
         assert port.expand_port_info_by_name() == [f"{port.name}{i}" for i in sm]
-        assert port.expand_port_info_by_name_top(indexed=True, escape=True) == [
-            rf"{port.name}\[{i}\]" for i in top
-        ]
 
     @pytest.mark.parametrize(
         ("source", "destination", "has_source", "has_destination"),

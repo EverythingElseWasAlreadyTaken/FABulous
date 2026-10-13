@@ -14,6 +14,7 @@ from fabulous.fabric_definition.define import (
     Side,
 )
 from fabulous.fabric_definition.fabric import Fabric
+from fabulous.fabric_definition.fabric_cell_library import FabricCellLibrary
 from fabulous.fabric_definition.port import BelConfigPort, SJumpPort
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
@@ -33,6 +34,7 @@ def test_generate_fabric_uses_fabric_name(mocker: MockerFixture) -> None:
     fabric = mocker.create_autospec(Fabric)
     fabric.name = "test_fabric"
     fabric.tile = []
+    fabric.instances = []
     fabric.super_tile_instances = []
     fabric.configBitMode = ConfigBitMode.FLIPFLOP_CHAIN
     fabric.maxFramesPerCol = 20
@@ -208,7 +210,12 @@ def test_vhdl_chain_tile_declares_no_config_mem_component(
     _stub_entity(tmp_path / "T_switch_matrix.vhdl", "T_switch_matrix")
 
     writer = code_generator_factory(".vhd", "T")
-    generateTile(writer, tile, config_bit_mode=ConfigBitMode.FLIPFLOP_CHAIN)
+    generateTile(
+        writer,
+        tile,
+        config_bit_mode=ConfigBitMode.FLIPFLOP_CHAIN,
+        cells=FabricCellLibrary(),
+    )
 
     assert "component T_ConfigMem" not in writer.outFileName.read_text()
 

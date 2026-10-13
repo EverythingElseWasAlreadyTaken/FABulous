@@ -12,11 +12,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from fabulous.fabric_definition.channel import ChannelDeclaration
 from fabulous.fabric_definition.port import BelExternalPort, BelPort, SwitchMatrixPort
 from fabulous.fabric_definition.wire import JumpWire
 
 if TYPE_CHECKING:
-    from fabulous.fabric_definition.channel import ChannelDeclaration
     from fabulous.fabric_definition.fabric_cell_library import FabricCellFunction
     from fabulous.fabric_definition.instance import TileInstance
     from fabulous.fabric_definition.port import Pin
@@ -80,13 +80,36 @@ class FixedConnection[E](Connection[E]):
     buffers: tuple[FabricCellFunction, ...] = ()
 
     @property
+    def is_staging(self) -> bool:
+        """Whether the connection stages a channel line through one tile.
+
+        Between placed tiles a channel line also declares the hops; those
+        join two tiles and are no staging.
+        """
+        if not isinstance(self.declaration, ChannelDeclaration):
+            return False
+        if isinstance(self.source, tuple):
+            return self.source[0] == self.sink[0]
+        return True
+
+    @property
+    def is_hop(self) -> bool:
+        """Whether the connection carries a channel line to the next placed tile."""
+        return (
+            isinstance(self.declaration, ChannelDeclaration)
+            and isinstance(self.source, tuple)
+            and self.source[0] != self.sink[0]
+        )
+
+    @property
     def signal(self) -> str:
         """The tile RTL signal this hard wire is.
 
         Named after its end outside the switch matrix: a tile or SJUMP port
         bit (`N4END[3]`) or a BEL pin (`LA_I`); a jump wire after its source
         bit (`JN2BEG[0]`); an exported BEL pin after its scalar tile-module
-        port (`A_O_top`).
+        port (`A_O_top`). A hop between placed tiles is a fabric signal, named
+        after the port driving it (`Tile_X1Y3_N4BEG[0]`).
 
         Returns
         -------
@@ -96,13 +119,16 @@ class FixedConnection[E](Connection[E]):
         Raises
         ------
         TypeError
-            If the connection is between placed tiles.
+            If the connection is placed but no hop between two tiles.
         ValueError
             If the connection is not one tile signal: through buffer cells or
             inside the switch matrix module.
         """
         if isinstance(self.source, tuple):
-            raise TypeError(f"{self.feature} is not inside a tile")
+            at, pin = self.source
+            if not self.is_hop:
+                raise TypeError(f"{self.feature} is no hop between placed tiles")
+            return f"{at.port_signal(pin.port)}[{pin.index}]"
         if self.buffers:
             raise ValueError(f"{self.feature} passes buffer cells: no single signal")
         if isinstance(self.declaration, JumpWire):

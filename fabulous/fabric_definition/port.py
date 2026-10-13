@@ -526,34 +526,6 @@ class TilePort(Port):
         """
         return self._pin_names(self.sm_pins, indexed, prefix, escape)
 
-    def expand_port_info_by_name_top(
-        self, indexed: bool = False, prefix: str = "", escape: bool = False
-    ) -> list[str]:
-        """Expand port information for top-level connections.
-
-        Similar to expand_port_info_by_name but specifically for top-level tile
-        connections. The start index is calculated differently to handle
-        the top slice of wires for routing fabric connections.
-
-        Parameters
-        ----------
-        indexed : bool, optional
-            If True, wire names use bracket notation (e.g., `port[0]`).
-            If False, wire names use simple concatenation (e.g., `port0`).
-            Defaults to False.
-        prefix : str, optional
-            A prefix to prepend to the port name, by default "".
-        escape : bool, optional
-            If True, escape special characters in the port names (e.g., for regex),
-            by default False.
-
-        Returns
-        -------
-        list[str]
-            List of individual wire names for top-level connections.
-        """
-        return self._pin_names(self.top_pins, indexed, prefix, escape)
-
 
 class SJumpPort(Port):
     """A tile port that faces the switch matrix of the surrounding supertile.
