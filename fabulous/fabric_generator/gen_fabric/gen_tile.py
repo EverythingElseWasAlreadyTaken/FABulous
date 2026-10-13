@@ -214,8 +214,9 @@ def generateTile(
             writer.addComment(str(side_of_port), onNewLine=True)
         # destination port are input to the tile
         # source port are output of the tile
-        wireSize = (abs(port.x_offset) + abs(port.y_offset)) * port.wire_count - 1
-        writer.addPortVector(port.name, port.io_direction, wireSize, indentLevel=2)
+        writer.addPortVector(
+            port.name, port.io_direction, port.width - 1, indentLevel=2
+        )
         writer.addComment(str(port), indentLevel=2, onNewLine=False)
 
     # SJUMP ports: OUTPUT exits toward supertile SM; INPUT enters from supertile SM
@@ -226,13 +227,10 @@ def generateTile(
         for p in tile.sjump_ports:
             writer.addPortVector(p.name, p.io_direction, f"{p.width}-1", indentLevel=2)
 
-    # now we have to scan all BELs if they use external pins,
-    # because they have to be exported to the tile entity
-    for bel in tile.bels:
-        for p in bel.pin_names(BelPortKind.EXTERNAL, IO.INPUT):
-            writer.addPortScalar(p, IO.INPUT, indentLevel=2)
-        for p in bel.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT):
-            writer.addPortScalar(p, IO.OUTPUT, indentLevel=2)
+    # The BELs' EXTERNAL ports leave the tile as one scalar port per pin.
+    for port in tile.bel_external_ports:
+        for pin in port.pins:
+            writer.addPortScalar(pin.name(), port.io_direction, indentLevel=2)
 
     writer.addComment("Tile IO ports from BELs", onNewLine=True, indentLevel=1)
 
