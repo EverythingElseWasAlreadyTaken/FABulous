@@ -347,10 +347,12 @@ class TestSuperTileSwitchMatrixConstants:
         )
         bel = make_muladd_bel([("SUPER_A0", IO.INPUT), ("SUPER_B0", IO.INPUT)])
         supertile = SuperTile(
-            name="DSP", tileDir=tmp_path, tiles=[bot], tileMap=[[bot]], bels=[bel]
-        )
-        supertile.switch_matrix = SwitchMatrix.from_file(
-            mat, "DSP", supertile.switch_matrix_ports(), canonical=False
+            name="DSP",
+            tileDir=tmp_path,
+            tiles=[bot],
+            tileMap=[[bot]],
+            bels=[bel],
+            matrix_file=mat,
         )
         writer = code_generator_factory(".v", "DSP_switch_matrix")
         gen_super_tile_switch_matrix(writer, supertile)
@@ -475,10 +477,12 @@ class TestSwitchMatrixModulePorts:
         )
         bel = make_muladd_bel([("SUPER_A0", IO.INPUT), ("SUPER_Q0", IO.OUTPUT)])
         supertile = SuperTile(
-            name="DSP", tileDir=tmp_path, tiles=[bot], tileMap=[[bot]], bels=[bel]
-        )
-        supertile.switch_matrix = SwitchMatrix.from_file(
-            st_mat, "DSP", supertile.switch_matrix_ports(), canonical=False
+            name="DSP",
+            tileDir=tmp_path,
+            tiles=[bot],
+            tileMap=[[bot]],
+            bels=[bel],
+            matrix_file=st_mat,
         )
         writer = code_generator_factory(".v", "DSP_switch_matrix")
         gen_super_tile_switch_matrix(writer, supertile)

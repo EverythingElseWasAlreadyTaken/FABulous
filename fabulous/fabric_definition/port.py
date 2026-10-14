@@ -292,7 +292,7 @@ class TilePort(Port):
 
     The port is fully described by its `ChannelDeclaration`, the tile CSV line
     shared by the ports it declares, and which end of it the port is: the
-    output port is the line's begin, on the side the wire runs to; the input
+    output port is the declaration's begin, on the side the wire runs to; the input
     port is its end, on the opposite side. The port's `width` is `wire_count`
     times the Manhattan distance of the offset: a spanning wire occupies one
     slice per hop it crosses.
@@ -302,7 +302,7 @@ class TilePort(Port):
     declaration : ChannelDeclaration
         The tile CSV line declaring the port.
     io_direction : IO
-        OUTPUT for the line's begin, INPUT for its end.
+        OUTPUT for the declaration's begin, INPUT for its end.
     """
 
     _tile: Tile | None

@@ -13,7 +13,6 @@ import pytest
 from fabulous.fabric_definition.configmem import ConfigMem, ConfigMemFrame
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.supertile import SuperTile
-from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.code_generator.code_generator import CodeGenerator
 from fabulous.fabric_generator.gen_fabric.gen_configmem import (
@@ -563,6 +562,16 @@ class TestSuperTileConfigMemAllocation:
             validate_super_tile_config_mem(existing, master, bits)
 
 
+def _four_bit_matrix(directory: Path) -> Path:
+    """Write a hand-written supertile matrix holding 4 config bits."""
+    directory.mkdir(parents=True, exist_ok=True)
+    matrix = directory / "ST_switch_matrix.v"
+    matrix.write_text(
+        "// NumberOfConfigBits: 4\nmodule ST_switch_matrix(); endmodule\n"
+    )
+    return matrix
+
+
 class TestGenerateSuperTileConfigMem:
     """What `generate_super_tile_config_mem` does with the memory it finds."""
 
@@ -585,13 +594,7 @@ class TestGenerateSuperTileConfigMem:
             tileDir=tmp_path / "ST.csv",
             tiles=[],
             tileMap=[[]],
-            switch_matrix=SwitchMatrix(
-                matrix_file=tmp_path / "ST_switch_matrix.csv",
-                ports=(),
-                name="ST",
-                connections={},
-                hdl_config_bits=4,
-            ),
+            matrix_file=_four_bit_matrix(tmp_path),
             config_mem=stale,
         )
 
@@ -618,13 +621,7 @@ class TestGenerateSuperTileConfigMem:
             tileDir=tmp_path / "fabric.csv",
             tiles=[child],
             tileMap=[[child]],
-            switch_matrix=SwitchMatrix(
-                matrix_file=st_dir / "ST_switch_matrix.csv",
-                ports=(),
-                name="ST",
-                connections={},
-                hdl_config_bits=4,
-            ),
+            matrix_file=_four_bit_matrix(st_dir),
             config_mem=ConfigMem.default(
                 0,
                 frame_bits_per_row=32,

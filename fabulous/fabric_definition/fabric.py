@@ -297,51 +297,74 @@ class Fabric:
         return placements
 
     @cached_property
-    def port_connections(self) -> list[PortConnection[tuple[TileInstance, Port]]]:
-        """The port-to-port wiring of the whole fabric.
+    def port_connections(self) -> list[TilePortConnection[tuple[TileInstance, Port]]]:
+        """The fabric's own wiring: the tile port connections between tiles.
 
-        Every tile instance brings its tile type's, every supertile placement
-        its supertile's (including the lines between its subtiles). Then come
-        the `TilePortConnection`s of the routing channel lines from each tile
-        to the next (`tile_port_connections`); a dangling line has none, which
-        `check_routing_channels` reports.
+        A connection is held by the smallest module containing both ends: a
+        tile holds its inner wiring, a supertile its matrix boundary and the
+        tile port connections between its subtiles, the fabric only the tile
+        port connections between tiles that are not inside one supertile
+        placement (`tile_port_connections`). A dangling channel has none, which
+        `check_routing_channels` reports. `placed_port_connections` adds the
+        placed tiles' and supertiles' own.
 
         Returns
         -------
-        list[PortConnection[tuple[TileInstance, Port]]]
+        list[TilePortConnection[tuple[TileInstance, Port]]]
             The connections, their ends at the tile instances.
         """
-        placed = [instance for row in self.instances for instance in row if instance]
-        connections = [pc for instance in placed for pc in instance.port_connections]
-        placement_of = {}
-        for placement in self.super_tile_instances:
-            connections += placement.port_connections
-            for instance in placement.tiles.values():
-                placement_of[instance] = placement
-        for line in tile_port_connections(self.tile, self.channels):
-            (sx, sy), source = line.source
-            (tx, ty), sink = line.sink
+        placement_of = {
+            instance: placement
+            for placement in self.super_tile_instances
+            for instance in placement.tiles.values()
+        }
+        connections = []
+        for pc in tile_port_connections(self.tile, self.channels):
+            (sx, sy), source = pc.source
+            (tx, ty), sink = pc.sink
             source_at, sink_at = self.instances[sy][sx], self.instances[ty][tx]
             # Inside a supertile placement the supertile wires its subtiles.
             if placement_of.get(source_at, False) is placement_of.get(sink_at):
                 continue
             connections.append(
-                replace(line, source=(source_at, source), sink=(sink_at, sink))
+                replace(pc, source=(source_at, source), sink=(sink_at, sink))
             )
         return connections
+
+    def placed_port_connections(
+        self,
+    ) -> Iterator[PortConnection[tuple[TileInstance, Port]]]:
+        """Yield every port connection of the fabric, placed at tile instances.
+
+        A view, nothing is stored: every tile instance lifts its tile type's,
+        every supertile placement its supertile's, then come the fabric's own
+        `port_connections`.
+
+        Yields
+        ------
+        PortConnection[tuple[TileInstance, Port]]
+            The connections, their ends at the tile instances.
+        """
+        for row in self.instances:
+            for instance in row:
+                if instance is not None:
+                    yield from instance.port_connections
+        for placement in self.super_tile_instances:
+            yield from placement.port_connections
+        yield from self.port_connections
 
     def fixed_connections(self) -> Iterator[FixedConnection[InstancePin]]:
         """Yield every hard wire of the fabric.
 
-        The pin connections of the `port_connections`, then the switch matrix
-        outputs with a single input, hard wires inside each matrix.
+        The pin connections of the `placed_port_connections`, then the switch
+        matrix outputs with a single input, hard wires inside each matrix.
 
         Yields
         ------
         FixedConnection[InstancePin]
             The connections, each end at the tile instance it sits in.
         """
-        for pc in self.port_connections:
+        for pc in self.placed_port_connections():
             yield from pc.pin_connections
         for row in self.instances:
             for instance in row:
@@ -413,13 +436,13 @@ class Fabric:
                 )
         # A supertile wires its subtiles by its own channel resolution, so it
         # can be generated without a fabric; the fabric's must agree.
-        lines = tile_port_connections(self.tile, self.channels)
+        searched = tile_port_connections(self.tile, self.channels)
         for placement in self.super_tile_instances:
             local = {(i.x, i.y): xy for xy, i in placement.tiles.items()}
             inside = {
                 ((local[s_xy], source), (local[t_xy], sink))
-                for line in lines
-                for (s_xy, source), (t_xy, sink) in [(line.source, line.sink)]
+                for pc in searched
+                for (s_xy, source), (t_xy, sink) in [(pc.source, pc.sink)]
                 if s_xy in local and t_xy in local
             }
             own = {

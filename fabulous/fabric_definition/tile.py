@@ -274,7 +274,7 @@ class Tile:
     def port_connections(self) -> list[PortConnection[Port]]:
         """The port-to-port wiring inside the tile.
 
-        A routing channel line naming both ends stages its pins through the
+        A channel declaration naming both ends stages its pins through the
         tile as the RTL does: `N4BEG[i]` is driven by `N4END[i + wire_count]`
         through a buffer at the tile entry and one at the exit. Every switch
         matrix port with an `origin` is joined to it at the module boundary:

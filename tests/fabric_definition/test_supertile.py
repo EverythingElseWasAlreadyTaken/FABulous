@@ -4,7 +4,6 @@ The supertile aggregates Tile objects into a 2D layout. The methods under test a
 pure functions of the ``tileMap`` shape and the constituent tiles' port counts:
 
 - `get_ports_around_tile`: emits side-of-tile port lists for *outer* edges only.
-- `get_internal_connections`: emits side-of-tile port lists for *inner* edges only.
 - ``__iter__``: yields ``((x, y), tile)`` for every non-None cell.
 - ``max_width`` / ``max_height``: dimensions of the layout grid.
 - ``get_min_die_area``: pin-density-driven physical minimum.
@@ -23,7 +22,6 @@ from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import IO, Side
 from fabulous.fabric_definition.port import BelConfigPort
 from fabulous.fabric_definition.supertile import SuperTile
-from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
 from tests.conftest import make_muladd_bel
 from tests.fabric_definition.conftest import make_empty_tile, make_side_port
@@ -70,12 +68,10 @@ class TestSuperTileLayout:
 
 
 class TestSuperTilePortQueries:
-    """`get_ports_around_tile` / `get_internal_connections` partition the four
-    edges of every cell into "outer" (boundary or facing a hole) and "inner"
-    (facing another tile).
+    """`get_ports_around_tile` lists the edges of every cell facing outward.
 
-    The implementation calls the side-getter for outer-edges only
-    in `get_ports_around_tile` and inner-edges only in `get_internal_connections`.
+    An edge is outer at the boundary or facing a hole, inner facing another
+    tile; the side-getter is called for outer edges only.
     """
 
     def test_single_tile_supertile_has_all_outer_edges(
@@ -100,9 +96,6 @@ class TestSuperTilePortQueries:
         assert list(ports.keys()) == ["0,0"]
         # Every direction should appear exactly once on the only cell.
         assert ports["0,0"] == [["N"], ["E"], ["S"], ["W"]]
-
-        # No internal connections.
-        assert st.get_internal_connections() == []
 
     def test_two_tile_horizontal_splits_outer_and_inner(
         self, mocker: MockerFixture
@@ -134,13 +127,6 @@ class TestSuperTilePortQueries:
         assert ports["0,0"] == [["LN"], ["LS"], ["LW"]]
         # Outer edges: right has N, E, S (no W).
         assert ports["1,0"] == [["RN"], ["RE"], ["RS"]]
-
-        # Inner connections: left's E side and right's W side.
-        internal = st.get_internal_connections()
-        # Each entry is (ports, x, y); order follows the loop.
-        assert (["LE"], 0, 0) in internal
-        assert (["RW"], 1, 0) in internal
-        assert len(internal) == 2
 
 
 class TestSuperTileMinDieArea:
@@ -236,16 +222,20 @@ class TestConfigBitRanges:
         }
 
     @pytest.mark.parametrize("matrix_bits", [None, 4], ids=["no matrix", "hdl"])
-    def test_supertile_puts_the_matrix_first(self, matrix_bits: int | None) -> None:
+    def test_supertile_puts_the_matrix_first(
+        self, matrix_bits: int | None, tmp_path: Path
+    ) -> None:
         """A hand-written matrix's declared bits come before the BELs too."""
         t = make_empty_tile("T")
         bels = _configurable_bels(3, 2)
-        matrix = None
+        matrix_file = None
         if matrix_bits is not None:
-            matrix = SwitchMatrix(Path("ST.v"), (), {}, "ST", hdl_config_bits=4)
-        st = SuperTile("ST", Path(), [t], [[t]], bels, matrix)
+            matrix_file = tmp_path / "ST_switch_matrix.v"
+            matrix_file.write_text(f"// NumberOfConfigBits: {matrix_bits}\n")
+        st = SuperTile("ST", Path(), [t], [[t]], bels, matrix_file=matrix_file)
 
         start = matrix_bits or 0
+        matrix = st.switch_matrix
         expected = {} if matrix is None else {matrix: range(start)}
         expected |= {
             bels[0]: range(start, start + 3),

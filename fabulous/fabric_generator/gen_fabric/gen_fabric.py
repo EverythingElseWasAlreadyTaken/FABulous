@@ -13,11 +13,9 @@ Key features:
 - Configuration data distribution and management
 """
 
-from fabulous.fabric_definition.connection import TilePortConnection
 from fabulous.fabric_definition.define import (
     IO,
     USER_CLK_PREDECESSOR,
-    BelPortKind,
     ConfigBitMode,
     grid_at,
 )
@@ -28,14 +26,21 @@ from fabulous.fabric_generator.code_generator.code_generator_VHDL import (
     VHDLCodeGenerator,
 )
 
-# (side port getter, neighbour dx, dy) for the four fabric edges. Each side's
-# local INPUT ports pair with the same-side OUTPUT ports of the neighbour at the
-# given offset; dy grows downward (south).
-_SIDE_INPUT_CONNECTIONS = (
-    (Tile.getNorthPorts, 0, 1),  # north input <- south neighbour
-    (Tile.getEastPorts, -1, 0),  # east input  <- west neighbour
-    (Tile.getSouthPorts, 0, -1),  # south input <- north neighbour
-    (Tile.getWestPorts, 1, 0),  # west input  <- east neighbour
+# The side port getters, in the order a supertile wrapper lists a subtile's ports.
+_SIDE_PORTS = (
+    Tile.getNorthSidePorts,
+    Tile.getEastSidePorts,
+    Tile.getSouthSidePorts,
+    Tile.getWestSidePorts,
+)
+
+# The input port getters of the four sides, in the order a tile's inputs are
+# mapped.
+_SIDE_INPUTS = (
+    Tile.getNorthPorts,
+    Tile.getEastPorts,
+    Tile.getSouthPorts,
+    Tile.getWestPorts,
 )
 
 
@@ -79,12 +84,13 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
     # child tile); declare them at the wrapper's anchor coordinates.
     for placement in fabric.super_tile_instances:
         ax, ay, superTile = placement.anchor.x, placement.anchor.y, placement.super_tile
-        for bel in superTile.bels:
-            for i in bel.pin_names(BelPortKind.EXTERNAL, IO.INPUT):
-                writer.addPortScalar(f"Tile_X{ax}Y{ay}_{i}", IO.INPUT, indentLevel=2)
-                writer.addComment("EXTERNAL", onNewLine=False)
-            for i in bel.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT):
-                writer.addPortScalar(f"Tile_X{ax}Y{ay}_{i}", IO.OUTPUT, indentLevel=2)
+        for external in superTile.bel_external_ports:
+            for pin in external.pins:
+                writer.addPortScalar(
+                    f"Tile_X{ax}Y{ay}_{pin.name()}",
+                    external.io_direction,
+                    indentLevel=2,
+                )
                 writer.addComment("EXTERNAL", onNewLine=False)
 
     if fabric.configBitMode == ConfigBitMode.FRAME_BASED:
@@ -214,11 +220,7 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
                 f"MaxFramesPerCol*{x}",
             )
 
-    drivers = {
-        pc.sink: pc.source
-        for pc in fabric.port_connections
-        if isinstance(pc, TilePortConnection)
-    }
+    drivers = {pc.sink: pc.source for pc in fabric.port_connections}
     instantiatedPosition = []
     # Tile instantiations
     for y, row in enumerate(fabric.tile):
@@ -238,15 +240,14 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
             superTile = tile.super_tile
 
             if superTile:
-                ports_around = superTile.get_ports_around_tile()
-                cord = [
-                    (i.split(",")[0], i.split(",")[1])
-                    for i in list(ports_around.keys())
-                ]
-                for i, j in cord:
-                    tileLocationOffset.append((int(i), int(j)))
-                    instantiatedPosition.append((x + int(i), y + int(j)))
-                    superTileLoc.append((x + int(i), y + int(j)))
+                outer = superTile.outer_ports
+                for j, row in enumerate(superTile.tileMap):
+                    for i, sub in enumerate(row):
+                        if sub is None:
+                            continue
+                        tileLocationOffset.append((i, j))
+                        instantiatedPosition.append((x + i, y + j))
+                        superTileLoc.append((x + i, y + j))
             else:
                 tileLocationOffset.append((0, 0))
 
@@ -270,11 +271,11 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
 
                 # input connection from north side of the south tile
                 # (NORTH-direction wires entering this tile from south fabric neighbour)
-                for get_side_ports, dx, dy in _SIDE_INPUT_CONNECTIONS:
-                    # Inside a supertile the wrapper wires the subtiles itself.
-                    if (x + i + dx, y + j + dy) in superTileLoc:
-                        continue
+                for get_side_ports in _SIDE_INPUTS:
                     ports = get_side_ports(here, IO.INPUT)
+                    # Inside a supertile the wrapper wires the subtiles itself.
+                    if in_super:
+                        ports = [p for p in ports if ((i, j), p) in outer]
                     for port, local in zip(ports, _local_names(ports), strict=True):
                         driver = drivers.get((here_at, port))
                         signal = (
@@ -284,22 +285,13 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
 
             # output signal name is same as the output port name
             if superTile:
-                ports_around = superTile.get_ports_around_tile()
-                cord = [
-                    (i.split(",")[0], i.split(",")[1])
-                    for i in list(ports_around.keys())
-                ]
-                cord = list(zip(cord, ports_around.values(), strict=False))
-                for (i, j), around in cord:
-                    for ports in around:
-                        for port in ports:
-                            if port.is_output:
-                                at = fabric.instances[y + int(j)][x + int(i)]
+                for i, j in tileLocationOffset:
+                    at = fabric.instances[y + j][x + i]
+                    for side_ports in _SIDE_PORTS:
+                        for port in side_ports(at.tile_type):
+                            if port.is_output and ((i, j), port) in outer:
                                 portsPairs.append(
-                                    (
-                                        f"Tile_X{int(i)}Y{int(j)}_{port.name}",
-                                        at.port_signal(port),
-                                    )
+                                    (f"Tile_X{i}Y{j}_{port.name}", at.port_signal(port))
                                 )
             else:
                 at = fabric.instances[y][x]
@@ -322,11 +314,9 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
             # supertile-level BEL external ports: connect the wrapper's external
             # ports to the top-level nets declared at the anchor coordinates.
             if superTile:
-                for b in superTile.bels:
-                    for p in b.pin_names(BelPortKind.EXTERNAL, IO.INPUT):
-                        portsPairs.append((p, f"Tile_X{x}Y{y}_{p}"))
-                    for p in b.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT):
-                        portsPairs.append((p, f"Tile_X{x}Y{y}_{p}"))
+                for external in superTile.bel_external_ports:
+                    for pin in external.pins:
+                        portsPairs.append((pin.name(), f"Tile_X{x}Y{y}_{pin.name()}"))
 
             if not fabric.disableUserCLK:
                 dx, dy = USER_CLK_PREDECESSOR[fabric.userCLKSide]

@@ -17,7 +17,6 @@ from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.fabric_cell_library import FabricCellLibrary
 from fabulous.fabric_definition.port import BelConfigPort, SJumpPort
 from fabulous.fabric_definition.supertile import SuperTile
-from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.code_generator.code_generator import CodeGenerator
 from fabulous.fabric_generator.gen_fabric.gen_fabric import generateFabric
@@ -68,17 +67,14 @@ def _supertile(tmp_path: Path, config_port: BelConfigPort | None = None) -> Supe
     top = mk("DSP_top", [sjump_port("top2bot", IO.OUTPUT)])
     bot = mk("DSP_bot", [sjump_port("A", IO.OUTPUT)])
     bel = make_muladd_bel([("SUPER_A0", IO.INPUT)], config_port=config_port)
-    supertile = SuperTile(
+    return SuperTile(
         name="DSP",
         tileDir=tmp_path,
         tiles=[top, bot],
         tileMap=[[top], [bot]],
         bels=[bel],
+        matrix_file=mat,
     )
-    supertile.switch_matrix = SwitchMatrix.from_file(
-        mat, "DSP", supertile.switch_matrix_ports(), canonical=False
-    )
-    return supertile
 
 
 def test_supertile_configmem_preloaded_from_master_bitstream(
@@ -157,17 +153,14 @@ def _vhdl_supertile(tmp_path: Path) -> SuperTile:
     _stub_entity(tmp_path / "DSP_top" / "DSP_top.vhdl", "DSP_top")
     _stub_entity(tmp_path / "DSP_bot" / "DSP_bot.vhdl", "DSP_bot")
 
-    supertile = SuperTile(
+    return SuperTile(
         name="DSP",
         tileDir=tmp_path,
         tiles=[top, bot],
         tileMap=[[top], [bot]],
         bels=[bel],
+        matrix_file=mat,
     )
-    supertile.switch_matrix = SwitchMatrix.from_file(
-        mat, "DSP", supertile.switch_matrix_ports(), canonical=False
-    )
-    return supertile
 
 
 def test_supertile_vhdl_declares_all_instantiated_components(

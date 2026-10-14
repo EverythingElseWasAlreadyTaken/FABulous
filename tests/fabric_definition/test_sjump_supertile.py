@@ -107,7 +107,7 @@ class TestSuperTileHelpers:
             f"DSP_bot_Q{i}" for i in range(reverse.wire_count)
         ]
 
-    def test_sjump_connections_span_child_and_master(self) -> None:
+    def test_sjump_connections_span_child_and_master(self, tmp_path: Path) -> None:
         """The wire spans from the child's cell to the master's, both ways."""
         top = _tile(
             "DSP_top",
@@ -118,14 +118,15 @@ class TestSuperTileHelpers:
         )
         bot = _tile("DSP_bot", [])
         # No MASTER token, so the master defaults to the last non-None tile.
+        st_mat = tmp_path / "supertile_matrix.list"
+        st_mat.write_text("DSP_top_Q0,GND0\nDSP_top_Q0,VCC0\n")
         st = SuperTile(
             name="DSP",
             tileDir=Path(),
             tiles=[top, bot],
             tileMap=[[top], [bot]],
+            matrix_file=st_mat,
         )
-
-        st.switch_matrix = SwitchMatrix(Path(), st.switch_matrix_ports(), {}, "DSP")
 
         # top sits at y=0, the master bot at y=1, where the matrix is: the
         # forward wire goes from top to the master, the reverse one back.
@@ -150,7 +151,7 @@ class TestSJumpPips:
     """
 
     @pytest.fixture
-    def fabric(self, make_fabric: Callable[..., Fabric]) -> Fabric:
+    def fabric(self, make_fabric: Callable[..., Fabric], tmp_path: Path) -> Fabric:
         top = _tile(
             "DSP_top",
             [sjump_port("top2bot", IO.OUTPUT), sjump_port("bot2top", IO.INPUT)],
@@ -159,15 +160,22 @@ class TestSJumpPips:
             "DSP_bot",
             [sjump_port("A", IO.OUTPUT), sjump_port("Q", IO.INPUT)],
         )
+        # SJUMP wires lead to the supertile matrix, so it needs one.
+        st_mat = tmp_path / "supertile_matrix.list"
+        st_mat.write_text(
+            "".join(
+                f"{out}{i},{const}\n"
+                for out in ("DSP_top_bot2top", "DSP_bot_Q")
+                for i in range(2)
+                for const in ("GND0", "VCC0")
+            )
+        )
         supertile = SuperTile(
             name="DSP",
             tileDir=Path(),
             tiles=[top, bot],
             tileMap=[[top], [bot]],
-        )
-        # SJUMP wires lead to the supertile matrix, so it needs one.
-        supertile.switch_matrix = SwitchMatrix(
-            Path(), supertile.switch_matrix_ports(), {}, "DSP"
+            matrix_file=st_mat,
         )
         return make_fabric(
             tile=[[top], [bot]],
@@ -266,9 +274,7 @@ class TestGenNpnrModelSupertile:
             tiles=[top, bot],
             tileMap=[[top], [bot]],
             bels=[bel],
-        )
-        supertile.switch_matrix = SwitchMatrix.from_file(
-            st_mat, "DSP", supertile.switch_matrix_ports(), canonical=False
+            matrix_file=st_mat,
         )
         return make_fabric(tile=[[top], [bot]], superTileDic={"DSP": supertile})
 
@@ -395,9 +401,7 @@ class TestGenBitstreamSpecSupertileMux:
             tiles=[top, bot],
             tileMap=[[top], [bot]],
             bels=[bel],
-        )
-        supertile.switch_matrix = SwitchMatrix.from_file(
-            st_mat, "DSP", supertile.switch_matrix_ports(), canonical=False
+            matrix_file=st_mat,
         )
         fabric = make_fabric(
             tile=[[top], [bot]],

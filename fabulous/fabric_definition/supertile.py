@@ -7,7 +7,7 @@ functionalities into a single, reusable block.
 """
 
 from collections.abc import Generator
-from dataclasses import dataclass, field, replace
+from dataclasses import InitVar, dataclass, field, replace
 from decimal import Decimal
 from functools import cached_property
 from pathlib import Path
@@ -16,6 +16,7 @@ from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.channel import resolve_channels
 from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.connection import (
+    BelExternalConnection,
     FixedConnection,
     LocalPin,
     PortConnection,
@@ -27,8 +28,15 @@ from fabulous.fabric_definition.define import (
     SWITCH_MATRIX_CONSTANTS,
     BelPortKind,
     Side,
+    grid_at,
 )
-from fabulous.fabric_definition.port import Port, SJumpPort, SwitchMatrixPort, TilePort
+from fabulous.fabric_definition.port import (
+    BelExternalPort,
+    Port,
+    SJumpPort,
+    SwitchMatrixPort,
+    TilePort,
+)
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_definition.wire import SJumpWire
@@ -50,9 +58,6 @@ class SuperTile:
         The map of the tiles that make up the super tile
     bels : list[Bel]
         The list of bels of that the super tile contains
-    switch_matrix : SwitchMatrix | None
-        The supertile switch matrix (source file, connectivity, config bits), or
-        None if the supertile has no switch matrix.
     master_tile_coords : tuple[int, int] | None
         Local (x, y) of the master tile. Explicitly set via the `MASTER` token
         in the supertile CSV, or computed as the last non-None tile in row-major
@@ -61,6 +66,9 @@ class SuperTile:
     config_mem : ConfigMem | None
         The supertile's own bits, placed in the crosspoints its master tile
         leaves free. The parser always sets it; None only on direct construction.
+    matrix_file : InitVar[Path | None]
+        The supertile switch matrix file (`.list`, `.csv` or hand-written
+        HDL), None for a supertile without a switch matrix.
     """
 
     name: str
@@ -68,16 +76,23 @@ class SuperTile:
     tiles: list[Tile]
     tileMap: list[list[Tile]]
     bels: list[Bel] = field(default_factory=list)
-    switch_matrix: SwitchMatrix | None = None
     master_tile_coords: tuple[int, int] | None = None
     config_mem: ConfigMem | None = None
+    matrix_file: InitVar[Path | None] = None
+    _switch_matrix: SwitchMatrix | None = field(init=False, default=None, repr=False)
 
-    def __post_init__(self) -> None:
-        """Attach this supertile to its subtile types and check its BEL count.
+    def __post_init__(self, matrix_file: Path | None) -> None:
+        """Attach the subtiles and BELs, check the BELs, build the matrix.
 
         A supertile's BELs are emitted at its master tile, sharing the BEL
         letter space (A, B, ...) with the master tile's own BELs, so the two
-        together must fit in 26 letters.
+        together must fit in 26 letters. The switch matrix is built here, so
+        the supertile is complete once constructed.
+
+        Parameters
+        ----------
+        matrix_file : Path | None
+            The supertile switch matrix file, or None.
 
         Raises
         ------
@@ -99,6 +114,20 @@ class SuperTile:
                     f"{self.name} and its master tile {master_tile.name} "
                     "together cannot have more than 26 BELs."
                 )
+        if matrix_file is not None:
+            self._switch_matrix = SwitchMatrix.from_file(
+                matrix_file, self.name, self.switch_matrix_ports(), canonical=False
+            )
+
+    @property
+    def switch_matrix(self) -> SwitchMatrix | None:
+        """The supertile switch matrix, built from `matrix_file`, or None.
+
+        Read-only: its ports come from the supertile's subtiles and BELs, so
+        it is built at construction and the supertile's connections derive
+        from it.
+        """
+        return self._switch_matrix
 
     @property
     def withUserCLK(self) -> bool:
@@ -140,42 +169,6 @@ class SuperTile:
             for y, tile in enumerate(row):
                 if tile is not None:
                     yield (x, y), tile
-
-    def get_internal_connections(self) -> list[tuple[list[TilePort], int, int]]:
-        """Return all the internal connections of the supertile.
-
-        Returns
-        -------
-        list[tuple[list[TilePort], int, int]]
-            A list of tuples which contains the internal connected port
-            and the x and y coordinate of the tile.
-        """
-        internalConnections = []
-        for y, row in enumerate(self.tileMap):
-            for x, tile in enumerate(row):
-                if tile is None:
-                    continue
-                if (
-                    0 <= y - 1 < len(self.tileMap)
-                    and self.tileMap[y - 1][x] is not None
-                ):
-                    internalConnections.append((tile.getNorthSidePorts(), x, y))
-                if (
-                    0 <= x + 1 < len(self.tileMap[0])
-                    and self.tileMap[y][x + 1] is not None
-                ):
-                    internalConnections.append((tile.getEastSidePorts(), x, y))
-                if (
-                    0 <= y + 1 < len(self.tileMap)
-                    and self.tileMap[y + 1][x] is not None
-                ):
-                    internalConnections.append((tile.getSouthSidePorts(), x, y))
-                if (
-                    0 <= x - 1 < len(self.tileMap[0])
-                    and self.tileMap[y][x - 1] is not None
-                ):
-                    internalConnections.append((tile.getWestSidePorts(), x, y))
-        return internalConnections
 
     def get_master_tile_coords(self) -> tuple[int, int]:
         """Return the (x, y) coordinates of the master tile in local space.
@@ -297,53 +290,98 @@ class SuperTile:
             return self.tileDir.parent
         return self.tiles[0].directory.parent
 
-    @property
+    @cached_property
+    def bel_external_ports(self) -> tuple[BelExternalPort, ...]:
+        """The wrapper ports exporting the supertile BELs' `EXTERNAL` ports.
+
+        Returns
+        -------
+        tuple[BelExternalPort, ...]
+            BEL by BEL, inputs then outputs.
+        """
+        return tuple(
+            BelExternalPort(port)
+            for bel in self.bels
+            for io in (IO.INPUT, IO.OUTPUT)
+            for port in bel.get_ports(BelPortKind.EXTERNAL, io)
+        )
+
+    @cached_property
     def port_connections(self) -> list[PortConnection[tuple[tuple[int, int], Port]]]:
         """The port-to-port wiring at the supertile's switch matrix boundary.
-
-        Not cached: the parser sets `switch_matrix` after construction.
 
         Every matrix port with an `origin` is joined to it: to a supertile BEL
         port, at the master tile where the matrix and BELs sit, or to a child
         tile's SJUMP port, at that child's `tileMap` position. The wrapper
-        signal between them is not a node of its own. Then come the
-        `TilePortConnection`s of the routing channel lines between the
-        subtiles; their channels are resolved from the subtiles alone, so a
-        supertile is wired without a fabric (a fabric checks that its own
-        resolution agrees, `check_routing_channels`).
+        signal between them is not a node of its own. A supertile BEL's
+        `EXTERNAL` port is wired to the wrapper port exporting it, both at the
+        master. Then come the `TilePortConnection`s between the subtiles;
+        their channels are resolved from the subtiles alone, so a supertile is
+        wired without a fabric (a fabric checks that its own resolution
+        agrees, `check_routing_channels`).
 
         Returns
         -------
         list[PortConnection[tuple[tuple[int, int], Port]]]
-            The matrix boundary in matrix port order, then the lines between
-            the subtiles, ends at `tileMap` positions.
+            The matrix boundary in matrix port order, the BEL external
+            ports, then the tile port connections between the subtiles, ends
+            at `tileMap` positions.
         """
         channels = resolve_channels(
             p.declaration for tile in self.tiles for p in tile.portsInfo
         )
-        lines = tile_port_connections(self.tileMap, channels)
-        if self.switch_matrix is None:
-            return lines
+        between = tile_port_connections(self.tileMap, channels)
         master = self.get_master_tile_coords()
-        child_at = {wire.matrix_port: (wire.x, wire.y) for wire in self.sjump_wires}
+        wires = {wire.matrix_port: wire for wire in self.sjump_wires}
+        matrix_ports = () if self.switch_matrix is None else self.switch_matrix.ports
         connections = []
-        for sm_port in self.switch_matrix.ports:
+        for sm_port in matrix_ports:
             origin = sm_port.origin
             if origin is None:
                 continue
-            at = child_at[sm_port] if isinstance(origin, SJumpPort) else master
+            at, declaration = master, sm_port
+            if isinstance(origin, SJumpPort):
+                declaration = wires[sm_port]
+                at = (declaration.x, declaration.y)
             ends = ((master, sm_port), (at, origin))
             source, sink = ends if sm_port.is_output else ends[::-1]
             connections.append(
-                SwitchMatrixConnection(source, sink, sm_port, sm_port.width)
+                SwitchMatrixConnection(source, sink, declaration, sm_port.width)
             )
-        return connections + lines
+        for external in self.bel_external_ports:
+            ends = ((master, external.bel_port), (master, external))
+            source, sink = ends[::-1] if external.is_input else ends
+            connections.append(
+                BelExternalConnection(source, sink, external, external.width)
+            )
+        return connections + between
 
     @property
+    def outer_ports(self) -> set[tuple[tuple[int, int], TilePort]]:
+        """The subtile routing ports facing out of the supertile.
+
+        A port faces out when no subtile sits next to its subtile on the port's
+        side; those are the ports of the supertile wrapper.
+
+        Returns
+        -------
+        set[tuple[tuple[int, int], TilePort]]
+            The ports at their `tileMap` positions.
+        """
+        outer = set()
+        for y, row in enumerate(self.tileMap):
+            for x, tile in enumerate(row):
+                if tile is None:
+                    continue
+                for port in tile.portsInfo:
+                    dx, dy = port.side_of_tile.offset
+                    if grid_at(self.tileMap, x + dx, y + dy) is None:
+                        outer.add(((x, y), port))
+        return outer
+
+    @cached_property
     def fixed_connections(self) -> list[FixedConnection[LocalPin]]:
         """The hard wires of the supertile's own wiring and inside its matrix.
-
-        Not cached: the parser sets `switch_matrix` after construction.
 
         Returns
         -------

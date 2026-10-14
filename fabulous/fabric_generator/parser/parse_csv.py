@@ -701,6 +701,14 @@ def parseSupertilesCSV(fileName: Path, tileDic: dict[str, Tile]) -> list[SuperTi
                 master_set = True
             tileMap.append(row)
 
+        # The supertile switch matrix is taken from the MATRIX line (resolved
+        # relative to the CSV). There is no auto-discovery: a supertile without a
+        # MATRIX line simply has no switch matrix.
+        st_matrix_dir: Path | None = matrix_line_path
+        if st_matrix_dir is not None and not st_matrix_dir.exists():
+            raise InvalidSupertileDefinition(
+                f"Supertile '{name}': MATRIX file {st_matrix_dir} does not exist."
+            )
         # tileDir is the supertile CSV file path (matching Tile.tileDir), so
         # consumers use `tileDir.parent` for the supertile's directory.
         super_tile = SuperTile(
@@ -710,30 +718,18 @@ def parseSupertilesCSV(fileName: Path, tileDic: dict[str, Tile]) -> list[SuperTi
             tileMap,
             bels,
             master_tile_coords=master_coords,
+            matrix_file=st_matrix_dir,
         )
         super_tile.config_mem = empty_config_mem(
             super_tile.directory / f"{name}_ConfigMem.csv"
         )
-
-        # The supertile switch matrix is taken from the MATRIX line (resolved
-        # relative to the CSV). There is no auto-discovery: a supertile without a
-        # MATRIX line simply has no switch matrix.
-        st_matrix_dir: Path | None = matrix_line_path
-        if st_matrix_dir is not None:
-            if not st_matrix_dir.exists():
-                raise InvalidSupertileDefinition(
-                    f"Supertile '{name}': MATRIX file {st_matrix_dir} does not exist."
-                )
-            super_tile.switch_matrix = SwitchMatrix.from_file(
-                st_matrix_dir, name, super_tile.switch_matrix_ports(), canonical=False
-            )
-        elif super_tile.sjump_wires:
+        if st_matrix_dir is None and super_tile.sjump_wires:
             raise InvalidSupertileDefinition(
                 f"Supertile '{name}': its subtiles declare SJUMP wires, but it has "
                 "no MATRIX line. SJUMP wires connect to the supertile switch "
                 "matrix, so a supertile with SJUMP wires needs one."
             )
-        elif super_tile.bels:
+        if st_matrix_dir is None and super_tile.bels:
             raise InvalidSupertileDefinition(
                 f"Supertile '{name}': it has BELs, but no MATRIX line. Supertile "
                 "BELs connect to the supertile switch matrix, so a supertile "

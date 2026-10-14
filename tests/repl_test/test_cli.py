@@ -15,7 +15,6 @@ from pytest_mock import MockerFixture
 from fabulous.custom_exception import CommandError
 from fabulous.fabric_definition.configmem import empty_config_mem
 from fabulous.fabric_definition.define import ConfigBitMode
-from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_generator.gds_generator.steps.tile_area_opt import OptMode
 from fabulous.fabric_generator.parser.parse_switchmatrix import parseList
 from fabulous.fabulous_repl.cmd_macro import _resolve_directional_fix
@@ -197,20 +196,33 @@ def test_a_supertile_with_no_bits_of_its_own_needs_no_master_mapping(
     assert super_tile.config_mem is memory
 
 
+def _give_dsp_four_config_bits(cli: FABulousREPL) -> None:
+    """Reload the demo with a hand-written DSP matrix holding 4 config bits.
+
+    A supertile builds its switch matrix when it is parsed, so the matrix is
+    given on its MATRIX line rather than set afterwards.
+    """
+    dsp = cli.fabulousAPI.fabric.superTileDic["DSP"].directory
+    (dsp / "DSP_switch_matrix.v").write_text(
+        "// NumberOfConfigBits: 4\nmodule DSP_switch_matrix(); endmodule\n"
+    )
+    csv = dsp / "DSP.csv"
+    csv.write_text(
+        csv.read_text().replace(
+            "EndSuperTILE", "MATRIX,./DSP_switch_matrix.v\nEndSuperTILE"
+        )
+    )
+    run_cmd(cli, "load_fabric")
+
+
 def test_an_unused_supertile_still_finds_its_master(cli: FABulousREPL) -> None:
     """An unused supertile's master is found among the unused tiles."""
+    _give_dsp_four_config_bits(cli)
     fabric = cli.fabulousAPI.fabric
     super_tile = fabric.superTileDic.pop("DSP")
     fabric.unusedSuperTileDic["DSP"] = super_tile
     for child in super_tile.tiles:
         fabric.unusedTileDic[child.name] = fabric.tileDic.pop(child.name)
-    super_tile.switch_matrix = SwitchMatrix(
-        matrix_file=super_tile.directory / "DSP_switch_matrix.list",
-        ports=(),
-        name="DSP",
-        connections={},
-        hdl_config_bits=4,
-    )
 
     # Reaching the mapping check at all is the point; the master is ungenerated.
     with pytest.raises(ValueError, match="Generate its mapping before"):
@@ -221,15 +233,8 @@ def test_a_supertile_will_not_borrow_from_an_ungenerated_master(
     cli: FABulousREPL,
 ) -> None:
     """A supertile mapping is refused until its master's mapping exists."""
-    super_tile = cli.fabulousAPI.fabric.superTileDic["DSP"]
     # The demo supertile has no bits of its own.
-    super_tile.switch_matrix = SwitchMatrix(
-        matrix_file=super_tile.directory / "DSP_switch_matrix.list",
-        ports=(),
-        name="DSP",
-        connections={},
-        hdl_config_bits=4,
-    )
+    _give_dsp_four_config_bits(cli)
 
     with pytest.raises(ValueError, match="Generate its mapping before"):
         cli.fabulousAPI.gen_super_tile_config_mem("DSP")
