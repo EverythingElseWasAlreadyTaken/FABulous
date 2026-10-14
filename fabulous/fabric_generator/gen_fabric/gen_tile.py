@@ -50,6 +50,14 @@ from fabulous.fabric_generator.gen_fabric.gen_switchmatrix import (
     tile_matrix_module_ports,
 )
 
+# The side port getters, in the order the wrapper lists a subtile's ports.
+_SIDE_PORTS = (
+    Tile.getNorthSidePorts,
+    Tile.getEastSidePorts,
+    Tile.getSouthSidePorts,
+    Tile.getWestSidePorts,
+)
+
 
 def _bel_bus_pairs(bel: Bel) -> list[tuple[str, str]]:
     """Connect each internal and external BEL port to its flat pin signals.
@@ -621,28 +629,29 @@ def generateSuperTile(
     writer.addParameterEnd(indentLevel=1)
     writer.addPortStart(indentLevel=1)
 
-    ports_around = superTile.get_ports_around_tile()
-
-    for k, v in ports_around.items():
-        if not v:
-            continue
-        x, y = k.split(",")
-        for pList in v:
-            # Skip empty port lists
-            if not pList:
+    # The subtile ports facing out of the supertile are the wrapper's ports.
+    outer = superTile.outer_ports
+    for y, row in enumerate(superTile.tileMap):
+        for x, tile in enumerate(row):
+            if tile is None:
                 continue
-
-            writer.addComment(
-                f"Tile_X{x}Y{y}_{pList[0].wire_direction}",
-                onNewLine=True,
-                indentLevel=1,
-            )
-            for p in pList:
-                wire = (abs(p.x_offset) + abs(p.y_offset)) * p.wire_count - 1
-                writer.addPortVector(
-                    f"Tile_X{x}Y{y}_{p.name}", p.io_direction, wire, indentLevel=2
+            for side_ports in _SIDE_PORTS:
+                ports = [p for p in side_ports(tile) if ((x, y), p) in outer]
+                if not ports:
+                    continue
+                writer.addComment(
+                    f"Tile_X{x}Y{y}_{ports[0].wire_direction}",
+                    onNewLine=True,
+                    indentLevel=1,
                 )
-                writer.addComment(str(p), onNewLine=False)
+                for p in ports:
+                    writer.addPortVector(
+                        f"Tile_X{x}Y{y}_{p.name}",
+                        p.io_direction,
+                        p.width - 1,
+                        indentLevel=2,
+                    )
+                    writer.addComment(str(p), onNewLine=False)
 
     # add tile external bel port
     writer.addComment("Tile IO ports from BELs", onNewLine=True, indentLevel=1)
@@ -767,9 +776,6 @@ def generateSuperTile(
                 )
             writer.addComponentDeclarationForFile(str(cm_file))
 
-    # find all internal connections
-    internal_connections = superTile.get_internal_connections()
-
     # declare internal connections
     writer.addComment("signal declarations", onNewLine=True)
 
@@ -807,16 +813,24 @@ def generateSuperTile(
         for pin in bel_pin_signals:
             writer.addConnectionScalar(pin, indentLevel=1)
 
-    for i, x, y in internal_connections:
-        if i:
-            writer.addComment(f"Tile_X{x}Y{y}_{i[0].wire_direction}", onNewLine=True)
-            for p in i:
-                if p.is_output:
-                    wire = (abs(p.x_offset) + abs(p.y_offset)) * p.wire_count - 1
-                    writer.addConnectionVector(
-                        f"Tile_X{x}Y{y}_{p.name}", wire, indentLevel=1
-                    )
-                    writer.addComment(str(p), onNewLine=False)
+    # The subtile outputs wired inside the supertile are its signals.
+    for y, row in enumerate(superTile.tileMap):
+        for x, tile in enumerate(row):
+            if tile is None:
+                continue
+            for side_ports in _SIDE_PORTS:
+                ports = [p for p in side_ports(tile) if ((x, y), p) not in outer]
+                if not ports:
+                    continue
+                writer.addComment(
+                    f"Tile_X{x}Y{y}_{ports[0].wire_direction}", onNewLine=True
+                )
+                for p in ports:
+                    if p.is_output:
+                        writer.addConnectionVector(
+                            f"Tile_X{x}Y{y}_{p.name}", p.width - 1, indentLevel=1
+                        )
+                        writer.addComment(str(p), onNewLine=False)
 
     # declare internal connections for frameData, frameStrobe, and UserCLK
     for y, row in enumerate(superTile.tileMap):

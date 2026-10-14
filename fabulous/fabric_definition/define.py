@@ -97,6 +97,28 @@ class Side(StrEnum):
             case Side.ANY:
                 return Side.ANY
 
+    @property
+    def offset(self) -> tuple[int, int]:
+        """Return the grid offset `(dx, dy)` of the neighbour on this side.
+
+        y grows downwards, so NORTH is the row above.
+
+        Raises
+        ------
+        ValueError
+            For `Side.ANY`, which has no neighbour.
+        """
+        match self:
+            case Side.NORTH:
+                return (0, -1)
+            case Side.SOUTH:
+                return (0, 1)
+            case Side.EAST:
+                return (1, 0)
+            case Side.WEST:
+                return (-1, 0)
+        raise ValueError("Side.ANY has no neighbour")
+
 
 # Grid offset (dx, dy) of the tile whose UserCLKo feeds a tile's UserCLK, keyed by
 # the side the clock enters. y grows downwards, so SOUTH means "the row below".

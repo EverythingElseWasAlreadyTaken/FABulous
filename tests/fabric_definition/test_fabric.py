@@ -199,6 +199,11 @@ class TestSuperTileLines:
             for hop in super_tile.port_connections
             if isinstance(hop, TilePortConnection)
         ] == [((0, 1), "A", (0, 0), "B")]
+        # The routing channel enters at the bottom and leaves at the top.
+        assert {(xy, port.name) for xy, port in super_tile.outer_ports} == {
+            ((0, 0), "A"),
+            ((0, 1), "B"),
+        }
 
     def test_fabric_reports_a_supertile_wired_differently(
         self, make_fabric: Callable[..., Fabric]

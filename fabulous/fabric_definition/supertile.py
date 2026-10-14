@@ -27,6 +27,7 @@ from fabulous.fabric_definition.define import (
     SWITCH_MATRIX_CONSTANTS,
     BelPortKind,
     Side,
+    grid_at,
 )
 from fabulous.fabric_definition.port import (
     BelExternalPort,
@@ -142,42 +143,6 @@ class SuperTile:
             for y, tile in enumerate(row):
                 if tile is not None:
                     yield (x, y), tile
-
-    def get_internal_connections(self) -> list[tuple[list[TilePort], int, int]]:
-        """Return all the internal connections of the supertile.
-
-        Returns
-        -------
-        list[tuple[list[TilePort], int, int]]
-            A list of tuples which contains the internal connected port
-            and the x and y coordinate of the tile.
-        """
-        internalConnections = []
-        for y, row in enumerate(self.tileMap):
-            for x, tile in enumerate(row):
-                if tile is None:
-                    continue
-                if (
-                    0 <= y - 1 < len(self.tileMap)
-                    and self.tileMap[y - 1][x] is not None
-                ):
-                    internalConnections.append((tile.getNorthSidePorts(), x, y))
-                if (
-                    0 <= x + 1 < len(self.tileMap[0])
-                    and self.tileMap[y][x + 1] is not None
-                ):
-                    internalConnections.append((tile.getEastSidePorts(), x, y))
-                if (
-                    0 <= y + 1 < len(self.tileMap)
-                    and self.tileMap[y + 1][x] is not None
-                ):
-                    internalConnections.append((tile.getSouthSidePorts(), x, y))
-                if (
-                    0 <= x - 1 < len(self.tileMap[0])
-                    and self.tileMap[y][x - 1] is not None
-                ):
-                    internalConnections.append((tile.getWestSidePorts(), x, y))
-        return internalConnections
 
     def get_master_tile_coords(self) -> tuple[int, int]:
         """Return the (x, y) coordinates of the master tile in local space.
@@ -350,6 +315,29 @@ class SuperTile:
                 BelExternalConnection(source, sink, external, external.width)
             )
         return connections + lines
+
+    @property
+    def outer_ports(self) -> set[tuple[tuple[int, int], TilePort]]:
+        """The subtile routing ports facing out of the supertile.
+
+        A port faces out when no subtile sits next to its subtile on the port's
+        side; those are the ports of the supertile wrapper.
+
+        Returns
+        -------
+        set[tuple[tuple[int, int], TilePort]]
+            The ports at their `tileMap` positions.
+        """
+        outer = set()
+        for y, row in enumerate(self.tileMap):
+            for x, tile in enumerate(row):
+                if tile is None:
+                    continue
+                for port in tile.portsInfo:
+                    dx, dy = port.side_of_tile.offset
+                    if grid_at(self.tileMap, x + dx, y + dy) is None:
+                        outer.add(((x, y), port))
+        return outer
 
     @property
     def fixed_connections(self) -> list[FixedConnection[LocalPin]]:
