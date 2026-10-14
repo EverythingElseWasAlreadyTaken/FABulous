@@ -17,7 +17,6 @@ from fabulous.fabric_definition.connection import TilePortConnection
 from fabulous.fabric_definition.define import (
     IO,
     USER_CLK_PREDECESSOR,
-    BelPortKind,
     ConfigBitMode,
     grid_at,
 )
@@ -79,12 +78,13 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
     # child tile); declare them at the wrapper's anchor coordinates.
     for placement in fabric.super_tile_instances:
         ax, ay, superTile = placement.anchor.x, placement.anchor.y, placement.super_tile
-        for bel in superTile.bels:
-            for i in bel.pin_names(BelPortKind.EXTERNAL, IO.INPUT):
-                writer.addPortScalar(f"Tile_X{ax}Y{ay}_{i}", IO.INPUT, indentLevel=2)
-                writer.addComment("EXTERNAL", onNewLine=False)
-            for i in bel.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT):
-                writer.addPortScalar(f"Tile_X{ax}Y{ay}_{i}", IO.OUTPUT, indentLevel=2)
+        for external in superTile.bel_external_ports:
+            for pin in external.pins:
+                writer.addPortScalar(
+                    f"Tile_X{ax}Y{ay}_{pin.name()}",
+                    external.io_direction,
+                    indentLevel=2,
+                )
                 writer.addComment("EXTERNAL", onNewLine=False)
 
     if fabric.configBitMode == ConfigBitMode.FRAME_BASED:
@@ -322,11 +322,9 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
             # supertile-level BEL external ports: connect the wrapper's external
             # ports to the top-level nets declared at the anchor coordinates.
             if superTile:
-                for b in superTile.bels:
-                    for p in b.pin_names(BelPortKind.EXTERNAL, IO.INPUT):
-                        portsPairs.append((p, f"Tile_X{x}Y{y}_{p}"))
-                    for p in b.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT):
-                        portsPairs.append((p, f"Tile_X{x}Y{y}_{p}"))
+                for external in superTile.bel_external_ports:
+                    for pin in external.pins:
+                        portsPairs.append((pin.name(), f"Tile_X{x}Y{y}_{pin.name()}"))
 
             if not fabric.disableUserCLK:
                 dx, dy = USER_CLK_PREDECESSOR[fabric.userCLKSide]

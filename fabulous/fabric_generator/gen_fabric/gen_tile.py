@@ -648,10 +648,12 @@ def generateSuperTile(
     writer.addComment("Tile IO ports from BELs", onNewLine=True, indentLevel=1)
     for i in superTile.tiles:
         for b in i.bels:
-            for p in b.pin_names(BelPortKind.EXTERNAL, IO.INPUT):
-                writer.addPortScalar(p, IO.INPUT, indentLevel=2)
-            for p in b.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT):
-                writer.addPortScalar(p, IO.OUTPUT, indentLevel=2)
+            for external in i.bel_external_ports:
+                if external.bel_port.bel is b:
+                    for pin in external.pins:
+                        writer.addPortScalar(
+                            pin.name(), external.io_direction, indentLevel=2
+                        )
             for port in b.ports:
                 if port.kind != BelPortKind.SHARED or port.is_clock:
                     continue
@@ -661,11 +663,9 @@ def generateSuperTile(
     # add supertile-level BEL external ports
     if superTile.bels:
         writer.addComment("SuperTile BEL IO ports", onNewLine=True, indentLevel=1)
-        for b in superTile.bels:
-            for p in b.pin_names(BelPortKind.EXTERNAL, IO.INPUT):
-                writer.addPortScalar(p, IO.INPUT, indentLevel=2)
-            for p in b.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT):
-                writer.addPortScalar(p, IO.OUTPUT, indentLevel=2)
+        for external in superTile.bel_external_ports:
+            for pin in external.pins:
+                writer.addPortScalar(pin.name(), external.io_direction, indentLevel=2)
 
     st_config_bits = superTile.total_config_bits
 
@@ -889,12 +889,9 @@ def generateSuperTile(
             ):
                 ports_pairs.append((p.name, f"Tile_X{x}Y{y}_{p.name}"))
 
-            for b in tile.bels:
-                for p in b.pin_names(BelPortKind.EXTERNAL, IO.INPUT):
-                    ports_pairs.append((p, p))
-
-                for p in b.pin_names(BelPortKind.EXTERNAL, IO.OUTPUT):
-                    ports_pairs.append((p, p))
+            for external in tile.bel_external_ports:
+                for pin in external.pins:
+                    ports_pairs.append((pin.name(), pin.name()))
 
             # connect SJUMP ports to supertile-level signals
             for pc in sjump:

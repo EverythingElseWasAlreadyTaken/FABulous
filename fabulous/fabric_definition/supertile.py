@@ -15,6 +15,7 @@ from pathlib import Path
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.channel import resolve_channels
 from fabulous.fabric_definition.connection import (
+    BelExternalConnection,
     FixedConnection,
     LocalPin,
     PortConnection,
@@ -27,7 +28,13 @@ from fabulous.fabric_definition.define import (
     BelPortKind,
     Side,
 )
-from fabulous.fabric_definition.port import Port, SJumpPort, SwitchMatrixPort, TilePort
+from fabulous.fabric_definition.port import (
+    BelExternalPort,
+    Port,
+    SJumpPort,
+    SwitchMatrixPort,
+    TilePort,
+)
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_definition.wire import SJumpWire
@@ -275,6 +282,22 @@ class SuperTile:
             ports.append(SwitchMatrixPort(const, IO.INPUT, literal=True))
         return tuple(ports)
 
+    @cached_property
+    def bel_external_ports(self) -> tuple[BelExternalPort, ...]:
+        """The wrapper ports exporting the supertile BELs' `EXTERNAL` ports.
+
+        Returns
+        -------
+        tuple[BelExternalPort, ...]
+            BEL by BEL, inputs then outputs.
+        """
+        return tuple(
+            BelExternalPort(port)
+            for bel in self.bels
+            for io in (IO.INPUT, IO.OUTPUT)
+            for port in bel.get_ports(BelPortKind.EXTERNAL, io)
+        )
+
     @property
     def port_connections(self) -> list[PortConnection[tuple[tuple[int, int], Port]]]:
         """The port-to-port wiring at the supertile's switch matrix boundary.
@@ -284,7 +307,9 @@ class SuperTile:
         Every matrix port with an `origin` is joined to it: to a supertile BEL
         port, at the master tile where the matrix and BELs sit, or to a child
         tile's SJUMP port, at that child's `tileMap` position. The wrapper
-        signal between them is not a node of its own. Then come the
+        signal between them is not a node of its own. A supertile BEL's
+        `EXTERNAL` port is wired to the wrapper port exporting it, both at the
+        master. Then come the
         `TilePortConnection`s of the routing channel lines between the
         subtiles; their channels are resolved from the subtiles alone, so a
         supertile is wired without a fabric (a fabric checks that its own
@@ -293,19 +318,19 @@ class SuperTile:
         Returns
         -------
         list[PortConnection[tuple[tuple[int, int], Port]]]
-            The matrix boundary in matrix port order, then the lines between
-            the subtiles, ends at `tileMap` positions.
+            The matrix boundary in matrix port order, the BEL external
+            ports, then the lines between the subtiles, ends at `tileMap`
+            positions.
         """
         channels = resolve_channels(
             p.declaration for tile in self.tiles for p in tile.portsInfo
         )
         lines = tile_port_connections(self.tileMap, channels)
-        if self.switch_matrix is None:
-            return lines
         master = self.get_master_tile_coords()
         wires = {wire.matrix_port: wire for wire in self.sjump_wires}
+        matrix_ports = () if self.switch_matrix is None else self.switch_matrix.ports
         connections = []
-        for sm_port in self.switch_matrix.ports:
+        for sm_port in matrix_ports:
             origin = sm_port.origin
             if origin is None:
                 continue
@@ -317,6 +342,12 @@ class SuperTile:
             source, sink = ends if sm_port.is_output else ends[::-1]
             connections.append(
                 SwitchMatrixConnection(source, sink, declaration, sm_port.width)
+            )
+        for external in self.bel_external_ports:
+            ends = ((master, external.bel_port), (master, external))
+            source, sink = ends[::-1] if external.is_input else ends
+            connections.append(
+                BelExternalConnection(source, sink, external, external.width)
             )
         return connections + lines
 
