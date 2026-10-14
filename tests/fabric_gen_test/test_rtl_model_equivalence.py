@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from fabulous.fabric_definition.cell_spec import CellSpec
-from fabulous.fabric_definition.connection import FixedConnection, TilePortConnection
+from fabulous.fabric_definition.connection import FixedConnection
 from fabulous.fabric_definition.define import IO, BelPortKind
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.fabric_cell_library import (
@@ -426,15 +426,6 @@ def test_fabric_top_matches_the_model(
                     # A subtile port is a wrapper port only if it faces outward.
                     if instance not in placement_of or e in rtl.net_id:
                         universe.add(e)
-    connections = [
-        c
-        for pc in generated.port_connections
-        if isinstance(pc, TilePortConnection)
-        and (
-            pc.source[0] not in placement_of
-            or placement_of[pc.source[0]] is not placement_of.get(pc.sink[0])
-        )
-        for c in pc.pin_connections
-    ]
+    connections = [c for pc in generated.port_connections for c in pc.pin_connections]
     problems = _problems(generated.name, connections, endpoint, universe, rtl)
     assert not problems, "\n".join(problems)

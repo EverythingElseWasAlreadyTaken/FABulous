@@ -205,6 +205,30 @@ class TestSuperTileLines:
             ((0, 1), "B"),
         }
 
+    def test_fabric_holds_only_its_own_lines(
+        self, make_fabric: Callable[..., Fabric]
+    ) -> None:
+        """The tile port connections inside a placement are the supertile's, placed."""
+        line = "NORTH,A,0,-1,B,1"
+        top, bot = self._tile("TOP", line), self._tile("BOT", line)
+        super_tile = _column_super_tile(top, bot)
+        fabric = make_fabric(tile=[[top], [bot]], superTileDic={"COL": super_tile})
+        (inner,) = [
+            pc
+            for pc in super_tile.port_connections
+            if isinstance(pc, TilePortConnection)
+        ]
+
+        assert fabric.port_connections == []
+        placed = [
+            pc
+            for pc in fabric.placed_port_connections()
+            if isinstance(pc, TilePortConnection)
+        ]
+        assert [
+            (pc.source[0].y, pc.source[1], pc.sink[0].y, pc.sink[1]) for pc in placed
+        ] == [(1, inner.source[1], 0, inner.sink[1])]
+
     def test_fabric_reports_a_supertile_wired_differently(
         self, make_fabric: Callable[..., Fabric]
     ) -> None:

@@ -13,7 +13,6 @@ Key features:
 - Configuration data distribution and management
 """
 
-from fabulous.fabric_definition.connection import TilePortConnection
 from fabulous.fabric_definition.define import (
     IO,
     USER_CLK_PREDECESSOR,
@@ -221,11 +220,7 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
                 f"MaxFramesPerCol*{x}",
             )
 
-    drivers = {
-        pc.sink: pc.source
-        for pc in fabric.port_connections
-        if isinstance(pc, TilePortConnection)
-    }
+    drivers = {pc.sink: pc.source for pc in fabric.port_connections}
     instantiatedPosition = []
     # Tile instantiations
     for y, row in enumerate(fabric.tile):

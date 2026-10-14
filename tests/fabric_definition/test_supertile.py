@@ -22,7 +22,6 @@ from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import IO, Side
 from fabulous.fabric_definition.port import BelConfigPort
 from fabulous.fabric_definition.supertile import SuperTile
-from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
 from tests.conftest import make_muladd_bel
 from tests.fabric_definition.conftest import make_empty_tile, make_side_port
@@ -223,16 +222,20 @@ class TestConfigBitRanges:
         }
 
     @pytest.mark.parametrize("matrix_bits", [None, 4], ids=["no matrix", "hdl"])
-    def test_supertile_puts_the_matrix_first(self, matrix_bits: int | None) -> None:
+    def test_supertile_puts_the_matrix_first(
+        self, matrix_bits: int | None, tmp_path: Path
+    ) -> None:
         """A hand-written matrix's declared bits come before the BELs too."""
         t = make_empty_tile("T")
         bels = _configurable_bels(3, 2)
-        matrix = None
+        matrix_file = None
         if matrix_bits is not None:
-            matrix = SwitchMatrix(Path("ST.v"), (), {}, "ST", hdl_config_bits=4)
-        st = SuperTile("ST", Path(), [t], [[t]], bels, matrix)
+            matrix_file = tmp_path / "ST_switch_matrix.v"
+            matrix_file.write_text(f"// NumberOfConfigBits: {matrix_bits}\n")
+        st = SuperTile("ST", Path(), [t], [[t]], bels, matrix_file=matrix_file)
 
         start = matrix_bits or 0
+        matrix = st.switch_matrix
         expected = {} if matrix is None else {matrix: range(start)}
         expected |= {
             bels[0]: range(start, start + 3),

@@ -7,7 +7,7 @@ functionalities into a single, reusable block.
 """
 
 from collections.abc import Generator
-from dataclasses import dataclass, field, replace
+from dataclasses import InitVar, dataclass, field, replace
 from decimal import Decimal
 from functools import cached_property
 from pathlib import Path
@@ -57,14 +57,14 @@ class SuperTile:
         The map of the tiles that make up the super tile
     bels : list[Bel]
         The list of bels of that the super tile contains
-    switch_matrix : SwitchMatrix | None
-        The supertile switch matrix (source file, connectivity, config bits), or
-        None if the supertile has no switch matrix.
     master_tile_coords : tuple[int, int] | None
         Local (x, y) of the master tile. Explicitly set via the `MASTER` token
         in the supertile CSV, or computed as the last non-None tile in row-major
         order if no MASTER is present.  All supertile config bits and BELs are
         anchored to this tile.
+    matrix_file : InitVar[Path | None]
+        The supertile switch matrix file (`.list`, `.csv` or hand-written
+        HDL), None for a supertile without a switch matrix.
     """
 
     name: str
@@ -72,15 +72,22 @@ class SuperTile:
     tiles: list[Tile]
     tileMap: list[list[Tile]]
     bels: list[Bel] = field(default_factory=list)
-    switch_matrix: SwitchMatrix | None = None
     master_tile_coords: tuple[int, int] | None = None
+    matrix_file: InitVar[Path | None] = None
+    _switch_matrix: SwitchMatrix | None = field(init=False, default=None, repr=False)
 
-    def __post_init__(self) -> None:
-        """Attach this supertile to its subtile types and check its BEL count.
+    def __post_init__(self, matrix_file: Path | None) -> None:
+        """Attach the subtiles and BELs, check the BELs, build the matrix.
 
         A supertile's BELs are emitted at its master tile, sharing the BEL
         letter space (A, B, ...) with the master tile's own BELs, so the two
-        together must fit in 26 letters.
+        together must fit in 26 letters. The switch matrix is built here, so
+        the supertile is complete once constructed.
+
+        Parameters
+        ----------
+        matrix_file : Path | None
+            The supertile switch matrix file, or None.
 
         Raises
         ------
@@ -102,6 +109,20 @@ class SuperTile:
                     f"{self.name} and its master tile {master_tile.name} "
                     "together cannot have more than 26 BELs."
                 )
+        if matrix_file is not None:
+            self._switch_matrix = SwitchMatrix.from_file(
+                matrix_file, self.name, self.switch_matrix_ports(), canonical=False
+            )
+
+    @property
+    def switch_matrix(self) -> SwitchMatrix | None:
+        """The supertile switch matrix, built from `matrix_file`, or None.
+
+        Read-only: its ports come from the supertile's subtiles and BELs, so
+        it is built at construction and the supertile's connections derive
+        from it.
+        """
+        return self._switch_matrix
 
     @property
     def withUserCLK(self) -> bool:
@@ -263,11 +284,9 @@ class SuperTile:
             for port in bel.get_ports(BelPortKind.EXTERNAL, io)
         )
 
-    @property
+    @cached_property
     def port_connections(self) -> list[PortConnection[tuple[tuple[int, int], Port]]]:
         """The port-to-port wiring at the supertile's switch matrix boundary.
-
-        Not cached: the parser sets `switch_matrix` after construction.
 
         Every matrix port with an `origin` is joined to it: to a supertile BEL
         port, at the master tile where the matrix and BELs sit, or to a child
@@ -339,11 +358,9 @@ class SuperTile:
                         outer.add(((x, y), port))
         return outer
 
-    @property
+    @cached_property
     def fixed_connections(self) -> list[FixedConnection[LocalPin]]:
         """The hard wires of the supertile's own wiring and inside its matrix.
-
-        Not cached: the parser sets `switch_matrix` after construction.
 
         Returns
         -------
