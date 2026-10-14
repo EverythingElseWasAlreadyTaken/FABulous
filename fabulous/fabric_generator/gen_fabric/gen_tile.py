@@ -21,6 +21,7 @@ from fabulous.fabric_definition.connection import (
     JumpConnection,
     StagingConnection,
     SwitchMatrixConnection,
+    TilePortConnection,
 )
 from fabulous.fabric_definition.define import (
     IO,
@@ -857,67 +858,28 @@ def generateSuperTile(
     writer.addLogicStart()
 
     # pair up the connection for tile instantiation
+    drivers = {
+        pc.sink: pc.source
+        for pc in superTile.port_connections
+        if isinstance(pc, TilePortConnection)
+    }
     for y, row in enumerate(superTile.tileMap):
         for x, tile in enumerate(row):
-            north_input, south_input, east_input, west_input = [], [], [], []
             ports_pairs = []
             if tile is None:
                 continue
 
-            # north direction input connection
-            north_port = [i.name for i in tile.getNorthPorts(IO.INPUT)]
-            if (
-                0 <= y + 1 < len(superTile.tileMap)
-                and superTile.tileMap[y + 1][x] is not None
+            # Each input is driven by the subtile one line back, or else is a
+            # port of the wrapper.
+            for get_ports in (
+                Tile.getNorthPorts,
+                Tile.getEastPorts,
+                Tile.getSouthPorts,
+                Tile.getWestPorts,
             ):
-                for p in superTile.tileMap[y + 1][x].getNorthPorts(IO.OUTPUT):
-                    north_input.append(f"Tile_X{x}Y{y + 1}_{p.name}")
-            else:
-                for p in tile.getNorthPorts(IO.INPUT):
-                    north_input.append(f"Tile_X{x}Y{y}_{p.name}")
-
-            ports_pairs += list(zip(north_port, north_input, strict=False))
-            # east direction input connection
-            east_port = [i.name for i in tile.getEastPorts(IO.INPUT)]
-            if (
-                0 <= x - 1 < len(superTile.tileMap[0])
-                and superTile.tileMap[y][x - 1] is not None
-            ):
-                for p in superTile.tileMap[y][x - 1].getEastPorts(IO.OUTPUT):
-                    east_input.append(f"Tile_X{x - 1}Y{y}_{p.name}")
-            else:
-                for p in tile.getEastPorts(IO.INPUT):
-                    east_input.append(f"Tile_X{x}Y{y}_{p.name}")
-
-            ports_pairs += list(zip(east_port, east_input, strict=False))
-
-            # south direction input connection
-            south_port = [i.name for i in tile.getSouthPorts(IO.INPUT)]
-            if (
-                0 <= y - 1 < len(superTile.tileMap)
-                and superTile.tileMap[y - 1][x] is not None
-            ):
-                for p in superTile.tileMap[y - 1][x].getSouthPorts(IO.OUTPUT):
-                    south_input.append(f"Tile_X{x}Y{y - 1}_{p.name}")
-            else:
-                for p in tile.getSouthPorts(IO.INPUT):
-                    south_input.append(f"Tile_X{x}Y{y}_{p.name}")
-
-            ports_pairs += list(zip(south_port, south_input, strict=False))
-
-            # west direction input connection
-            west_port = [i.name for i in tile.getWestPorts(IO.INPUT)]
-            if (
-                0 <= x + 1 < len(superTile.tileMap[0])
-                and superTile.tileMap[y][x + 1] is not None
-            ):
-                for p in superTile.tileMap[y][x + 1].getWestPorts(IO.OUTPUT):
-                    west_input.append(f"Tile_X{x + 1}Y{y}_{p.name}")
-            else:
-                for p in tile.getWestPorts(IO.INPUT):
-                    west_input.append(f"Tile_X{x}Y{y}_{p.name}")
-
-            ports_pairs += list(zip(west_port, west_input, strict=False))
+                for port in get_ports(tile, IO.INPUT):
+                    (sx, sy), driver = drivers.get(((x, y), port), ((x, y), port))
+                    ports_pairs.append((port.name, f"Tile_X{sx}Y{sy}_{driver.name}"))
 
             for p in (
                 tile.getNorthPorts(IO.OUTPUT)
