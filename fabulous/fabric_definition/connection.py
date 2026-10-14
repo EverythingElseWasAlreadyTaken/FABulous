@@ -115,7 +115,7 @@ class FixedConnection[E](Connection[E]):
         """
         if isinstance(self.source, tuple):
             at, pin = self.source
-            if not isinstance(self.port_connection, ChannelHop):
+            if not isinstance(self.port_connection, TilePortConnection):
                 raise TypeError(f"{self.feature} is no hop between placed tiles")
             return f"{at.port_signal(pin.port)}[{pin.index}]"
         if self.buffers:
@@ -194,14 +194,14 @@ class StagingConnection[E](PortConnection[E]):
 
 
 @dataclass(frozen=True)
-class ChannelHop[E](PortConnection[E]):
+class TilePortConnection[E](PortConnection[E]):
     """A channel line from a tile's begin port to the partner end port one tile on."""
 
 
-def channel_hops(
+def tile_port_connections(
     tiles: list[list[Tile | None]],
     channels: Mapping[ChannelDeclaration, RoutingChannel],
-) -> list[ChannelHop[tuple[tuple[int, int], TilePort]]]:
+) -> list[TilePortConnection[tuple[tuple[int, int], TilePort]]]:
     """Find where the channel lines hop from tile to tile across a grid.
 
     A line runs from a tile's begin port to the same channel's end port one
@@ -217,7 +217,7 @@ def channel_hops(
 
     Returns
     -------
-    list[ChannelHop[tuple[tuple[int, int], TilePort]]]
+    list[TilePortConnection[tuple[tuple[int, int], TilePort]]]
         The hops with their ends at grid positions, row by row.
     """
     hops = []
@@ -250,7 +250,7 @@ def channel_hops(
                 else:
                     width = out.width
                 hops.append(
-                    ChannelHop(
+                    TilePortConnection(
                         ((x, y), out), ((x + dx, y + dy), end), declaration, width
                     )
                 )

@@ -20,10 +20,11 @@ from fabulous.fabric_definition.channel import (
     resolve_channels,
 )
 from fabulous.fabric_definition.connection import (
-    ChannelHop,
     FixedConnection,
     InstancePin,
-    channel_hops,
+    PortConnection,
+    TilePortConnection,
+    tile_port_connections,
 )
 from fabulous.fabric_definition.define import (
     IO,
@@ -32,7 +33,7 @@ from fabulous.fabric_definition.define import (
     Side,
 )
 from fabulous.fabric_definition.instance import SuperTileInstance, TileInstance
-from fabulous.fabric_definition.port import TilePort
+from fabulous.fabric_definition.port import Port
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
 
@@ -267,46 +268,66 @@ class Fabric:
         return placements
 
     @cached_property
-    def channel_hops(self) -> list[ChannelHop[tuple[TileInstance, TilePort]]]:
-        """The channel lines hopping from each placed tile to the next.
+    def port_connections(self) -> list[PortConnection[tuple[TileInstance, Port]]]:
+        """The port-to-port wiring of the whole fabric.
 
-        See `channel_hops`: a dangling line has no hop; such a fabric is
-        reported by `check_routing_channels`.
+        Every tile instance brings its tile type's, every supertile placement
+        its supertile's (including the lines between its subtiles). Then come
+        the `TilePortConnection`s of the routing channel lines from each tile
+        to the next (`tile_port_connections`); a dangling line has none, which
+        `check_routing_channels` reports.
 
         Returns
         -------
-        list[ChannelHop[tuple[TileInstance, TilePort]]]
-            The hops, their ends at the tile instances.
+        list[PortConnection[tuple[TileInstance, Port]]]
+            The connections, their ends at the tile instances.
         """
-        hops = []
-        for hop in channel_hops(self.tile, self.channels):
-            (sx, sy), source = hop.source
-            (tx, ty), sink = hop.sink
+        placed = [instance for row in self.instances for instance in row if instance]
+        connections = [pc for instance in placed for pc in instance.port_connections]
+        placement_of = {}
+        for placement in self.super_tile_instances:
+            connections += placement.port_connections
+            for instance in placement.tiles.values():
+                placement_of[instance] = placement
+        for line in tile_port_connections(self.tile, self.channels):
+            (sx, sy), source = line.source
+            (tx, ty), sink = line.sink
             source_at, sink_at = self.instances[sy][sx], self.instances[ty][tx]
-            hops.append(replace(hop, source=(source_at, source), sink=(sink_at, sink)))
-        return hops
+            # Inside a supertile placement the supertile wires its subtiles.
+            if placement_of.get(source_at, False) is placement_of.get(sink_at):
+                continue
+            connections.append(
+                replace(line, source=(source_at, source), sink=(sink_at, sink))
+            )
+        return connections
 
     def fixed_connections(self) -> Iterator[FixedConnection[InstancePin]]:
         """Yield every hard wire of the fabric.
 
-        Each placement contributes its own: every tile instance its tile type's
-        connections, every supertile placement its supertile's. Then come the
-        routing channel hops, from each begin port to the same channel's end
-        port one tile along (`channel_hops`), bit by bit. A hop keeps the
-        bit index; the staging is inside the tiles.
+        The pin connections of the `port_connections`, then the switch matrix
+        outputs with a single input, hard wires inside each matrix.
 
         Yields
         ------
         FixedConnection[InstancePin]
             The connections, each end at the tile instance it sits in.
         """
-        placed = [instance for row in self.instances for instance in row if instance]
-        for instance in placed:
-            yield from instance.fixed_connections
+        for pc in self.port_connections:
+            yield from pc.pin_connections
+        for row in self.instances:
+            for instance in row:
+                if instance is None:
+                    continue
+                for c in instance.tile_type.switch_matrix.fixed_connections:
+                    yield replace(
+                        c, source=(instance, c.source), sink=(instance, c.sink)
+                    )
         for placement in self.super_tile_instances:
-            yield from placement.fixed_connections
-        for hop in self.channel_hops:
-            yield from hop.pin_connections
+            matrix = placement.super_tile.switch_matrix
+            if matrix is not None:
+                at = placement.master
+                for c in matrix.fixed_connections:
+                    yield replace(c, source=(at, c.source), sink=(at, c.sink))
 
     def check_routing_channels(self) -> None:
         """Refuse a fabric whose routing channels are inconsistent.
@@ -363,14 +384,20 @@ class Fabric:
                 )
         # A supertile wires its subtiles by its own channel resolution, so it
         # can be generated without a fabric; the fabric's must agree.
+        lines = tile_port_connections(self.tile, self.channels)
         for placement in self.super_tile_instances:
-            at = {instance: xy for xy, instance in placement.tiles.items()}
+            local = {(i.x, i.y): xy for xy, i in placement.tiles.items()}
             inside = {
-                ((at[hop.source[0]], hop.source[1]), (at[hop.sink[0]], hop.sink[1]))
-                for hop in self.channel_hops
-                if hop.source[0] in at and hop.sink[0] in at
+                ((local[s_xy], source), (local[t_xy], sink))
+                for line in lines
+                for (s_xy, source), (t_xy, sink) in [(line.source, line.sink)]
+                if s_xy in local and t_xy in local
             }
-            own = {(hop.source, hop.sink) for hop in placement.super_tile.channel_hops}
+            own = {
+                (pc.source, pc.sink)
+                for pc in placement.super_tile.port_connections
+                if isinstance(pc, TilePortConnection)
+            }
             if inside != own:
                 differ = sorted(
                     f"X{x}Y{y}.{port.name}" for _, ((x, y), port) in inside ^ own

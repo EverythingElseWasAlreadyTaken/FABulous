@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from fabulous.fabric_definition.connection import TilePortConnection
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
@@ -181,7 +182,7 @@ class TestSuperTilePlacement:
         }
 
 
-class TestSuperTileChannelHops:
+class TestSuperTileLines:
     """A supertile wires its subtiles by itself; a fabric checks it agrees."""
 
     @staticmethod
@@ -195,7 +196,8 @@ class TestSuperTileChannelHops:
 
         assert [
             (hop.source[0], hop.source[1].name, hop.sink[0], hop.sink[1].name)
-            for hop in super_tile.channel_hops
+            for hop in super_tile.port_connections
+            if isinstance(hop, TilePortConnection)
         ] == [((0, 1), "A", (0, 0), "B")]
 
     def test_fabric_reports_a_supertile_wired_differently(
@@ -210,7 +212,7 @@ class TestSuperTileChannelHops:
             tile=[[top, full], [bot, full]], superTileDic={"COL": super_tile}
         )
 
-        assert super_tile.channel_hops == []
+        assert super_tile.port_connections == []
         assert any(
             "Supertile 'COL' at X0Y0 wires its subtiles differently" in problem
             for problem in fabric.routing_channel_problems()

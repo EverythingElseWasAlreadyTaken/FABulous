@@ -15,7 +15,7 @@ from fabulous.fabric_definition.channel import (
     RoutingChannel,
     resolve_channels,
 )
-from fabulous.fabric_definition.connection import ChannelHop, StagingConnection
+from fabulous.fabric_definition.connection import StagingConnection, TilePortConnection
 from fabulous.fabric_definition.define import IO, BelPortKind, Direction
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.instance import TileInstance
@@ -97,9 +97,11 @@ class TestRoutingChannelProblems:
         """A line leading nowhere has no hop, and never wraps around the grid."""
         fabric = self._column(make_fabric, names)
 
-        assert fabric.channel_hops == []
         assert not any(
-            isinstance(c.port_connection, ChannelHop)
+            isinstance(pc, TilePortConnection) for pc in fabric.port_connections
+        )
+        assert not any(
+            isinstance(c.port_connection, TilePortConnection)
             for c in fabric.fixed_connections()
         )
 
@@ -156,7 +158,8 @@ class TestRoutingChannelProblems:
 
         assert [
             (hop.source[0].y, hop.source[1].name, hop.sink[0].y, hop.sink[1].name)
-            for hop in fabric.channel_hops
+            for hop in fabric.port_connections
+            if isinstance(hop, TilePortConnection)
         ] == [(1, "A", 0, "B"), (2, "A", 1, "B")]
         assert named(fabric.instances[1][0]) == {
             (1, "B1", 1, "A0"),  # staging: END[i + wire_count] -> BEG[i]
@@ -248,7 +251,7 @@ class TestRoutingChannelProblems:
         staging, *boundary = tile.fixed_connections
         here, there = TileInstance(0, 1, tile), TileInstance(0, 0, tile)
         out, into = ports
-        (hop,) = ChannelHop(
+        (hop,) = TilePortConnection(
             (here, out), (there, into), line.declaration, 1
         ).pin_connections
 
@@ -262,10 +265,10 @@ class TestRoutingChannelProblems:
         assert staging.port_connection is line
         assert TileInstance(0, 0, tile).fixed_connections[0].port_connection is line
         assert not any(
-            isinstance(c.port_connection, StagingConnection | ChannelHop)
+            isinstance(c.port_connection, StagingConnection | TilePortConnection)
             for c in boundary
         )
-        assert isinstance(hop.port_connection, ChannelHop)
+        assert isinstance(hop.port_connection, TilePortConnection)
         assert hop.signal == "Tile_X0Y1_A[0]"
 
     def test_signal_names_the_tile_rtl_signal(self) -> None:
