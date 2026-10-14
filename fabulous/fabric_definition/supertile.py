@@ -18,6 +18,7 @@ from fabulous.fabric_definition.connection import (
     ChannelHop,
     FixedConnection,
     LocalPin,
+    PortConnection,
     channel_hops,
 )
 from fabulous.fabric_definition.define import (
@@ -26,7 +27,7 @@ from fabulous.fabric_definition.define import (
     BelPortKind,
     Side,
 )
-from fabulous.fabric_definition.port import SJumpPort, SwitchMatrixPort, TilePort
+from fabulous.fabric_definition.port import Port, SJumpPort, SwitchMatrixPort, TilePort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_definition.wire import SJumpWire
@@ -275,21 +276,20 @@ class SuperTile:
         return tuple(ports)
 
     @property
-    def fixed_connections(self) -> list[FixedConnection[LocalPin]]:
-        """The hard wires at the supertile's switch matrix boundary.
+    def port_connections(self) -> list[PortConnection[tuple[tuple[int, int], Port]]]:
+        """The port-to-port wiring at the supertile's switch matrix boundary.
 
         Not cached: the parser sets `switch_matrix` after construction.
 
         Every matrix port with an `origin` is joined to it: to a supertile BEL
         port, at the master tile where the matrix and BELs sit, or to a child
         tile's SJUMP port, at that child's `tileMap` position. The wrapper
-        signal between them is not a node of its own. A matrix output with a
-        single input is a hard wire inside the matrix, at the master.
+        signal between them is not a node of its own.
 
         Returns
         -------
-        list[FixedConnection[LocalPin]]
-            The connections: the boundary in matrix port order, then inside.
+        list[PortConnection[tuple[tuple[int, int], Port]]]
+            The connections in matrix port order, ends at `tileMap` positions.
         """
         if self.switch_matrix is None:
             return []
@@ -301,15 +301,31 @@ class SuperTile:
             if origin is None:
                 continue
             at = child_at[sm_port] if isinstance(origin, SJumpPort) else master
-            for sm_pin, pin in zip(sm_port.pins, origin.pins, strict=True):
-                ends = ((master, sm_pin), (at, pin))
-                source, sink = ends if sm_port.is_output else ends[::-1]
-                connections.append(FixedConnection(source, sink, sm_port))
-        connections += [
+            ends = ((master, sm_port), (at, origin))
+            source, sink = ends if sm_port.is_output else ends[::-1]
+            connections.append(PortConnection(source, sink, sm_port, sm_port.width))
+        return connections
+
+    @property
+    def fixed_connections(self) -> list[FixedConnection[LocalPin]]:
+        """The hard wires at and inside the supertile's switch matrix.
+
+        Not cached: the parser sets `switch_matrix` after construction.
+
+        Returns
+        -------
+        list[FixedConnection[LocalPin]]
+            The pin connections of the `port_connections`, then the matrix
+            outputs with a single input, at the master.
+        """
+        if self.switch_matrix is None:
+            return []
+        master = self.get_master_tile_coords()
+        connections = [c for pc in self.port_connections for c in pc.pin_connections]
+        return connections + [
             replace(c, source=(master, c.source), sink=(master, c.sink))
             for c in self.switch_matrix.fixed_connections
         ]
-        return connections
 
     @property
     def total_config_bits(self) -> int:

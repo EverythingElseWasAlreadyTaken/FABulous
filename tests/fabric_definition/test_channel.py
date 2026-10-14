@@ -244,7 +244,7 @@ class TestRoutingChannelProblems:
             gen_ios=[],
             pinOrderConfig={},
         )
-        (line,) = tile.port_connections
+        line, *_ = tile.port_connections
         staging, *boundary = tile.fixed_connections
         here, there = TileInstance(0, 1, tile), TileInstance(0, 0, tile)
         out, into = ports
@@ -261,7 +261,10 @@ class TestRoutingChannelProblems:
         )
         assert staging.port_connection is line
         assert TileInstance(0, 0, tile).fixed_connections[0].port_connection is line
-        assert all(c.port_connection is None for c in boundary)
+        assert not any(
+            isinstance(c.port_connection, StagingConnection | ChannelHop)
+            for c in boundary
+        )
         assert isinstance(hop.port_connection, ChannelHop)
         assert hop.signal == "Tile_X0Y1_A[0]"
 

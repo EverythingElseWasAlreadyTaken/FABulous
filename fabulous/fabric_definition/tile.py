@@ -24,6 +24,7 @@ from fabulous.fabric_definition.gen_io import Gen_IO
 from fabulous.fabric_definition.port import (
     BelExternalPort,
     Pin,
+    Port,
     SJumpPort,
     TilePort,
 )
@@ -162,7 +163,8 @@ class Tile:
         """
         # The hard wires are derived from the BELs once; a BEL added later
         # would silently be missing from them.
-        if {"fixed_connections", "bel_external_ports"} & self.__dict__.keys():
+        derived = {"port_connections", "fixed_connections", "bel_external_ports"}
+        if derived & self.__dict__.keys():
             raise RuntimeError(
                 f"Cannot add BELs to tile {self.name}: its connections are "
                 "already derived from its BELs."
@@ -230,25 +232,31 @@ class Tile:
         )
 
     @cached_property
-    def port_connections(self) -> list[PortConnection[TilePort]]:
+    def port_connections(self) -> list[PortConnection[Port]]:
         """The port-to-port wiring inside the tile.
 
         A routing channel line naming both ends stages its bits through the
         tile as the RTL does: `N4BEG[i]` is driven by `N4END[i + wire_count]`
-        through a buffer at the tile entry and one at the exit.
+        through a buffer at the tile entry and one at the exit. Every switch
+        matrix port with an `origin` is joined to it at the module boundary:
+        to the tile port's matrix-facing slice (the matrix reads the first
+        `wire_count` bits of `N4END` and drives the last ones of `N4BEG`), to
+        the BEL port or to the SJUMP port. A jump wire loops a matrix output
+        back into a matrix input, and a BEL's `EXTERNAL` port is wired to the
+        tile-module port exporting it.
 
         Returns
         -------
-        list[PortConnection[TilePort]]
-            One `StagingConnection` per staged line.
+        list[PortConnection[Port]]
+            Staging, matrix boundary, jump wires, BEL external ports.
         """
         ports = {(p.declaration, p.io_direction): p for p in self.portsInfo}
-        staging = []
+        connections: list[PortConnection[Port]] = []
         for (declaration, io), out in ports.items():
             if io != IO.OUTPUT or declaration.end is None or declaration.distance < 2:
                 continue
             count = declaration.wire_count
-            staging.append(
+            connections.append(
                 StagingConnection(
                     ports[(declaration, IO.INPUT)],
                     out,
@@ -258,53 +266,48 @@ class Tile:
                     buffers=(FabricCellFunction.BUFFER, FabricCellFunction.BUFFER),
                 )
             )
-        return staging
+        for sm_port in self.switch_matrix.ports:
+            origin = sm_port.origin
+            if origin is None:
+                continue
+            offset = 0
+            if isinstance(origin, TilePort):
+                outer = origin.top_pins if origin.is_output else origin.sm_pins
+                offset = outer[0].index
+            if sm_port.is_output:
+                connection = PortConnection(
+                    sm_port, origin, sm_port, sm_port.width, sink_offset=offset
+                )
+            else:
+                connection = PortConnection(
+                    origin, sm_port, sm_port, sm_port.width, source_offset=offset
+                )
+            connections.append(connection)
+        for jump in self.jump_wires:
+            if jump.source is not None and jump.destination is not None:
+                connections.append(
+                    PortConnection(jump.source, jump.destination, jump, jump.wire_count)
+                )
+        for external in self.bel_external_ports:
+            ends = (external.bel_port, external)
+            source, sink = ends[::-1] if external.is_input else ends
+            connections.append(PortConnection(source, sink, external, external.width))
+        return connections
 
     @cached_property
     def fixed_connections(self) -> list[FixedConnection[Pin]]:
         """The hard wires inside the tile.
 
-        The bits of the `port_connections` (the staged lines), then: the
-        switch matrix drives the last `wire_count` bits of `N4BEG` and reads
-        the first `wire_count` bits of `N4END`. Every switch matrix port
-        with an `origin` is joined to it at the module boundary: to the tile
-        port's matrix-facing bits, to the BEL port or to the SJUMP port. A jump
-        wire loops a matrix output back into a matrix input, and a matrix output
-        with a single input is a hard wire inside the matrix. A BEL's
-        `EXTERNAL` port is wired to the tile-module port exporting it.
+        The pin connections of the `port_connections`, then the matrix outputs
+        with a single input, hard wires inside the matrix.
 
         Returns
         -------
         list[FixedConnection[Pin]]
-            The connections: channel staging, matrix boundary, inside the
-            matrix, jump wires, BEL external ports.
+            The connections.
         """
         connections = [c for pc in self.port_connections for c in pc.pin_connections]
-        for sm_port in self.switch_matrix.ports:
-            origin = sm_port.origin
-            if origin is None:
-                continue
-            if isinstance(origin, TilePort):
-                outer = origin.top_pins if origin.is_output else origin.sm_pins
-            else:
-                outer = origin.pins
-            if sm_port.is_output:
-                pairs = zip(sm_port.pins, outer, strict=True)
-            else:
-                pairs = zip(outer, sm_port.pins, strict=True)
-            connections += [FixedConnection(src, dst, sm_port) for src, dst in pairs]
-        connections += self.switch_matrix.fixed_connections
-        for jump in self.jump_wires:
-            if jump.source is None or jump.destination is None:
-                continue
-            pairs = zip(jump.source.pins, jump.destination.pins, strict=True)
-            connections += [FixedConnection(src, dst, jump) for src, dst in pairs]
-        for external in self.bel_external_ports:
-            pairs = zip(external.bel_port.pins, external.pins, strict=True)
-            for bel_pin, pin in pairs:
-                source, sink = (pin, bel_pin) if external.is_input else (bel_pin, pin)
-                connections.append(FixedConnection(source, sink, external))
-        return connections
+        return connections + list(self.switch_matrix.fixed_connections)
 
     def getWestSidePorts(self) -> list[TilePort]:
         """Get all ports physically located on the west side of the tile.

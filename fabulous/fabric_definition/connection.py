@@ -78,16 +78,17 @@ class FixedConnection[E](Connection[E]):
         matrix boundary, the matrix port; inside a matrix (an output with a
         single input), the matrix; for an exported BEL port, the tile port
         exporting it.
-    buffers : tuple[FabricCellFunction, ...]
-        The buffer cells the signal passes from source to sink, empty for a
-        plain wire.
     port_connection : PortConnection | None
         The port connection the wire is a bit of, None for a single wire.
     """
 
     declaration: Declaration
-    buffers: tuple[FabricCellFunction, ...] = ()
     port_connection: PortConnection | None = None
+
+    @property
+    def buffers(self) -> tuple[FabricCellFunction, ...]:
+        """The buffer cells the signal passes, those of its port connection."""
+        return () if self.port_connection is None else self.port_connection.buffers
 
     @property
     def signal(self) -> str:
@@ -181,7 +182,6 @@ class PortConnection[E]:
                 pin(self.source, self.source_offset + i),
                 pin(self.sink, self.sink_offset + i),
                 self.declaration,
-                self.buffers,
                 self,
             )
             for i in range(self.width)
