@@ -363,13 +363,11 @@ def generateTile(
     writer.addConnectionVector("FrameStrobe_i", "MaxFramesPerCol-1", 0)
     writer.addConnectionVector("FrameStrobe_O_i", "MaxFramesPerCol-1", 0)
 
-    # A staged line passes an entry buffer into `<source>_i` and an exit
+    # A staging connection passes an entry buffer into `<source>_i` and an exit
     # buffer out of `<sink>_i`.
-    for line in staging:
-        writer.addConnectionVector(f"{line.source.name}_i", line.source.width - 1)
-        writer.addConnectionVector(
-            f"{line.sink.name}_i", line.sink_offset + line.width - 1
-        )
+    for pc in staging:
+        writer.addConnectionVector(f"{pc.source.name}_i", pc.source.width - 1)
+        writer.addConnectionVector(f"{pc.sink.name}_i", pc.sink_offset + pc.width - 1)
 
     writer.addNewLine()
     writer.addLogicStart()
@@ -411,28 +409,28 @@ def generateTile(
             f"FrameStrobe_O[{i}]",
         )
 
-    for line in staging:
-        source, sink = line.source, line.sink
-        if line.buffers != (FabricCellFunction.BUFFER, FabricCellFunction.BUFFER):
+    for pc in staging:
+        source, sink = pc.source, pc.sink
+        if pc.buffers != (FabricCellFunction.BUFFER, FabricCellFunction.BUFFER):
             raise NotImplementedError(
-                f"{source.name} -> {sink.name} passes the buffers {line.buffers}; "
+                f"{source.name} -> {sink.name} passes the buffers {pc.buffers}; "
                 "only an entry and an exit buffer can be placed so far."
             )
-        source_high = line.source_offset + line.width - 1
-        shift = line.source_offset - line.sink_offset
+        source_high = pc.source_offset + pc.width - 1
+        shift = pc.source_offset - pc.sink_offset
         sink_high = f"{source_high}-{shift}" if shift else source_high
         writer.addAssignScalar(
-            f"{sink.name}_i[{sink_high}:{line.sink_offset}]",
-            f"{source.name}_i[{source_high}:{line.source_offset}]",
+            f"{sink.name}_i[{sink_high}:{pc.sink_offset}]",
+            f"{source.name}_i[{source_high}:{pc.source_offset}]",
         )
         writer.addNewLine()
-        entry = cells.cells[line.buffers[0]][0]
-        exit_ = cells.cells[line.buffers[-1]][0]
-        for c in line.pin_connections:
+        entry = cells.cells[pc.buffers[0]][0]
+        exit_ = cells.cells[pc.buffers[-1]][0]
+        for c in pc.pin_connections:
             name = f"{source.name}_inbuf_{c.sink.index}"
             out = f"{source.name}_i[{c.source.index}]"
             _add_buffer(writer, entry, name, c.source.name(indexed=True), out)
-        for c in line.pin_connections:
+        for c in pc.pin_connections:
             name = f"{sink.name}_outbuf_{c.sink.index}"
             into = f"{sink.name}_i[{c.sink.index}]"
             _add_buffer(writer, exit_, name, into, c.sink.name(indexed=True))
@@ -883,8 +881,8 @@ def generateSuperTile(
             if tile is None:
                 continue
 
-            # Each input is driven by the subtile one line back, or else is a
-            # port of the wrapper.
+            # Each input is driven by the subtile one tile back along its
+            # channel, or else is a port of the wrapper.
             for get_ports in (
                 Tile.getNorthPorts,
                 Tile.getEastPorts,

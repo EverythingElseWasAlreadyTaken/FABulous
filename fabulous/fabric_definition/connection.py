@@ -3,7 +3,7 @@
 A connection joins a source pin to a sink pin, directed. Inside a tile
 or switch matrix type the ends are plain `Pin`s; between placed tiles they are
 `(TileInstance, Pin)`. Connections are not stored: the declarations they come
-from (a routing channel line, a switch matrix port, a jump wire) are, and
+from (a channel declaration, a switch matrix port, a jump wire) are, and
 expand into them. A `PortConnection` is the port-level view: one declaration
 wiring a run of pins of one port to another, which expands into its pin
 connections.
@@ -103,7 +103,7 @@ class FixedConnection[E](Connection[E]):
         switch matrix boundary the end outside the matrix, a tile or SJUMP
         port pin (`N4END[3]`) or a BEL pin (`LA_I`); a jump wire its source
         pin (`JN2BEG[0]`); an exported BEL pin its scalar tile-module port
-        (`A_O_top`); a line between tiles the port pin driving it
+        (`A_O_top`); a tile port connection the port pin driving it
         (`Tile_X1Y3_N4BEG[0]`).
 
         Returns
@@ -116,7 +116,7 @@ class FixedConnection[E](Connection[E]):
         ValueError
             If the connection is inside the switch matrix module. Its port
             connection raises when it names no signal: `ValueError` through
-            buffer cells, `TypeError` when placed but no line between tiles.
+            buffer cells, `TypeError` when placed but no tile port connection.
         """
         pc = self.port_connection
         if pc is None:
@@ -226,13 +226,13 @@ def _module_pins(c: FixedConnection) -> tuple[Pin, Pin]:
     if isinstance(source, tuple):
         (at, source), (_, sink) = source, sink
         if not isinstance(at, tuple):
-            raise TypeError(f"{c.feature} is no line between placed tiles")
+            raise TypeError(f"{c.feature} is no tile port connection")
     return source, sink
 
 
 @dataclass(frozen=True)
 class StagingConnection[E](PortConnection[E]):
-    """A channel line staged through a tile: `END[count:]` -> `BEG[:-count]`."""
+    """A routing channel staged through a tile: `END[count:]` -> `BEG[:-count]`."""
 
     def pin_signal(self, c: FixedConnection) -> str:
         """Refuse: a staged pin passes buffer cells, so it is no single signal.
@@ -257,7 +257,7 @@ class StagingConnection[E](PortConnection[E]):
 
 @dataclass(frozen=True)
 class TilePortConnection[E](PortConnection[E]):
-    """A channel line from a tile's begin port to the partner end port one tile on."""
+    """A routing channel from a tile's begin port to the next tile's end port."""
 
     def pin_signal(self, c: FixedConnection) -> str:
         """Name the signal after the port pin driving it, `Tile_X1Y3_N4BEG[0]`.
@@ -375,11 +375,11 @@ def tile_port_connections(
     tiles: list[list[Tile | None]],
     channels: Mapping[ChannelDeclaration, RoutingChannel],
 ) -> list[TilePortConnection[tuple[tuple[int, int], TilePort]]]:
-    """Find where the channel lines hop from tile to tile across a grid.
+    """Find the tile port connections of the routing channels across a grid.
 
-    A line runs from a tile's begin port to the same channel's end port one
-    tile along. A line leading out of the grid, into an empty cell or into a
-    tile without its end port dangles and has no hop.
+    A routing channel runs from a tile's begin port to the same channel's end
+    port one tile along. A channel leading out of the grid, into an empty cell or
+    into a tile without its end port dangles and has no tile port connection.
 
     Parameters
     ----------

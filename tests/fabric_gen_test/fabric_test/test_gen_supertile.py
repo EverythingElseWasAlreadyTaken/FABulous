@@ -373,7 +373,7 @@ class TestInterTileRouting:
     def test_inner_edge_output_reaches_neighbour(
         self, supertile_netlist: Callable[..., GridConnectivity]
     ) -> None:
-        # One 2-wide East-going line E_out -> E_in: the left tile drives it out
+        # One 2-wide East-going channel E_out -> E_in: the left tile drives it out
         # of its east side, the right tile reads it in on its west side.
         left = Tile(
             name="Left",

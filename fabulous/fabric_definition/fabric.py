@@ -407,13 +407,13 @@ class Fabric:
                 )
         # A supertile wires its subtiles by its own channel resolution, so it
         # can be generated without a fabric; the fabric's must agree.
-        lines = tile_port_connections(self.tile, self.channels)
+        searched = tile_port_connections(self.tile, self.channels)
         for placement in self.super_tile_instances:
             local = {(i.x, i.y): xy for xy, i in placement.tiles.items()}
             inside = {
                 ((local[s_xy], source), (local[t_xy], sink))
-                for line in lines
-                for (s_xy, source), (t_xy, sink) in [(line.source, line.sink)]
+                for pc in searched
+                for (s_xy, source), (t_xy, sink) in [(pc.source, pc.sink)]
                 if s_xy in local and t_xy in local
             }
             own = {

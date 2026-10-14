@@ -1,9 +1,9 @@
 """Routing channel declarations and the fabric-wide channels they resolve to.
 
-A wire line of a tile CSV (`NORTH,N4BEG,0,-4,N4END,4`) declares how the tile
+A channel declaration in a tile CSV (`NORTH,N4BEG,0,-4,N4END,4`) declares how the tile
 takes part in a routing channel: which ports it has, how far the wire goes and
-how many wires run in parallel. The line is a `ChannelDeclaration`, shared by
-the ports it declares. A line may leave one end `NULL`: the tile then only
+how many wires run in parallel. It is a `ChannelDeclaration`, shared by
+the ports it declares. A declaration may leave one end `NULL`: the tile then only
 starts or only ends the channel, and the missing name is found in the other
 tile types' declarations. The resolved channel, with both ends named, is a
 `RoutingChannel`; it is unique in the fabric. Both are interned: equal values
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
 ROUTING_DIRECTIONS = (Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST)
-"""The directions of lines that declare a routing channel between tiles."""
+"""The directions of channel declarations: routing channels between tiles."""
 
 
 class _Interned(type):
@@ -44,7 +44,7 @@ def _reduce(obj: object) -> tuple:
 
 @dataclass(frozen=True)
 class ChannelDeclaration(metaclass=_Interned):
-    """One wire line of a tile CSV.
+    """One channel declaration of a tile CSV.
 
     Attributes
     ----------
@@ -57,10 +57,10 @@ class ChannelDeclaration(metaclass=_Interned):
     wire_count : int
         The number of wires running in parallel.
     begin : str | None
-        The name of the driving end, or None where the line says `NULL` (the
+        The name of the driving end, or None where the declaration says `NULL` (the
         tile only ends the channel).
     end : str | None
-        The name of the receiving end, or None where the line says `NULL` (the
+        The name of the receiving end, or None where the declaration says `NULL` (the
         tile only starts the channel).
     """
 
@@ -80,7 +80,7 @@ class ChannelDeclaration(metaclass=_Interned):
 
     @property
     def is_null_terminated(self) -> bool:
-        """Whether one end of the line is `NULL`."""
+        """Whether one end of the declaration is `NULL`."""
         return self.begin is None or self.end is None
 
 
@@ -127,9 +127,10 @@ def resolve_channels(
 ) -> dict[ChannelDeclaration, RoutingChannel]:
     """Resolve each declaration to the routing channel it takes part in.
 
-    A line naming both ends is its channel. A line with a `NULL` end resolves
-    against the lines that name both ends, by direction, offsets, width and its
-    known name. Without such a line, a start and an end with the same name form
+    A declaration naming both ends is its channel. A declaration with a `NULL`
+    end resolves against the declarations that name both ends, by direction,
+    offsets, width and its known name. Without such a declaration, a start and
+    an end with the same name form
     a channel of that name at both ends.
 
     Parameters
@@ -145,7 +146,7 @@ def resolve_channels(
     Raises
     ------
     ValueError
-        If two lines name the same end of a channel with different far ends.
+        If two declarations name the same end of a channel with different far ends.
     """
     declarations = set(declarations)
     ends: dict[tuple, str] = {}

@@ -391,7 +391,7 @@ def test_fabric_top_matches_the_model(
     buffers: dict[str, CellSpec],
     tmp_path: Path,
 ) -> None:
-    """The fabric top wires the tiles by the lines between them, as modelled."""
+    """The fabric top wires the tiles by their tile port connections, as modelled."""
     fabric_dir = generated.fabric_dir.parent / "Fabric"
     tile_root = generated.fabric_dir.parent / "Tile"
     black_boxes = [

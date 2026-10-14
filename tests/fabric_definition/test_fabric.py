@@ -232,7 +232,7 @@ class TestSuperTileLines:
     def test_fabric_reports_a_supertile_wired_differently(
         self, make_fabric: Callable[..., Fabric]
     ) -> None:
-        """Two NULL halves pair only through a full line in another tile type."""
+        """Two NULL-ended declarations pair only through a full one in another tile."""
         top = self._tile("TOP", "NORTH,NULL,0,-1,N1END,1")
         bot = self._tile("BOT", "NORTH,N1BEG,0,-1,NULL,1")
         full = self._tile("FULL", "NORTH,N1BEG,0,-1,N1END,1")

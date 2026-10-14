@@ -54,7 +54,7 @@ def test_equal_declarations_are_one_object(
 
 
 class TestResolveChannels:
-    """A line with a NULL end resolves to the channel it takes part in."""
+    """A declaration with a NULL end resolves to the channel it takes part in."""
 
     def test_halves_resolve_against_the_full_line(self) -> None:
         full, start, end = (
@@ -99,7 +99,7 @@ class TestRoutingChannelProblems:
     def test_dangling_line_has_no_hop(
         self, make_fabric: Callable[..., Fabric], names: list[str | None]
     ) -> None:
-        """A line leading nowhere has no hop, and never wraps around the grid."""
+        """A channel leading nowhere has no tile port connection, and never wraps."""
         fabric = self._column(make_fabric, names)
 
         assert not any(
@@ -144,7 +144,7 @@ class TestRoutingChannelProblems:
     def test_spanning_channel_stages_inside_the_tile(
         self, make_fabric: Callable[..., Fabric]
     ) -> None:
-        """A two-tile line shifts inside the tile; the hop keeps the index."""
+        """A two-tile channel shifts inside the tile; between tiles the index stays."""
         lines = {
             "TOP": "NORTH,NULL,0,-2,B,1",
             "MID": "NORTH,A,0,-2,B,1",
@@ -240,8 +240,8 @@ class TestRoutingChannelProblems:
 
         assert "has nothing receiving it at X0Y0" in caplog.text
 
-    def test_staging_and_hops_are_port_connections(self) -> None:
-        """Staging stays in a tile; a hop of the same line joins two tiles."""
+    def test_staging_and_tile_port_connections(self) -> None:
+        """Staging stays in a tile; the channel's tile port connection leaves it."""
         ports, _ = parse_port_line("NORTH,A,0,-2,B,1")
         tile = Tile(
             name="T",
@@ -252,23 +252,23 @@ class TestRoutingChannelProblems:
             gen_ios=[],
             pinOrderConfig={},
         )
-        line, *_ = tile.port_connections
+        staged, *_ = tile.port_connections
         staging, *boundary = tile.fixed_connections
         here, there = TileInstance(0, 1, tile), TileInstance(0, 0, tile)
         out, into = ports
         (hop,) = TilePortConnection(
-            (here, out), (there, into), line.declaration, 1
+            (here, out), (there, into), staged.declaration, 1
         ).pin_connections
 
-        assert isinstance(line, StagingConnection)
-        assert (line.source, line.sink, line.source_offset, line.width) == (
+        assert isinstance(staged, StagingConnection)
+        assert (staged.source, staged.sink, staged.source_offset, staged.width) == (
             into,
             out,
             1,
             1,
         )
-        assert staging.port_connection is line
-        assert TileInstance(0, 0, tile).fixed_connections[0].port_connection is line
+        assert staging.port_connection is staged
+        assert TileInstance(0, 0, tile).fixed_connections[0].port_connection is staged
         assert not any(
             isinstance(c.port_connection, StagingConnection | TilePortConnection)
             for c in boundary
@@ -307,7 +307,7 @@ class TestRoutingChannelProblems:
         with pytest.raises(ValueError, match="buffer cells"):
             _ = staging.signal
         placed = TileInstance(0, 0, tile).fixed_connections[1]
-        with pytest.raises(TypeError, match="no line between placed tiles"):
+        with pytest.raises(TypeError, match="no tile port connection"):
             _ = placed.signal
 
     def test_bel_external_ports_wire_external_bel_ports_out(self) -> None:
