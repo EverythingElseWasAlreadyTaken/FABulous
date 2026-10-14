@@ -238,12 +238,12 @@ class Tile:
     def port_connections(self) -> list[PortConnection[Port]]:
         """The port-to-port wiring inside the tile.
 
-        A routing channel line naming both ends stages its bits through the
+        A routing channel line naming both ends stages its pins through the
         tile as the RTL does: `N4BEG[i]` is driven by `N4END[i + wire_count]`
         through a buffer at the tile entry and one at the exit. Every switch
         matrix port with an `origin` is joined to it at the module boundary:
         to the tile port's matrix-facing slice (the matrix reads the first
-        `wire_count` bits of `N4END` and drives the last ones of `N4BEG`), to
+        `wire_count` pins of `N4END` and drives the last ones of `N4BEG`), to
         the BEL port or to the SJUMP port. A jump wire loops a matrix output
         back into a matrix input, and a BEL's `EXTERNAL` port is wired to the
         tile-module port exporting it.

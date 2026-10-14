@@ -2,7 +2,7 @@
 
 yosys reads each tile module of the demo fabric, with its switch matrix, BELs
 and ConfigMem as black boxes, and its nets are compared with the nets that the
-tile's fixed connections form. Both sides are seen as sets of port bits: the
+tile's fixed connections form. Both sides are seen as sets of port pins: the
 tile module's ports and the ports of the switch matrix and BEL instances.
 Connections inside the switch matrix module are not part of the tile module.
 
@@ -37,7 +37,7 @@ from fabulous.tools.yosys import YosysTool
 from tests.conftest import run_cmd
 
 type Endpoint = tuple[str, str, int]
-"""A port bit of the tile module: (instance or "" for the tile, port, bit)."""
+"""A port pin of the tile module: (instance or "" for the tile, port, index)."""
 
 type Net = frozenset[Endpoint]
 
@@ -56,7 +56,7 @@ def _endpoint(pin: Pin) -> Endpoint:
 
 
 def _modelled(tile: Tile) -> set[Endpoint]:
-    """The port bits the model knows: tile ports, matrix and BEL ports."""
+    """The port pins the model knows: tile ports, matrix and BEL ports."""
     tile_ports = [*tile.portsInfo, *tile.sjump_ports, *tile.bel_external_ports]
     pins = [pin for p in tile_ports for pin in p.pins]
     pins += [
@@ -113,11 +113,11 @@ class _Rtl:
     Attributes
     ----------
     net_id : dict[Endpoint, int]
-        The yosys net id of each port bit of the module and its instances.
+        The yosys net id of each port pin of the module and its instances.
     through : dict[int, int]
         The net id a buffer cell drives from each net id it reads.
     signal_net_ids : dict[str, list[int | str]]
-        The net ids of each named signal of the module, by bit.
+        The net ids of each named signal of the module, by pin index.
     """
 
     net_id: dict[Endpoint, int]

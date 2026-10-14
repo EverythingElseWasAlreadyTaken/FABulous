@@ -1,11 +1,11 @@
 """Connections between pins, the edges of the fabric's routing graph.
 
-A connection joins a source pin to a sink pin, one bit, directed. Inside a tile
+A connection joins a source pin to a sink pin, directed. Inside a tile
 or switch matrix type the ends are plain `Pin`s; between placed tiles they are
 `(TileInstance, Pin)`. Connections are not stored: the declarations they come
 from (a routing channel line, a switch matrix port, a jump wire) are, and
 expand into them. A `PortConnection` is the port-level view: one declaration
-wiring a run of bits of one port to another, which expands into its pin
+wiring a run of pins of one port to another, which expands into its pin
 connections.
 """
 
@@ -43,7 +43,7 @@ type Declaration = (
 
 @dataclass(frozen=True)
 class Connection[E]:
-    """A directed one-bit connection from `source` to `sink`.
+    """A directed pin-to-pin connection from `source` to `sink`.
 
     Attributes
     ----------
@@ -79,7 +79,7 @@ class FixedConnection[E](Connection[E]):
         single input), the matrix; for an exported BEL port, the tile port
         exporting it.
     port_connection : PortConnection | None
-        The port connection the wire is a bit of, None for a single wire.
+        The port connection the wire belongs to, None for a single wire.
     """
 
     declaration: Declaration
@@ -96,15 +96,15 @@ class FixedConnection[E](Connection[E]):
 
         Its port connection names it (`PortConnection.pin_signal`): at the
         switch matrix boundary the end outside the matrix, a tile or SJUMP
-        port bit (`N4END[3]`) or a BEL pin (`LA_I`); a jump wire its source
-        bit (`JN2BEG[0]`); an exported BEL pin its scalar tile-module port
-        (`A_O_top`); a line between tiles the port bit driving it
+        port pin (`N4END[3]`) or a BEL pin (`LA_I`); a jump wire its source
+        pin (`JN2BEG[0]`); an exported BEL pin its scalar tile-module port
+        (`A_O_top`); a line between tiles the port pin driving it
         (`Tile_X1Y3_N4BEG[0]`).
 
         Returns
         -------
         str
-            The signal name, indexed for a bit of a vector.
+            The signal name, indexed for a pin of a vector.
 
         Raises
         ------
@@ -124,9 +124,9 @@ class FixedConnection[E](Connection[E]):
 
 @dataclass(frozen=True)
 class PortConnection[E]:
-    """Wires `width` bits of a source port to a sink port, bit by bit.
+    """Wires `width` pins of a source port to a sink port, pin by pin.
 
-    Source bit `source_offset + i` drives sink bit `sink_offset + i`. It is
+    Source pin `source_offset + i` drives sink pin `sink_offset + i`. It is
     one declaration's whole wiring between two ports, which its
     `pin_connections` expand into.
 
@@ -140,13 +140,13 @@ class PortConnection[E]:
     declaration : Declaration
         The declaration the connection is expanded from.
     width : int
-        How many bits are wired.
+        How many pins are wired.
     source_offset : int
-        The first source bit. Default 0.
+        The first source pin. Default 0.
     sink_offset : int
-        The first sink bit. Default 0.
+        The first sink pin. Default 0.
     buffers : tuple[FabricCellFunction, ...]
-        The buffer cells each bit passes from source to sink. Default none.
+        The buffer cells each pin connection passes. Default none.
     """
 
     source: E
@@ -159,7 +159,7 @@ class PortConnection[E]:
 
     @property
     def pin_connections(self) -> tuple[FixedConnection, ...]:
-        """The pin-to-pin connections, in source bit order."""
+        """The pin-to-pin connections, in source pin order."""
 
         def pin(end: E, index: int) -> object:
             if isinstance(end, tuple):
@@ -203,7 +203,7 @@ class StagingConnection[E](PortConnection[E]):
     """A channel line staged through a tile: `END[count:]` -> `BEG[:-count]`."""
 
     def pin_signal(self, c: FixedConnection) -> str:
-        """Refuse: a staged bit passes buffer cells, so it is no single signal.
+        """Refuse: a staged pin passes buffer cells, so it is no single signal.
 
         Parameters
         ----------
@@ -228,7 +228,7 @@ class TilePortConnection[E](PortConnection[E]):
     """A channel line from a tile's begin port to the partner end port one tile on."""
 
     def pin_signal(self, c: FixedConnection) -> str:
-        """Name the bit after the port bit driving it, `Tile_X1Y3_N4BEG[0]`.
+        """Name the signal after the port pin driving it, `Tile_X1Y3_N4BEG[0]`.
 
         Parameters
         ----------
@@ -238,7 +238,7 @@ class TilePortConnection[E](PortConnection[E]):
         Returns
         -------
         str
-            The signal: the source tile, its port and the bit.
+            The signal: the source tile, its port and the pin index.
         """
         at, pin = c.source
         tile = f"Tile_X{at[0]}Y{at[1]}" if isinstance(at, tuple) else at.name
@@ -268,7 +268,7 @@ class SwitchMatrixConnection[E](PortConnection[E]):
         return end[1] if isinstance(end, tuple) else end
 
     def pin_signal(self, c: FixedConnection) -> str:
-        """Name the bit after its end outside the matrix.
+        """Name the signal after its end outside the matrix.
 
         Parameters
         ----------
@@ -278,7 +278,7 @@ class SwitchMatrixConnection[E](PortConnection[E]):
         Returns
         -------
         str
-            A tile or SJUMP port bit (`N4END[3]`) or a BEL pin's flat name
+            A tile or SJUMP port pin (`N4END[3]`) or a BEL pin's flat name
             (`LA_I`).
         """
         outer = c.sink if c.source.port is self.declaration else c.source
@@ -292,7 +292,7 @@ class JumpConnection[E](PortConnection[E]):
     """A jump wire: a matrix output looped back into a matrix input."""
 
     def pin_signal(self, c: FixedConnection) -> str:
-        """Name the bit after its source bit, `JN2BEG[0]`.
+        """Name the signal after its source pin, `JN2BEG[0]`.
 
         Parameters
         ----------
@@ -302,7 +302,7 @@ class JumpConnection[E](PortConnection[E]):
         Returns
         -------
         str
-            The source bit, indexed.
+            The source pin, indexed.
         """
         return c.source.name(indexed=True)
 
@@ -312,7 +312,7 @@ class BelExternalConnection[E](PortConnection[E]):
     """A BEL's `EXTERNAL` port wired to the tile-module port exporting it."""
 
     def pin_signal(self, c: FixedConnection) -> str:
-        """Name the bit after its scalar tile-module port, `A_O_top`.
+        """Name the signal after its scalar tile-module port, `A_O_top`.
 
         Parameters
         ----------

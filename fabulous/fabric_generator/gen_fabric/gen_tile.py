@@ -51,7 +51,7 @@ from fabulous.fabric_generator.gen_fabric.gen_switchmatrix import (
 def _bel_bus_pairs(bel: Bel) -> list[tuple[str, str]]:
     """Connect each internal and external BEL port to its flat pin signals.
 
-    A vector port is bussed MSB first (`.A({A3, A2, A1, A0})`), a single-bit
+    A vector port is bussed MSB first (`.A({A3, A2, A1, A0})`), a one-pin
     port takes its pin signal directly.
 
     Parameters
@@ -145,7 +145,7 @@ def generateTile(
          Again: OUTPUTS refers to the view of the switch matrix which corresponds to
                 BEL inputs at the actual BEL
     3.b) JUMP wire OUTPUTS
-    The switch matrix uses single bit ports (std_logic and not std_logic_vector)!!!
+    The switch matrix uses single-pin ports (std_logic and not std_logic_vector)!!!
 
 
     Parameters
@@ -171,7 +171,7 @@ def generateTile(
         Only raised for VHDL output. If required component files
         (e.g., switch matrix or config memory) are missing.
     NotImplementedError
-        If a staged bit passes other buffers than one at the tile entry and
+        If a staged pin passes other buffers than one at the tile entry and
         one at the exit; where buffers sit is not modelled yet.
     """
     staging = [pc for pc in tile.port_connections if isinstance(pc, StagingConnection)]

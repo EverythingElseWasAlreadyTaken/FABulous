@@ -168,13 +168,13 @@ class TestRoutingChannelProblems:
         ] == [(1, "A", 0, "B"), (2, "A", 1, "B")]
         assert named(fabric.instances[1][0]) == {
             (1, "B1", 1, "A0"),  # staging: END[i + wire_count] -> BEG[i]
-            (1, "A0", 0, "B0"),  # hops keep the bit index
+            (1, "A0", 0, "B0"),  # hops keep the pin index
             (1, "A1", 0, "B1"),
         }
         assert named(fabric.instances[2][0]) == {(2, "A0", 1, "B0"), (2, "A1", 1, "B1")}
 
     def test_switch_matrix_boundary(self) -> None:
-        """Matrix pins are wired to the tile port's matrix-facing bits."""
+        """Matrix pins are wired to the tile port's matrix-facing pins."""
         ports, _ = parse_port_line("NORTH,A,0,-2,B,1")
         tile = Tile(
             name="MID",

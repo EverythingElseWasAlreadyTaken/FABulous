@@ -19,7 +19,7 @@ from fabulous.fabric_generator.parser.parse_csv import parse_port_line
 
 
 def _tile() -> Tile:
-    """A tile staging four bits of a line `B` -> `A` spanning three tiles."""
+    """A tile staging four pins of a line `B` -> `A` spanning three tiles."""
     ports, _ = parse_port_line("NORTH,A,0,-3,B,2")
     return Tile(
         name="T",
