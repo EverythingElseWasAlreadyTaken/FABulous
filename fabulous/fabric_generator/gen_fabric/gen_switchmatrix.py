@@ -136,6 +136,34 @@ def tile_matrix_module_ports(
     )
 
 
+def supertile_matrix_module_ports(
+    switch_matrix: SwitchMatrix,
+) -> tuple[list[SwitchMatrixPort], ...]:
+    """Return a supertile matrix's module ports in declaration order, by group.
+
+    The SJUMP inputs from the child tiles, the outputs to the supertile BELs'
+    inputs, the inputs from the BELs' outputs, then the SJUMP outputs back to
+    the child tiles.
+
+    Parameters
+    ----------
+    switch_matrix : SwitchMatrix
+        The supertile's switch matrix.
+
+    Returns
+    -------
+    tuple[list[SwitchMatrixPort], ...]
+        The port groups, in order.
+    """
+    sm_ports = switch_matrix.ports
+    return (
+        _ports_from(sm_ports, SJumpPort, IO.INPUT),
+        _ports_from(sm_ports, BelPort, IO.OUTPUT),
+        _ports_from(sm_ports, BelPort, IO.INPUT),
+        _ports_from(sm_ports, SJumpPort, IO.OUTPUT),
+    )
+
+
 def _add_port_pins(writer: CodeGenerator, ports: list[SwitchMatrixPort]) -> None:
     """Declare every pin of the given matrix ports as a scalar module port.
 
@@ -502,11 +530,9 @@ def gen_super_tile_switch_matrix(
         writer.addParameterEnd(indentLevel=1)
     writer.addPortStart(indentLevel=1)
 
-    sm_ports = superTile.switch_matrix.ports
-    forward = _ports_from(sm_ports, SJumpPort, IO.INPUT)
-    bel_inputs = _ports_from(sm_ports, BelPort, IO.OUTPUT)
-    bel_outputs = _ports_from(sm_ports, BelPort, IO.INPUT)
-    reverse = _ports_from(sm_ports, SJumpPort, IO.OUTPUT)
+    forward, bel_inputs, bel_outputs, reverse = supertile_matrix_module_ports(
+        superTile.switch_matrix
+    )
 
     # Inputs: SJUMP OUTPUT signals from each child tile ({tileName}_{portName}{i})
     if forward:

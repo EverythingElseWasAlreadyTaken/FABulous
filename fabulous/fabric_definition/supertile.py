@@ -303,17 +303,20 @@ class SuperTile:
         if self.switch_matrix is None:
             return lines
         master = self.get_master_tile_coords()
-        child_at = {wire.matrix_port: (wire.x, wire.y) for wire in self.sjump_wires}
+        wires = {wire.matrix_port: wire for wire in self.sjump_wires}
         connections = []
         for sm_port in self.switch_matrix.ports:
             origin = sm_port.origin
             if origin is None:
                 continue
-            at = child_at[sm_port] if isinstance(origin, SJumpPort) else master
+            at, declaration = master, sm_port
+            if isinstance(origin, SJumpPort):
+                declaration = wires[sm_port]
+                at = (declaration.x, declaration.y)
             ends = ((master, sm_port), (at, origin))
             source, sink = ends if sm_port.is_output else ends[::-1]
             connections.append(
-                SwitchMatrixConnection(source, sink, sm_port, sm_port.width)
+                SwitchMatrixConnection(source, sink, declaration, sm_port.width)
             )
         return connections + lines
 

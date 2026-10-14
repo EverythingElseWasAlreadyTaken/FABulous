@@ -36,6 +36,7 @@ from fabulous.fabric_definition.fabric_cell_library import (
 )
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
+from fabulous.fabric_definition.wire import SJumpWire
 from fabulous.fabric_generator.code_generator.code_generator import CodeGenerator
 from fabulous.fabric_generator.code_generator.code_generator_Verilog import (
     VerilogCodeGenerator,
@@ -44,6 +45,7 @@ from fabulous.fabric_generator.code_generator.code_generator_VHDL import (
     VHDLCodeGenerator,
 )
 from fabulous.fabric_generator.gen_fabric.gen_switchmatrix import (
+    supertile_matrix_module_ports,
     tile_matrix_module_ports,
 )
 
@@ -770,23 +772,27 @@ def generateSuperTile(
     # declare internal connections
     writer.addComment("signal declarations", onNewLine=True)
 
-    # SJUMP signals: one vector per (child tile, SJUMP port) pair
-    forward = superTile.forward_sjump_wires()
+    # SJUMP signals: one vector per SJUMP wire, named by its `SJumpWire`
+    sjump = [
+        pc
+        for pc in superTile.port_connections
+        if isinstance(pc, SwitchMatrixConnection)
+        and isinstance(pc.declaration, SJumpWire)
+    ]
+    forward = [pc for pc in sjump if pc.declaration.is_forward]
     if forward:
         writer.addComment("SJUMP signals (child tile -> supertile SM)", onNewLine=True)
-        for wire in forward:
-            writer.addConnectionVector(
-                wire.signal_name, f"{wire.wire_count}-1", indentLevel=1
-            )
+        for pc in forward:
+            name = pc.declaration.signal_name
+            writer.addConnectionVector(name, f"{pc.width}-1", indentLevel=1)
 
     # Reverse SJUMP signals: supertile SM -> child tile inputs
-    reverse = superTile.reverse_sjump_wires()
+    reverse = [pc for pc in sjump if not pc.declaration.is_forward]
     if reverse:
         writer.addComment("SJUMP signals (supertile SM -> child tile)", onNewLine=True)
-        for wire in reverse:
-            writer.addConnectionVector(
-                wire.signal_name, f"{wire.wire_count}-1", indentLevel=1
-            )
+        for pc in reverse:
+            name = pc.declaration.signal_name
+            writer.addConnectionVector(name, f"{pc.width}-1", indentLevel=1)
 
     # BEL pin signals bridging the supertile BELs and the switch matrix
     bel_pin_signals = [
@@ -929,9 +935,10 @@ def generateSuperTile(
                     ports_pairs.append((p, p))
 
             # connect SJUMP ports to supertile-level signals
-            for wire in superTile.sjump_wires:
-                if wire.tile_name == tile.name:
-                    ports_pairs.append((wire.child_port.name, wire.signal_name))
+            for pc in sjump:
+                at, port = pc.outer
+                if at == (x, y):
+                    ports_pairs.append((port.name, pc.declaration.signal_name))
 
             # add clock to tile
             if not disable_user_clk:
@@ -1011,23 +1018,22 @@ def generateSuperTile(
 
     # Instantiate supertile switch matrix (if a matrix file was found)
     if superTile.supertile_matrix_dir is not None:
-        sm_ports_pairs = []
-        # Connect SJUMP vector signals to SM scalar input ports
-        for wire in superTile.forward_sjump_wires():
-            for k, pin in enumerate(wire.matrix_port.pins):
-                sm_ports_pairs.append((pin.name(), f"{wire.signal_name}[{k}]"))
-        # SM outputs drive BEL input signals (signals named after the BEL ports)
-        for bel in superTile.bels:
-            for ip in bel.pin_names(BelPortKind.INTERNAL, IO.INPUT):
-                sm_ports_pairs.append((ip, ip))
-        # BEL output signals feed back into the SM (routed to reverse SJUMP wires)
-        for bel in superTile.bels:
-            for op in bel.pin_names(BelPortKind.INTERNAL, IO.OUTPUT):
-                sm_ports_pairs.append((op, op))
-        # SM outputs also drive reverse SJUMP signals into child tiles
-        for wire in superTile.reverse_sjump_wires():
-            for k, pin in enumerate(wire.matrix_port.pins):
-                sm_ports_pairs.append((pin.name(), f"{wire.signal_name}[{k}]"))
+        # Each matrix pin is mapped to the wrapper signal of its wire at the
+        # matrix boundary, in the order the matrix module declares its ports.
+        master = superTile.get_master_tile_coords()
+        signals = {
+            pin: c.signal
+            for pc in superTile.port_connections
+            if isinstance(pc, SwitchMatrixConnection)
+            for c in pc.pin_connections
+            for pin in (c.source, c.sink)
+        }
+        sm_ports_pairs = [
+            (pin.name(), signals[(master, pin)])
+            for ports in supertile_matrix_module_ports(superTile.switch_matrix)
+            for port in ports
+            for pin in port.pins
+        ]
         if (
             superTile.supertile_matrix_config_bits > 0
             and config_bit_mode == ConfigBitMode.FRAME_BASED
