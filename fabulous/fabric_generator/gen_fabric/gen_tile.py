@@ -316,9 +316,9 @@ def generateTile(
 
     # Jump wires
     writer.addComment("Jump wires", onNewLine=True)
-    for wire in tile.jump_wires:
-        if wire.source is not None and wire.destination is not None:
-            writer.addConnectionVector(wire.source.name, f"{wire.wire_count}-1")
+    for pc in tile.port_connections:
+        if isinstance(pc, JumpConnection):
+            writer.addConnectionVector(pc.source.name, f"{pc.width}-1")
 
     # SJUMP ports are module ports (declared above) and are wired to the switch
     # matrix directly in the instantiation below, so they need no internal wire.
