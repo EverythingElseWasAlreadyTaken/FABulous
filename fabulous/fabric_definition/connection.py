@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from fabulous.fabric_definition.channel import RoutingChannel
     from fabulous.fabric_definition.fabric_cell_library import FabricCellFunction
     from fabulous.fabric_definition.instance import TileInstance
-    from fabulous.fabric_definition.port import Pin, TilePort
+    from fabulous.fabric_definition.port import Pin, Port, TilePort
     from fabulous.fabric_definition.switch_matrix import Mux, SwitchMatrix
     from fabulous.fabric_definition.tile import Tile
 
@@ -94,11 +94,12 @@ class FixedConnection[E](Connection[E]):
     def signal(self) -> str:
         """The tile RTL signal this hard wire is.
 
-        Named after its end outside the switch matrix: a tile or SJUMP port
-        bit (`N4END[3]`) or a BEL pin (`LA_I`); a jump wire after its source
-        bit (`JN2BEG[0]`); an exported BEL pin after its scalar tile-module
-        port (`A_O_top`). A hop between placed tiles is a fabric signal, named
-        after the port driving it (`Tile_X1Y3_N4BEG[0]`).
+        Its port connection names it (`PortConnection.pin_signal`): at the
+        switch matrix boundary the end outside the matrix, a tile or SJUMP
+        port bit (`N4END[3]`) or a BEL pin (`LA_I`); a jump wire its source
+        bit (`JN2BEG[0]`); an exported BEL pin its scalar tile-module port
+        (`A_O_top`); a line between tiles the port bit driving it
+        (`Tile_X1Y3_N4BEG[0]`).
 
         Returns
         -------
@@ -108,28 +109,17 @@ class FixedConnection[E](Connection[E]):
         Raises
         ------
         TypeError
-            If the connection is placed but no hop between two tiles.
+            If the connection is placed but no line between two tiles.
         ValueError
             If the connection is not one tile signal: through buffer cells or
             inside the switch matrix module.
         """
-        if isinstance(self.source, tuple):
-            at, pin = self.source
-            if not isinstance(self.port_connection, TilePortConnection):
-                raise TypeError(f"{self.feature} is no hop between placed tiles")
-            return f"{at.port_signal(pin.port)}[{pin.index}]"
-        if self.buffers:
-            raise ValueError(f"{self.feature} passes buffer cells: no single signal")
-        if isinstance(self.declaration, JumpWire):
-            return self.source.name(indexed=True)
-        if isinstance(self.declaration, BelExternalPort):
-            return self.source.name()
-        if isinstance(self.declaration, SwitchMatrixPort):
-            outer = self.sink if self.source.port is self.declaration else self.source
-            if isinstance(outer.port, BelPort):
-                return outer.name()
-            return outer.name(indexed=True)
-        raise ValueError(f"{self.feature} is not a signal of the tile module")
+        pc = self.port_connection
+        if pc is None:
+            raise ValueError(f"{self.feature} is not a signal of the tile module")
+        if isinstance(self.source, tuple) and not isinstance(pc, TilePortConnection):
+            raise TypeError(f"{self.feature} is no line between placed tiles")
+        return pc.pin_signal(self)
 
 
 @dataclass(frozen=True)
@@ -187,15 +177,154 @@ class PortConnection[E]:
             for i in range(self.width)
         )
 
+    def pin_signal(self, c: FixedConnection) -> str:
+        """Name the RTL signal one of the `pin_connections` is.
+
+        Parameters
+        ----------
+        c : FixedConnection
+            One of the connection's `pin_connections`.
+
+        Returns
+        -------
+        str
+            The signal name; each kind of port connection has its rule.
+
+        Raises
+        ------
+        ValueError
+            If the kind names no single signal.
+        """
+        raise ValueError(f"{c.feature} is no single signal")
+
 
 @dataclass(frozen=True)
 class StagingConnection[E](PortConnection[E]):
     """A channel line staged through a tile: `END[count:]` -> `BEG[:-count]`."""
 
+    def pin_signal(self, c: FixedConnection) -> str:
+        """Refuse: a staged bit passes buffer cells, so it is no single signal.
+
+        Parameters
+        ----------
+        c : FixedConnection
+            One of the connection's `pin_connections`.
+
+        Returns
+        -------
+        str
+            Never.
+
+        Raises
+        ------
+        ValueError
+            Always.
+        """
+        raise ValueError(f"{c.feature} passes buffer cells: no single signal")
+
 
 @dataclass(frozen=True)
 class TilePortConnection[E](PortConnection[E]):
     """A channel line from a tile's begin port to the partner end port one tile on."""
+
+    def pin_signal(self, c: FixedConnection) -> str:
+        """Name the bit after the port bit driving it, `Tile_X1Y3_N4BEG[0]`.
+
+        Parameters
+        ----------
+        c : FixedConnection
+            One of the connection's `pin_connections`.
+
+        Returns
+        -------
+        str
+            The signal: the source tile, its port and the bit.
+        """
+        at, pin = c.source
+        tile = f"Tile_X{at[0]}Y{at[1]}" if isinstance(at, tuple) else at.name
+        return f"{tile}_{pin.port.name}[{pin.index}]"
+
+
+@dataclass(frozen=True)
+class SwitchMatrixConnection[E](PortConnection[E]):
+    """A switch matrix port wired to its origin.
+
+    The origin is a tile port's matrix-facing slice (by the offsets), a BEL
+    port or an SJUMP port; the declaration is the matrix port.
+    """
+
+    @property
+    def matrix_port(self) -> E:
+        """The end at the switch matrix."""
+        return self.source if self._port(self.source) is self.declaration else self.sink
+
+    @property
+    def outer(self) -> E:
+        """The end outside the switch matrix."""
+        return self.sink if self.matrix_port is self.source else self.source
+
+    @staticmethod
+    def _port(end: E) -> Port:
+        return end[1] if isinstance(end, tuple) else end
+
+    def pin_signal(self, c: FixedConnection) -> str:
+        """Name the bit after its end outside the matrix.
+
+        Parameters
+        ----------
+        c : FixedConnection
+            One of the connection's `pin_connections`.
+
+        Returns
+        -------
+        str
+            A tile or SJUMP port bit (`N4END[3]`) or a BEL pin's flat name
+            (`LA_I`).
+        """
+        outer = c.sink if c.source.port is self.declaration else c.source
+        if isinstance(outer.port, BelPort):
+            return outer.name()
+        return outer.name(indexed=True)
+
+
+@dataclass(frozen=True)
+class JumpConnection[E](PortConnection[E]):
+    """A jump wire: a matrix output looped back into a matrix input."""
+
+    def pin_signal(self, c: FixedConnection) -> str:
+        """Name the bit after its source bit, `JN2BEG[0]`.
+
+        Parameters
+        ----------
+        c : FixedConnection
+            One of the connection's `pin_connections`.
+
+        Returns
+        -------
+        str
+            The source bit, indexed.
+        """
+        return c.source.name(indexed=True)
+
+
+@dataclass(frozen=True)
+class BelExternalConnection[E](PortConnection[E]):
+    """A BEL's `EXTERNAL` port wired to the tile-module port exporting it."""
+
+    def pin_signal(self, c: FixedConnection) -> str:
+        """Name the bit after its scalar tile-module port, `A_O_top`.
+
+        Parameters
+        ----------
+        c : FixedConnection
+            One of the connection's `pin_connections`.
+
+        Returns
+        -------
+        str
+            The flat pin name.
+        """
+        return c.source.name()
 
 
 def tile_port_connections(

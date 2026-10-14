@@ -18,6 +18,7 @@ from fabulous.fabric_definition.connection import (
     FixedConnection,
     LocalPin,
     PortConnection,
+    SwitchMatrixConnection,
     tile_port_connections,
 )
 from fabulous.fabric_definition.define import (
@@ -311,7 +312,9 @@ class SuperTile:
             at = child_at[sm_port] if isinstance(origin, SJumpPort) else master
             ends = ((master, sm_port), (at, origin))
             source, sink = ends if sm_port.is_output else ends[::-1]
-            connections.append(PortConnection(source, sink, sm_port, sm_port.width))
+            connections.append(
+                SwitchMatrixConnection(source, sink, sm_port, sm_port.width)
+            )
         return connections + lines
 
     @property

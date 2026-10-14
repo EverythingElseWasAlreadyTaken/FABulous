@@ -15,7 +15,12 @@ from fabulous.fabric_definition.channel import (
     RoutingChannel,
     resolve_channels,
 )
-from fabulous.fabric_definition.connection import StagingConnection, TilePortConnection
+from fabulous.fabric_definition.connection import (
+    JumpConnection,
+    StagingConnection,
+    SwitchMatrixConnection,
+    TilePortConnection,
+)
 from fabulous.fabric_definition.define import IO, BelPortKind, Direction
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.instance import TileInstance
@@ -289,12 +294,20 @@ class TestRoutingChannelProblems:
             jump_wires=jumps,
         )
         staging, *wires = tile.fixed_connections
+        boundary = tile.port_connections[1]
 
+        assert [type(pc) for pc in tile.port_connections] == [
+            StagingConnection,
+            *[SwitchMatrixConnection] * 4,
+            JumpConnection,
+        ]
+        assert (boundary.matrix_port.name, boundary.outer.name) == ("A", "A")
+        assert boundary.matrix_port in tile.switch_matrix.ports
         assert [c.signal for c in wires] == ["A[1]", "B[0]", "I0", "O0", "J_BEG[0]"]
         with pytest.raises(ValueError, match="buffer cells"):
             _ = staging.signal
         placed = TileInstance(0, 0, tile).fixed_connections[1]
-        with pytest.raises(TypeError, match="no hop between placed tiles"):
+        with pytest.raises(TypeError, match="no line between placed tiles"):
             _ = placed.signal
 
     def test_bel_external_ports_wire_external_bel_ports_out(self) -> None:

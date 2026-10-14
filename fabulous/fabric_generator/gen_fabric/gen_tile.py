@@ -17,7 +17,11 @@ from pathlib import Path
 
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.cell_spec import CellSpec
-from fabulous.fabric_definition.connection import StagingConnection
+from fabulous.fabric_definition.connection import (
+    JumpConnection,
+    StagingConnection,
+    SwitchMatrixConnection,
+)
 from fabulous.fabric_definition.define import (
     IO,
     USER_CLK_PREDECESSOR,
@@ -31,7 +35,6 @@ from fabulous.fabric_definition.fabric_cell_library import (
     FabricCellLibrary,
 )
 from fabulous.fabric_definition.supertile import SuperTile
-from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.code_generator.code_generator import CodeGenerator
 from fabulous.fabric_generator.code_generator.code_generator_Verilog import (
@@ -509,12 +512,16 @@ def generateTile(
         # (this information is also needed for chaining the switch matrix)
         belCounter += 1
 
-    # Each matrix pin is mapped to the tile signal of its hard wire, in the
-    # order the matrix module declares its ports.
-    signals = {}
-    for c in tile.fixed_connections:
-        if not c.buffers and not isinstance(c.declaration, SwitchMatrix):
-            signals[c.source] = signals[c.sink] = c.signal
+    # Each matrix pin is mapped to the tile signal of its wire at the matrix
+    # boundary or of its jump wire, in the order the matrix module declares
+    # its ports.
+    signals = {
+        pin: c.signal
+        for pc in tile.port_connections
+        if isinstance(pc, SwitchMatrixConnection | JumpConnection)
+        for c in pc.pin_connections
+        for pin in (c.source, c.sink)
+    }
     ports_pairs = [
         (pin.name(), signals[pin])
         for ports in tile_matrix_module_ports(tile.switch_matrix)

@@ -8,9 +8,12 @@ from typing import TYPE_CHECKING
 
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.connection import (
+    BelExternalConnection,
     FixedConnection,
+    JumpConnection,
     PortConnection,
     StagingConnection,
+    SwitchMatrixConnection,
 )
 from fabulous.fabric_definition.define import (
     IO,
@@ -275,23 +278,25 @@ class Tile:
                 outer = origin.top_pins if origin.is_output else origin.sm_pins
                 offset = outer[0].index
             if sm_port.is_output:
-                connection = PortConnection(
+                connection = SwitchMatrixConnection(
                     sm_port, origin, sm_port, sm_port.width, sink_offset=offset
                 )
             else:
-                connection = PortConnection(
+                connection = SwitchMatrixConnection(
                     origin, sm_port, sm_port, sm_port.width, source_offset=offset
                 )
             connections.append(connection)
         for jump in self.jump_wires:
             if jump.source is not None and jump.destination is not None:
                 connections.append(
-                    PortConnection(jump.source, jump.destination, jump, jump.wire_count)
+                    JumpConnection(jump.source, jump.destination, jump, jump.wire_count)
                 )
         for external in self.bel_external_ports:
             ends = (external.bel_port, external)
             source, sink = ends[::-1] if external.is_input else ends
-            connections.append(PortConnection(source, sink, external, external.width))
+            connections.append(
+                BelExternalConnection(source, sink, external, external.width)
+            )
         return connections
 
     @cached_property
