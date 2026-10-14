@@ -200,8 +200,11 @@ class PortConnection[E]:
         raise ValueError(f"{c.feature} is no single signal")
 
 
-def _tile_pins(c: FixedConnection) -> tuple[Pin, Pin]:
-    """Return the pins of a connection inside a tile module.
+def _module_pins(c: FixedConnection) -> tuple[Pin, Pin]:
+    """Return the pins of a connection inside a tile or supertile module.
+
+    Its ends are plain pins (a tile module) or at `tileMap` positions (a
+    supertile wrapper).
 
     Parameters
     ----------
@@ -216,12 +219,15 @@ def _tile_pins(c: FixedConnection) -> tuple[Pin, Pin]:
     Raises
     ------
     TypeError
-        If the connection is placed: inside a tile instance it is no signal of
-        the fabric.
+        If the connection is placed in the fabric: inside a tile instance it
+        is no signal of the fabric.
     """
-    if isinstance(c.source, tuple):
-        raise TypeError(f"{c.feature} is no line between placed tiles")
-    return c.source, c.sink
+    source, sink = c.source, c.sink
+    if isinstance(source, tuple):
+        (at, source), (_, sink) = source, sink
+        if not isinstance(at, tuple):
+            raise TypeError(f"{c.feature} is no line between placed tiles")
+    return source, sink
 
 
 @dataclass(frozen=True)
@@ -311,18 +317,10 @@ class SwitchMatrixConnection[E](PortConnection[E]):
         Returns
         -------
         str
-            The signal name.
-
-        Raises
-        ------
-        TypeError
-            If the connection is placed in the fabric.
+            The signal name; placed in the fabric, `_module_pins` raises a
+            `TypeError`.
         """
-        source, sink = c.source, c.sink
-        if isinstance(source, tuple):
-            (at, source), (_, sink) = source, sink
-            if not isinstance(at, tuple):
-                raise TypeError(f"{c.feature} is no line between placed tiles")
+        source, sink = _module_pins(c)
         outer = sink if isinstance(source.port, SwitchMatrixPort) else source
         if isinstance(outer.port, BelPort):
             return outer.name()
@@ -348,7 +346,7 @@ class JumpConnection[E](PortConnection[E]):
         str
             The source pin, indexed.
         """
-        source, _ = _tile_pins(c)
+        source, _ = _module_pins(c)
         return source.name(indexed=True)
 
 
@@ -369,7 +367,7 @@ class BelExternalConnection[E](PortConnection[E]):
         str
             The flat pin name.
         """
-        source, _ = _tile_pins(c)
+        source, _ = _module_pins(c)
         return source.name()
 
 
