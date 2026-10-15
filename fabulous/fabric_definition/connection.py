@@ -23,7 +23,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from fabulous.fabric_definition.channel import RoutingChannel
-    from fabulous.fabric_definition.fabric_cell_library import FabricCellFunction
     from fabulous.fabric_definition.instance import TileInstance
     from fabulous.fabric_definition.port import Pin, Port, TilePort
     from fabulous.fabric_definition.switch_matrix import Mux, SwitchMatrix
@@ -91,11 +90,6 @@ class FixedConnection[E](Connection[E]):
     port_connection: PortConnection | None = None
 
     @property
-    def buffers(self) -> tuple[FabricCellFunction, ...]:
-        """The buffer cells the signal passes, those of its port connection."""
-        return () if self.port_connection is None else self.port_connection.buffers
-
-    @property
     def signal(self) -> str:
         """The tile RTL signal this hard wire is.
 
@@ -104,7 +98,9 @@ class FixedConnection[E](Connection[E]):
         port pin (`N4END[3]`) or a BEL pin (`LA_I`); a jump wire its source
         pin (`JN2BEG[0]`); an exported BEL pin its scalar tile-module port
         (`A_O_top`); a tile port connection the port pin driving it
-        (`Tile_X1Y3_N4BEG[0]`).
+        (`Tile_X1Y3_N4BEG[0]`); a staging connection its source pin
+        (`N4END[4]`). These are the model's names, without fabric cells: a
+        buffer names the inner side of the pin it sits at (`cell_binding`).
 
         Returns
         -------
@@ -115,8 +111,8 @@ class FixedConnection[E](Connection[E]):
         ------
         ValueError
             If the connection is inside the switch matrix module. Its port
-            connection raises when it names no signal: `ValueError` through
-            buffer cells, `TypeError` when placed but no tile port connection.
+            connection raises a `TypeError` when placed but no tile port
+            connection.
         """
         pc = self.port_connection
         if pc is None:
@@ -147,8 +143,6 @@ class PortConnection[E]:
         The first source pin. Default 0.
     sink_offset : int
         The first sink pin. Default 0.
-    buffers : tuple[FabricCellFunction, ...]
-        The buffer cells each pin connection passes. Default none.
     """
 
     source: E
@@ -157,7 +151,6 @@ class PortConnection[E]:
     width: int
     source_offset: int = 0
     sink_offset: int = 0
-    buffers: tuple[FabricCellFunction, ...] = ()
 
     @property
     def pin_connections(self) -> tuple[FixedConnection, ...]:
@@ -235,7 +228,7 @@ class StagingConnection[E](PortConnection[E]):
     """A routing channel staged through a tile: `END[count:]` -> `BEG[:-count]`."""
 
     def pin_signal(self, c: FixedConnection) -> str:
-        """Refuse: a staged pin passes buffer cells, so it is no single signal.
+        """Name the signal after its source pin, `N4END[4]`.
 
         Parameters
         ----------
@@ -245,14 +238,10 @@ class StagingConnection[E](PortConnection[E]):
         Returns
         -------
         str
-            Never.
-
-        Raises
-        ------
-        ValueError
-            Always.
+            The source pin, indexed.
         """
-        raise ValueError(f"{c.feature} passes buffer cells: no single signal")
+        source, _ = _module_pins(c)
+        return source.name(indexed=True)
 
 
 @dataclass(frozen=True)

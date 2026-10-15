@@ -22,7 +22,6 @@ from fabulous.fabric_definition.define import (
     PinSortMode,
     Side,
 )
-from fabulous.fabric_definition.fabric_cell_library import FabricCellFunction
 from fabulous.fabric_definition.gen_io import Gen_IO
 from fabulous.fabric_definition.port import (
     BelExternalPort,
@@ -266,7 +265,6 @@ class Tile:
                     declaration,
                     out.width - count,
                     source_offset=count,
-                    buffers=(FabricCellFunction.BUFFER, FabricCellFunction.BUFFER),
                 )
             )
         for sm_port in self.switch_matrix.ports:

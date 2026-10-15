@@ -15,6 +15,7 @@ from fabulous.custom_exception import (
     InvalidSupertileDefinition,
     InvalidTileDefinition,
 )
+from fabulous.fabric_definition.cell_binding import resolve_buffers
 from fabulous.fabric_definition.define import ConfigBitMode, MultiplexerStyle, Side
 from fabulous.fabric_definition.fabric_cell_library import FabricCellLibrary
 from fabulous.fabric_definition.supertile import SuperTile
@@ -270,6 +271,7 @@ def _emit_regular_tile_verilog(
         disable_user_clk=True,
         config_bit_mode=config_bit_mode,
         cells=FabricCellLibrary.load(get_context().proj_dir),
+        buffers=resolve_buffers([tile]),
     )
 
 

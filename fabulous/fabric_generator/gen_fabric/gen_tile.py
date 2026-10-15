@@ -13,9 +13,16 @@ Key features:
 - External I/O port handling and clock distribution
 """
 
+from collections.abc import Mapping
 from pathlib import Path
 
 from fabulous.fabric_definition.bel import Bel
+from fabulous.fabric_definition.cell_binding import (
+    buffer_name,
+    buffered_signal,
+    inner_signal,
+    inner_vector,
+)
 from fabulous.fabric_definition.cell_spec import CellSpec
 from fabulous.fabric_definition.connection import (
     JumpConnection,
@@ -35,6 +42,7 @@ from fabulous.fabric_definition.fabric_cell_library import (
     FabricCellFunction,
     FabricCellLibrary,
 )
+from fabulous.fabric_definition.port import Pin
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_definition.wire import SJumpWire
@@ -126,6 +134,7 @@ def generateTile(
     config_bit_mode: ConfigBitMode = ConfigBitMode.FRAME_BASED,
     *,
     cells: FabricCellLibrary,
+    buffers: Mapping[Pin, FabricCellFunction],
 ) -> None:
     """Generate the RTL code for a tile given the tile object.
 
@@ -175,6 +184,8 @@ def generateTile(
         The configuration bit mode to use (frame-based or FlipFlop chain)
     cells : FabricCellLibrary
         The fabric cells the buffers are instantiated from.
+    buffers : Mapping[Pin, FabricCellFunction]
+        The buffer at each buffered pin of the tile (`resolve_buffers`).
 
     Raises
     ------
@@ -182,10 +193,17 @@ def generateTile(
         Only raised for VHDL output. If required component files
         (e.g., switch matrix or config memory) are missing.
     NotImplementedError
-        If a staged pin passes other buffers than one at the tile entry and
-        one at the exit; where buffers sit is not modelled yet.
+        If `buffers` holds other pins than the staged ones.
     """
     staging = [pc for pc in tile.port_connections if isinstance(pc, StagingConnection)]
+    staged = {
+        pin for pc in staging for c in pc.pin_connections for pin in (c.source, c.sink)
+    }
+    bound = {pin for p in tile.portsInfo for pin in p.pins if pin in buffers}
+    if bound != staged:
+        raise NotImplementedError(
+            f"{tile.name}: buffers are placed at exactly the staged pins so far"
+        )
     buffer = cells.cells[FabricCellFunction.BUFFER][0]
     writer.addHeader(f"{tile.name}")
     writer.addParameterStart(indentLevel=1)
@@ -363,11 +381,11 @@ def generateTile(
     writer.addConnectionVector("FrameStrobe_i", "MaxFramesPerCol-1", 0)
     writer.addConnectionVector("FrameStrobe_O_i", "MaxFramesPerCol-1", 0)
 
-    # A staging connection passes an entry buffer into `<source>_i` and an exit
-    # buffer out of `<sink>_i`.
+    # A staging connection joins the inner sides of its ports' buffered pins.
     for pc in staging:
-        writer.addConnectionVector(f"{pc.source.name}_i", pc.source.width - 1)
-        writer.addConnectionVector(f"{pc.sink.name}_i", pc.sink_offset + pc.width - 1)
+        for port in (pc.source, pc.sink):
+            high = max(p.index for p in port.pins if p in buffers)
+            writer.addConnectionVector(inner_vector(port), high)
 
     writer.addNewLine()
     writer.addLogicStart()
@@ -411,29 +429,30 @@ def generateTile(
 
     for pc in staging:
         source, sink = pc.source, pc.sink
-        if pc.buffers != (FabricCellFunction.BUFFER, FabricCellFunction.BUFFER):
-            raise NotImplementedError(
-                f"{source.name} -> {sink.name} passes the buffers {pc.buffers}; "
-                "only an entry and an exit buffer can be placed so far."
-            )
         source_high = pc.source_offset + pc.width - 1
         shift = pc.source_offset - pc.sink_offset
         sink_high = f"{source_high}-{shift}" if shift else source_high
         writer.addAssignScalar(
-            f"{sink.name}_i[{sink_high}:{pc.sink_offset}]",
-            f"{source.name}_i[{source_high}:{pc.source_offset}]",
+            f"{inner_vector(sink)}[{sink_high}:{pc.sink_offset}]",
+            f"{inner_vector(source)}[{source_high}:{pc.source_offset}]",
         )
         writer.addNewLine()
-        entry = cells.cells[pc.buffers[0]][0]
-        exit_ = cells.cells[pc.buffers[-1]][0]
         for c in pc.pin_connections:
-            name = f"{source.name}_inbuf_{c.sink.index}"
-            out = f"{source.name}_i[{c.source.index}]"
-            _add_buffer(writer, entry, name, c.source.name(indexed=True), out)
+            _add_buffer(
+                writer,
+                cells.cells[buffers[c.source]][0],
+                buffer_name(c.source),
+                c.source.name(indexed=True),
+                inner_signal(buffers, c.source),
+            )
         for c in pc.pin_connections:
-            name = f"{sink.name}_outbuf_{c.sink.index}"
-            into = f"{sink.name}_i[{c.sink.index}]"
-            _add_buffer(writer, exit_, name, into, c.sink.name(indexed=True))
+            _add_buffer(
+                writer,
+                cells.cells[buffers[c.sink]][0],
+                buffer_name(c.sink),
+                inner_signal(buffers, c.sink),
+                c.sink.name(indexed=True),
+            )
 
     if not disable_user_clk:
         writer.addInstantiation(
@@ -525,7 +544,7 @@ def generateTile(
     # boundary or of its jump wire, in the order the matrix module declares
     # its ports.
     signals = {
-        pin: c.signal
+        pin: buffered_signal(buffers, c)
         for pc in tile.port_connections
         if isinstance(pc, SwitchMatrixConnection | JumpConnection)
         for c in pc.pin_connections

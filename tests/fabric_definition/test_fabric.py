@@ -205,7 +205,7 @@ class TestSuperTileLines:
             ((0, 1), "B"),
         }
 
-    def test_fabric_holds_only_its_own_lines(
+    def test_fabric_holds_only_its_own_connections(
         self, make_fabric: Callable[..., Fabric]
     ) -> None:
         """The tile port connections inside a placement are the supertile's, placed."""

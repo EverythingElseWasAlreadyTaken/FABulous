@@ -27,6 +27,7 @@ from fabulous.fabric_cad.timing_model.models import (
 
 # Importing Modules from FABulous Framework.
 from fabulous.fabric_definition.bel import Bel
+from fabulous.fabric_definition.cell_binding import resolve_buffers
 from fabulous.fabric_definition.define import ConfigBitMode, Side
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.fabric_cell_library import FabricCellLibrary
@@ -288,6 +289,7 @@ class FABulous_API:
                 disable_user_clk or self.fabric.disableUserCLK,
                 config_bit_mode or self.fabric.configBitMode,
                 cells=FabricCellLibrary.load(get_context().proj_dir),
+                buffers=resolve_buffers([tile]),
             )
         else:
             raise ValueError(f"Tile {tileName} not found")

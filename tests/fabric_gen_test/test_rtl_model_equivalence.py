@@ -9,17 +9,26 @@ supertile wrappers (subtiles, matrix, BELs) and the fabric top (tiles and
 wrappers). Connections inside an instantiated module are not part of it.
 
 The buffer cells of the fabric cell library pass their signal on, so a net runs
-through them; every connection must pass as many of them as it has `buffers`.
-Every connection naming a signal must be on the module's signal of that name.
+through them; every connection must pass as many of them as its end pins have
+inside the module (the default `resolve_buffers`). Every connection's signal
+(`buffered_signal`), behind its source pin's buffer, must be the module's
+signal of that name; every tile port pin's inner signal and buffer name
+(`inner_signal`, `buffer_name`) must be the RTL's.
 """
 
 import json
 import shutil
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 
 import pytest
 
+from fabulous.fabric_definition.cell_binding import (
+    buffer_name,
+    buffered_signal,
+    inner_signal,
+    resolve_buffers,
+)
 from fabulous.fabric_definition.cell_spec import CellSpec
 from fabulous.fabric_definition.connection import FixedConnection
 from fabulous.fabric_definition.define import IO, BelPortKind
@@ -122,17 +131,21 @@ class _Rtl:
         The yosys net id of each port pin of the module and its instances.
     through : dict[int, int]
         The net id a buffer cell drives from each net id it reads.
+    buffer_reading : dict[int, str]
+        The buffer instance reading each net id.
     signal_net_ids : dict[str, list[int | str]]
         The net ids of each named signal of the module, by pin index.
     """
 
     net_id: dict[Endpoint, int]
     through: dict[int, int]
+    buffer_reading: dict[int, str]
     signal_net_ids: dict[str, list[int | str]]
 
     def __init__(self, module: dict, buffers: dict[str, CellSpec]) -> None:
         self.net_id = {}
         self.through = {}
+        self.buffer_reading = {}
         self.signal_net_ids = {
             name: net["bits"] for name, net in module["netnames"].items()
         }
@@ -147,6 +160,7 @@ class _Rtl:
                 # ponytail: one buffer per driving net, enough for the staging
                 assert a not in self.through, f"net {a} drives two buffers"
                 self.through[a] = x
+                self.buffer_reading[a] = instance
                 continue
             for name, net_ids in ports.items():
                 for i, net_id in enumerate(net_ids):
@@ -192,7 +206,7 @@ class _Rtl:
                 "-q",
                 "-p",
                 f"{reads}read_verilog -sv {top_file}; "
-                f"hierarchy -top {top}; proc; opt_clean -purge; "
+                f"hierarchy -top {top}; proc; opt_clean; "
                 f"write_json {netlist}",
             ]
         )
@@ -239,8 +253,14 @@ def _problems(
     endpoint: Callable,
     universe: set[Endpoint],
     rtl: _Rtl,
+    pin_buffers: Mapping[Pin, FabricCellFunction],
 ) -> list[str]:
     """Compare a module's RTL with the model's connections inside it."""
+
+    def buffered(end: object) -> bool:
+        # Placed ends are ports of instantiated modules, their buffers inside.
+        return not isinstance(end, tuple) and end in pin_buffers
+
     parent: dict[Endpoint, Endpoint] = {}
 
     def root(e: Endpoint) -> Endpoint:
@@ -266,16 +286,34 @@ def _problems(
     miscounted = [
         c.feature
         for c in connections
-        if rtl.buffers_between(endpoint(c.source), endpoint(c.sink)) != len(c.buffers)
+        if rtl.buffers_between(endpoint(c.source), endpoint(c.sink))
+        != buffered(c.source) + buffered(c.sink)
     ]
     if miscounted:
         problems.append(f"{module}: buffers differ on {miscounted[:5]}")
     misnamed = []
     for c in connections:
-        if c.buffers:
-            continue
-        if rtl.net_id_of(c.signal) != rtl.net_id[endpoint(c.source)]:
-            misnamed.append(f"{c.feature} as {c.signal}")
+        net_id = rtl.net_id[endpoint(c.source)]
+        if buffered(c.source):
+            net_id = rtl.through.get(net_id)
+        signal = buffered_signal(pin_buffers, c)
+        if rtl.net_id_of(signal) != net_id:
+            misnamed.append(f"{c.feature} as {signal}")
+    # A tile port pin's inner signal sits behind its buffer, named by it.
+    driven_by = {x: a for a, x in rtl.through.items()}
+    for c in connections:
+        for end, step in ((c.source, rtl.through), (c.sink, driven_by)):
+            if isinstance(end, tuple) or not isinstance(end.port, TilePort):
+                continue
+            net_id = rtl.net_id[endpoint(end)]
+            if buffered(end):
+                outer_net_id, net_id = net_id, step.get(net_id)
+                reading = outer_net_id if step is rtl.through else net_id
+                if rtl.buffer_reading.get(reading) != buffer_name(end):
+                    misnamed.append(f"buffer at {end.full_name()}")
+            inner = inner_signal(pin_buffers, end)
+            if rtl.net_id_of(inner) != net_id:
+                misnamed.append(f"{end.full_name()} as {inner}")
     if misnamed:
         problems.append(f"{module}: signals differ on {misnamed[:5]}")
     return problems
@@ -309,6 +347,7 @@ def test_tile_rtl_matches_the_model(
     tmp_path: Path,
 ) -> None:
     """Every tile module has the model's nets, buffers and signal names."""
+    pin_buffers = resolve_buffers(generated.tileDic.values())
     problems = []
     for tile in generated.tileDic.values():
         tile_dir = tile.tileDir.parent
@@ -328,7 +367,9 @@ def test_tile_rtl_matches_the_model(
         ]
         universe = {_tile_endpoint(pin) for pin in pins}
         connections = _inside(tile.fixed_connections)
-        problems += _problems(tile.name, connections, _tile_endpoint, universe, rtl)
+        problems += _problems(
+            tile.name, connections, _tile_endpoint, universe, rtl, pin_buffers
+        )
     assert not problems, "\n".join(problems)
 
 
@@ -341,6 +382,7 @@ def test_supertile_wrapper_matches_the_model(
     tmp_path: Path,
 ) -> None:
     """Every supertile wrapper wires its subtiles, matrix and BELs as modelled."""
+    pin_buffers = resolve_buffers(generated.tileDic.values())
     problems = []
     assert generated.superTileDic, "the demo has a supertile"
     for super_tile in generated.superTileDic.values():
@@ -380,7 +422,9 @@ def test_supertile_wrapper_matches_the_model(
             ]
         universe |= {_instance_pin(pin) for pin in pins}
         connections = _inside(super_tile.fixed_connections)
-        problems += _problems(super_tile.name, connections, endpoint, universe, rtl)
+        problems += _problems(
+            super_tile.name, connections, endpoint, universe, rtl, pin_buffers
+        )
     assert not problems, "\n".join(problems)
 
 
@@ -427,5 +471,8 @@ def test_fabric_top_matches_the_model(
                     if instance not in placement_of or e in rtl.net_id:
                         universe.add(e)
     connections = [c for pc in generated.port_connections for c in pc.pin_connections]
-    problems = _problems(generated.name, connections, endpoint, universe, rtl)
+    pin_buffers = resolve_buffers(generated.tileDic.values())
+    problems = _problems(
+        generated.name, connections, endpoint, universe, rtl, pin_buffers
+    )
     assert not problems, "\n".join(problems)
