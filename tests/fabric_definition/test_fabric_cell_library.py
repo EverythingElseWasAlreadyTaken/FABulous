@@ -56,3 +56,38 @@ def test_load_rejects_bad_entries(tmp_path: Path, body: str) -> None:
     _write(tmp_path, body)
     with pytest.raises(ValidationError):
         FabricCellLibrary.load(tmp_path)
+
+
+def test_load_reads_a_rule_relative_to_the_file(tmp_path: Path) -> None:
+    """A rule is `<python file>:<function>`, the file next to the library."""
+    _write(tmp_path, "rules:\n  buffers: cell_rules.py:no_buffers")
+    (tmp_path / "Fabric" / "cell_rules.py").write_text(
+        "def no_buffers(tile):\n    return {}\n"
+    )
+
+    rule = FabricCellLibrary.load(tmp_path).rules.buffers
+
+    assert rule(None) == {}
+    assert FabricCellLibrary.load(tmp_path / "missing").rules.buffers is None
+
+
+@pytest.mark.parametrize(
+    ("spec", "error"),
+    [
+        ("cell_rules.py", ValueError),
+        ("missing.py:no_buffers", FileNotFoundError),
+        ("cell_rules.py:other", ValueError),
+        ("cell_rules.py:NOT_A_FUNCTION", TypeError),
+    ],
+    ids=["no function", "no file", "unknown function", "not callable"],
+)
+def test_load_rejects_bad_rules(
+    tmp_path: Path, spec: str, error: type[Exception]
+) -> None:
+    """A rule that cannot be loaded is an error at load."""
+    _write(tmp_path, f"rules:\n  buffers: {spec}")
+    (tmp_path / "Fabric" / "cell_rules.py").write_text(
+        "NOT_A_FUNCTION = 1\n\ndef no_buffers(tile):\n    return {}\n"
+    )
+    with pytest.raises(error):
+        FabricCellLibrary.load(tmp_path)

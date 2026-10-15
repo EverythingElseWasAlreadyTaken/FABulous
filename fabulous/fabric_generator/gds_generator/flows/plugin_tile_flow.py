@@ -15,6 +15,7 @@ from fabulous.custom_exception import (
     InvalidSupertileDefinition,
     InvalidTileDefinition,
 )
+from fabulous.fabric_definition.cell_binding import resolve_buffers
 from fabulous.fabric_definition.define import (
     FRAME_BITS_PER_ROW,
     MAX_FRAMES_PER_COL,
@@ -279,12 +280,14 @@ def _emit_regular_tile_verilog(
     if config_bit_mode is ConfigBitMode.FRAME_BASED:
         generate_tile_config_mem(writer, tile)
     writer.outFileName = tile_dir / f"{tile.name}.v"
+    cells = FabricCellLibrary.load(get_context().proj_dir)
     generateTile(
         writer,
         tile,
         disable_user_clk=True,
         config_bit_mode=config_bit_mode,
-        cells=FabricCellLibrary.load(get_context().proj_dir),
+        cells=cells,
+        buffers=resolve_buffers([tile], cells.rules.buffers),
     )
 
 

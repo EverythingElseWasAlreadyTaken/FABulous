@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from pytest_mock import MockerFixture
 
+from fabulous.fabric_definition.cell_binding import resolve_buffers
 from fabulous.fabric_definition.define import (
     IO,
     USER_CLK_PREDECESSOR,
@@ -209,6 +210,7 @@ def test_vhdl_chain_tile_declares_no_config_mem_component(
         tile,
         config_bit_mode=ConfigBitMode.FLIPFLOP_CHAIN,
         cells=FabricCellLibrary(),
+        buffers=resolve_buffers([tile]),
     )
 
     assert "component T_ConfigMem" not in writer.outFileName.read_text()

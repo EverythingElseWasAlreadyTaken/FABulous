@@ -10,6 +10,7 @@ import pytest
 from fabulous.custom_exception import InvalidFabricDefinition
 from fabulous.fabric_cad.gen_bitstream_spec import generate_bitstream_spec
 from fabulous.fabric_definition.bel import Bel
+from fabulous.fabric_definition.cell_binding import buffered_signal, resolve_buffers
 from fabulous.fabric_definition.channel import (
     ChannelDeclaration,
     RoutingChannel,
@@ -281,7 +282,12 @@ class TestRoutingChannelProblems:
         assert hop.signal == "Tile_X0Y1_A[0]"
 
     def test_signal_names_the_tile_rtl_signal(self) -> None:
-        """A hard wire is the signal of its tile port, BEL pin or jump source."""
+        """A hard wire is the signal of its tile port, BEL pin or jump source.
+
+        The model names a staging connection after its source pin; the
+        default buffer rule buffers the staged pins, so with the cells it is
+        the source pin's inner side.
+        """
         ports, _ = parse_port_line("NORTH,A,0,-2,B,1")
         jumps = [parse_port_line("JUMP,J_BEG,0,0,J_END,1")[1]]
         bel = make_muladd_bel([("I0", IO.INPUT), ("O0", IO.OUTPUT)])
@@ -309,8 +315,11 @@ class TestRoutingChannelProblems:
         assert (boundary.matrix_port.name, boundary.outer.name) == ("A", "A")
         assert boundary.matrix_port in tile.switch_matrix.ports
         assert [c.signal for c in wires] == ["A[1]", "B[0]", "I0", "O0", "J_BEG[0]"]
-        with pytest.raises(ValueError, match="buffer cells"):
-            _ = staging.signal
+        assert staging.signal == "B[1]"
+        buffers = resolve_buffers([tile])
+        assert sorted(p.name(indexed=True) for p in buffers) == ["A[0]", "B[1]"]
+        assert buffered_signal(buffers, staging) == "B_i[1]"
+        assert [buffered_signal(buffers, c) for c in wires] == [c.signal for c in wires]
         placed = TileInstance(0, 0, tile).fixed_connections[1]
         with pytest.raises(TypeError, match="no tile port connection"):
             _ = placed.signal
