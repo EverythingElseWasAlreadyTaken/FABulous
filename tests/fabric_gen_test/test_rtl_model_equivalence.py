@@ -34,6 +34,7 @@ from fabulous.fabric_definition.connection import FixedConnection
 from fabulous.fabric_definition.define import IO, BelPortKind
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.fabric_cell_library import (
+    FABRIC_CELL_LIBRARY_RELPATH,
     FabricCellFunction,
     FabricCellLibrary,
 )
@@ -324,9 +325,26 @@ def _inside(connections: Iterable[FixedConnection]) -> list[FixedConnection]:
     return [c for c in connections if not isinstance(c.declaration, SwitchMatrix)]
 
 
+@pytest.fixture(params=["staged buffers", "no buffers"])
+def cell_library(
+    request: pytest.FixtureRequest, fabulous_project: Path
+) -> FabricCellLibrary:
+    """Return the project's fabric cell library: the default buffer rule, or a
+    project rule placing no buffers at all.
+    """
+    if request.param == "no buffers":
+        (fabulous_project / "Fabric" / "cell_rules.py").write_text(
+            "def no_buffers(tile):\n    return {}\n"
+        )
+        (fabulous_project / FABRIC_CELL_LIBRARY_RELPATH).write_text(
+            "rules:\n  buffers: cell_rules.py:no_buffers\n"
+        )
+    return FabricCellLibrary.load(fabulous_project)
+
+
 @pytest.fixture
-def generated(cli: FABulousREPL) -> Fabric:
-    """Return the demo fabric with all its RTL generated."""
+def generated(cli: FABulousREPL, cell_library: FabricCellLibrary) -> Fabric:  # noqa: ARG001
+    """Return the demo fabric with all its RTL generated, by `cell_library`."""
     run_cmd(cli, "gen_fabric")
     return cli.fabulousAPI.fabric
 
@@ -342,12 +360,15 @@ def buffers(fabulous_project: Path) -> dict[str, CellSpec]:
 @pytest.mark.skipif(shutil.which("yosys") is None, reason="needs yosys")
 def test_tile_rtl_matches_the_model(
     generated: Fabric,
+    cell_library: FabricCellLibrary,
     buffers: dict[str, CellSpec],
     fabulous_project: Path,
     tmp_path: Path,
 ) -> None:
     """Every tile module has the model's nets, buffers and signal names."""
-    pin_buffers = resolve_buffers(generated.tileDic.values())
+    pin_buffers = resolve_buffers(
+        generated.tileDic.values(), cell_library.rules.buffers
+    )
     problems = []
     for tile in generated.tileDic.values():
         tile_dir = tile.tileDir.parent
@@ -377,12 +398,15 @@ def test_tile_rtl_matches_the_model(
 @pytest.mark.skipif(shutil.which("yosys") is None, reason="needs yosys")
 def test_supertile_wrapper_matches_the_model(
     generated: Fabric,
+    cell_library: FabricCellLibrary,
     buffers: dict[str, CellSpec],
     fabulous_project: Path,
     tmp_path: Path,
 ) -> None:
     """Every supertile wrapper wires its subtiles, matrix and BELs as modelled."""
-    pin_buffers = resolve_buffers(generated.tileDic.values())
+    pin_buffers = resolve_buffers(
+        generated.tileDic.values(), cell_library.rules.buffers
+    )
     problems = []
     assert generated.superTileDic, "the demo has a supertile"
     for super_tile in generated.superTileDic.values():
@@ -432,6 +456,7 @@ def test_supertile_wrapper_matches_the_model(
 @pytest.mark.skipif(shutil.which("yosys") is None, reason="needs yosys")
 def test_fabric_top_matches_the_model(
     generated: Fabric,
+    cell_library: FabricCellLibrary,
     buffers: dict[str, CellSpec],
     tmp_path: Path,
 ) -> None:
@@ -471,7 +496,9 @@ def test_fabric_top_matches_the_model(
                     if instance not in placement_of or e in rtl.net_id:
                         universe.add(e)
     connections = [c for pc in generated.port_connections for c in pc.pin_connections]
-    pin_buffers = resolve_buffers(generated.tileDic.values())
+    pin_buffers = resolve_buffers(
+        generated.tileDic.values(), cell_library.rules.buffers
+    )
     problems = _problems(
         generated.name, connections, endpoint, universe, rtl, pin_buffers
     )

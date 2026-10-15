@@ -52,7 +52,7 @@ def staged_pin_buffers(tile: Tile) -> dict[Pin, FabricCellFunction]:
 
 
 def resolve_buffers(
-    tiles: Iterable[Tile], rule: BufferRule = staged_pin_buffers
+    tiles: Iterable[Tile], rule: BufferRule | None = None
 ) -> dict[Pin, FabricCellFunction]:
     """Run the buffer rule over the tiles.
 
@@ -60,14 +60,15 @@ def resolve_buffers(
     ----------
     tiles : Iterable[Tile]
         The tile types.
-    rule : BufferRule
-        Decides the buffers of each tile. Default `staged_pin_buffers`.
+    rule : BufferRule | None
+        Decides the buffers of each tile; None for `staged_pin_buffers`.
 
     Returns
     -------
     dict[Pin, FabricCellFunction]
         The buffer at each buffered pin.
     """
+    rule = rule or staged_pin_buffers
     buffers = {}
     for tile in tiles:
         buffers |= rule(tile)

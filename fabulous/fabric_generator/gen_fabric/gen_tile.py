@@ -193,16 +193,16 @@ def generateTile(
         Only raised for VHDL output. If required component files
         (e.g., switch matrix or config memory) are missing.
     NotImplementedError
-        If `buffers` holds other pins than the staged ones.
+        If `buffers` holds a pin that is not staged.
     """
     staging = [pc for pc in tile.port_connections if isinstance(pc, StagingConnection)]
     staged = {
         pin for pc in staging for c in pc.pin_connections for pin in (c.source, c.sink)
     }
     bound = {pin for p in tile.portsInfo for pin in p.pins if pin in buffers}
-    if bound != staged:
+    if not bound <= staged:
         raise NotImplementedError(
-            f"{tile.name}: buffers are placed at exactly the staged pins so far"
+            f"{tile.name}: buffers are placed at staged pins only so far"
         )
     buffer = cells.cells[FabricCellFunction.BUFFER][0]
     writer.addHeader(f"{tile.name}")
@@ -384,8 +384,9 @@ def generateTile(
     # A staging connection joins the inner sides of its ports' buffered pins.
     for pc in staging:
         for port in (pc.source, pc.sink):
-            high = max(p.index for p in port.pins if p in buffers)
-            writer.addConnectionVector(inner_vector(port), high)
+            buffered = [p.index for p in port.pins if p in buffers]
+            if buffered:
+                writer.addConnectionVector(inner_vector(port), max(buffered))
 
     writer.addNewLine()
     writer.addLogicStart()
@@ -429,15 +430,25 @@ def generateTile(
 
     for pc in staging:
         source, sink = pc.source, pc.sink
-        source_high = pc.source_offset + pc.width - 1
-        shift = pc.source_offset - pc.sink_offset
-        sink_high = f"{source_high}-{shift}" if shift else source_high
-        writer.addAssignScalar(
-            f"{inner_vector(sink)}[{sink_high}:{pc.sink_offset}]",
-            f"{inner_vector(source)}[{source_high}:{pc.source_offset}]",
-        )
+        ends = [pin for c in pc.pin_connections for pin in (c.source, c.sink)]
+        if all(pin in buffers for pin in ends):
+            source_high = pc.source_offset + pc.width - 1
+            shift = pc.source_offset - pc.sink_offset
+            sink_high = f"{source_high}-{shift}" if shift else source_high
+            writer.addAssignScalar(
+                f"{inner_vector(sink)}[{sink_high}:{pc.sink_offset}]",
+                f"{inner_vector(source)}[{source_high}:{pc.source_offset}]",
+            )
+        else:
+            # Partly buffered: each pin joins the signals at its ends.
+            for c in pc.pin_connections:
+                writer.addAssignScalar(
+                    inner_signal(buffers, c.sink), inner_signal(buffers, c.source)
+                )
         writer.addNewLine()
         for c in pc.pin_connections:
+            if c.source not in buffers:
+                continue
             _add_buffer(
                 writer,
                 cells.cells[buffers[c.source]][0],
@@ -446,6 +457,8 @@ def generateTile(
                 inner_signal(buffers, c.source),
             )
         for c in pc.pin_connections:
+            if c.sink not in buffers:
+                continue
             _add_buffer(
                 writer,
                 cells.cells[buffers[c.sink]][0],

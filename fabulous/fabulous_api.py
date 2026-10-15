@@ -281,6 +281,7 @@ class FABulous_API:
             If tile is not found in fabric.
         """
         if tile := self.fabric.getTileByName(tileName):
+            cells = FabricCellLibrary.load(get_context().proj_dir)
             generateTile(
                 self.writer,
                 tile,
@@ -288,8 +289,8 @@ class FABulous_API:
                 max_frame_per_col or self.fabric.maxFramesPerCol,
                 disable_user_clk or self.fabric.disableUserCLK,
                 config_bit_mode or self.fabric.configBitMode,
-                cells=FabricCellLibrary.load(get_context().proj_dir),
-                buffers=resolve_buffers([tile]),
+                cells=cells,
+                buffers=resolve_buffers([tile], cells.rules.buffers),
             )
         else:
             raise ValueError(f"Tile {tileName} not found")

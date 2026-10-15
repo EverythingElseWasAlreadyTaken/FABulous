@@ -265,13 +265,14 @@ def _emit_regular_tile_verilog(
         tile_dir / f"{tile.name}_ConfigMem.csv",
     )
     writer.outFileName = tile_dir / f"{tile.name}.v"
+    cells = FabricCellLibrary.load(get_context().proj_dir)
     generateTile(
         writer,
         tile,
         disable_user_clk=True,
         config_bit_mode=config_bit_mode,
-        cells=FabricCellLibrary.load(get_context().proj_dir),
-        buffers=resolve_buffers([tile]),
+        cells=cells,
+        buffers=resolve_buffers([tile], cells.rules.buffers),
     )
 
 
