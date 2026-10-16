@@ -41,6 +41,7 @@ from fabulous.fabric_definition.fabric_cell_library import (
 from fabulous.fabric_definition.port import (
     BelExternalPort,
     BelPort,
+    ConfigLogicPort,
     Pin,
     SJumpPort,
     SwitchMatrixPort,
@@ -82,7 +83,7 @@ def _instance_pin(pin: Pin) -> Endpoint:
 
 
 def _tile_endpoint(pin: Pin) -> Endpoint:
-    if isinstance(pin.port, TilePort | SJumpPort):
+    if isinstance(pin.port, TilePort | SJumpPort | ConfigLogicPort):
         return ("", pin.port.name, pin.index)
     return _instance_pin(pin)
 
@@ -304,7 +305,9 @@ def _problems(
     driven_by = {x: a for a, x in rtl.through.items()}
     for c in connections:
         for end, step in ((c.source, rtl.through), (c.sink, driven_by)):
-            if isinstance(end, tuple) or not isinstance(end.port, TilePort):
+            if isinstance(end, tuple) or not isinstance(
+                end.port, TilePort | ConfigLogicPort
+            ):
                 continue
             net_id = rtl.net_id[endpoint(end)]
             if buffered(end):
@@ -381,7 +384,12 @@ def test_tile_rtl_matches_the_model(
         rtl = _Rtl.read(
             tile_dir / f"{tile.name}.v", black_boxes, tile.name, buffers, tmp_path
         )
-        ports = [*tile.portsInfo, *tile.sjump_ports, *tile.bel_external_ports]
+        ports = [
+            *tile.portsInfo,
+            *tile.sjump_ports,
+            *tile.bel_external_ports,
+            *tile.config_logic_ports,
+        ]
         pins = [pin for p in ports for pin in p.pins] + _bel_pins(tile.bels)
         pins += [
             pin for p in tile.switch_matrix.ports if not p.is_constant for pin in p.pins

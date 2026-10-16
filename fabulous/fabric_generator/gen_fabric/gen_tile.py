@@ -194,17 +194,29 @@ def generateTile(
         (e.g., switch matrix or config memory) are missing.
     NotImplementedError
         If `buffers` holds a pin that is not staged.
+    ValueError
+        If the tile has config logic ports but is not frame-based, or the
+        other way round.
     """
     staging = [pc for pc in tile.port_connections if isinstance(pc, StagingConnection)]
     staged = {
         pin for pc in staging for c in pc.pin_connections for pin in (c.source, c.sink)
     }
-    bound = {pin for p in tile.portsInfo for pin in p.pins if pin in buffers}
+    if (config_bit_mode is ConfigBitMode.FRAME_BASED) != bool(tile.config_logic_ports):
+        raise ValueError(
+            f"{tile.name}: a {config_bit_mode.name} tile needs config logic "
+            "ports exactly when frame-based; its config_mem decides them"
+        )
+    bound = {
+        pin
+        for p in (*tile.portsInfo, *tile.config_logic_ports)
+        for pin in p.pins
+        if pin in buffers
+    }
     if not bound <= staged:
         raise NotImplementedError(
             f"{tile.name}: buffers are placed at staged pins only so far"
         )
-    buffer = cells.cells[FabricCellFunction.BUFFER][0]
     writer.addHeader(f"{tile.name}")
     writer.addParameterStart(indentLevel=1)
     if isinstance(writer, VerilogCodeGenerator):  # emulation only in Verilog
@@ -266,21 +278,15 @@ def generateTile(
         writer.addPortScalar("UserCLK", IO.INPUT, indentLevel=2)
         writer.addPortScalar("UserCLKo", IO.OUTPUT, indentLevel=2)
 
-    if config_bit_mode == ConfigBitMode.FRAME_BASED:
-        writer.addPortVector("FrameData", IO.INPUT, "FrameBitsPerRow-1", indentLevel=2)
-        writer.addComment("CONFIG_PORT", onNewLine=False, end="")
-        writer.addPortVector(
-            "FrameData_O", IO.OUTPUT, "FrameBitsPerRow-1", indentLevel=2
-        )
-        writer.addPortVector(
-            "FrameStrobe", IO.INPUT, "MaxFramesPerCol-1", indentLevel=2
-        )
-        writer.addComment("CONFIG_PORT", onNewLine=False, end="")
-        writer.addPortVector(
-            "FrameStrobe_O", IO.OUTPUT, "MaxFramesPerCol-1", indentLevel=2
-        )
+    # The tile module keeps the frame sizes as its parameters.
+    frame_size = {"FrameData": "FrameBitsPerRow", "FrameStrobe": "MaxFramesPerCol"}
+    for port in tile.config_logic_ports:
+        size = frame_size[port.name.removesuffix("_O")]
+        writer.addPortVector(port.name, port.io_direction, f"{size}-1", indentLevel=2)
+        if port.is_input:
+            writer.addComment("CONFIG_PORT", onNewLine=False, end="")
 
-    elif config_bit_mode == ConfigBitMode.FLIPFLOP_CHAIN:
+    if config_bit_mode == ConfigBitMode.FLIPFLOP_CHAIN:
         writer.addPortScalar("MODE", IO.INPUT, indentLevel=2)
         writer.addPortScalar("CONFin", IO.INPUT, indentLevel=2)
         writer.addPortScalar("CONFout", IO.OUTPUT, indentLevel=2)
@@ -376,10 +382,6 @@ def generateTile(
 
     writer.addNewLine()
     writer.addComment("Connection for outgoing wires", onNewLine=True)
-    writer.addConnectionVector("FrameData_i", "FrameBitsPerRow-1", 0)
-    writer.addConnectionVector("FrameData_O_i", "FrameBitsPerRow-1", 0)
-    writer.addConnectionVector("FrameStrobe_i", "MaxFramesPerCol-1", 0)
-    writer.addConnectionVector("FrameStrobe_O_i", "MaxFramesPerCol-1", 0)
 
     # A staging connection joins the inner sides of its ports' buffered pins.
     for pc in staging:
@@ -390,43 +392,6 @@ def generateTile(
 
     writer.addNewLine()
     writer.addLogicStart()
-
-    # buffer FrameData signals
-    writer.addAssignScalar("FrameData_O_i", "FrameData_i")
-    writer.addNewLine()
-    for i in range(frame_bits_per_row):
-        _add_buffer(
-            writer, buffer, f"data_inbuf_{i}", f"FrameData[{i}]", f"FrameData_i[{i}]"
-        )
-    for i in range(frame_bits_per_row):
-        _add_buffer(
-            writer,
-            buffer,
-            f"data_outbuf_{i}",
-            f"FrameData_O_i[{i}]",
-            f"FrameData_O[{i}]",
-        )
-
-    # strobe is always added even when config bits are 0
-    writer.addAssignScalar("FrameStrobe_O_i", "FrameStrobe_i")
-    writer.addNewLine()
-    for i in range(max_frame_per_col):
-        _add_buffer(
-            writer,
-            buffer,
-            f"strobe_inbuf_{i}",
-            f"FrameStrobe[{i}]",
-            f"FrameStrobe_i[{i}]",
-        )
-
-    for i in range(max_frame_per_col):
-        _add_buffer(
-            writer,
-            buffer,
-            f"strobe_outbuf_{i}",
-            f"FrameStrobe_O_i[{i}]",
-            f"FrameStrobe_O[{i}]",
-        )
 
     for pc in staging:
         source, sink = pc.source, pc.sink

@@ -10,6 +10,7 @@ from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.connection import (
     BelExternalConnection,
+    ConfigLogicPassThrough,
     FixedConnection,
     JumpConnection,
     PortConnection,
@@ -26,6 +27,7 @@ from fabulous.fabric_definition.define import (
 from fabulous.fabric_definition.gen_io import Gen_IO
 from fabulous.fabric_definition.port import (
     BelExternalPort,
+    ConfigLogicPort,
     Pin,
     Port,
     SJumpPort,
@@ -270,26 +272,55 @@ class Tile:
         )
 
     @cached_property
+    def config_logic_ports(self) -> tuple[ConfigLogicPort, ...]:
+        """The ports of the frame grid: `FrameData(_O)`, `FrameStrobe(_O)`.
+
+        Sized by the tile's `config_mem`; a tile without a frame grid (an
+        unread or FLIPFLOP_CHAIN memory) has none.
+
+        Returns
+        -------
+        tuple[ConfigLogicPort, ...]
+            In RTL declaration order.
+        """
+        memory = self.config_mem
+        if not memory.frames:
+            return ()
+        return tuple(
+            ConfigLogicPort(name, io, width)
+            for base, width in (
+                ("FrameData", memory.frame_bits_per_row),
+                ("FrameStrobe", memory.max_frames_per_col),
+            )
+            for name, io in ((base, IO.INPUT), (f"{base}_O", IO.OUTPUT))
+        )
+
+    @cached_property
     def port_connections(self) -> list[PortConnection[Port]]:
         """The port-to-port wiring inside the tile.
 
         A channel declaration naming both ends stages its pins through the
-        tile as the RTL does: `N4BEG[i]` is driven by `N4END[i + wire_count]`
-        through a buffer at the tile entry and one at the exit. Every switch
-        matrix port with an `origin` is joined to it at the module boundary:
-        to the tile port's matrix-facing slice (the matrix reads the first
-        `wire_count` pins of `N4END` and drives the last ones of `N4BEG`), to
-        the BEL port or to the SJUMP port. A jump wire loops a matrix output
-        back into a matrix input, and a BEL's `EXTERNAL` port is wired to the
-        tile-module port exporting it.
+        tile as the RTL does: `N4BEG[i]` is driven by `N4END[i + wire_count]`;
+        each config logic input port is passed through to its `_O` port
+        likewise. Every switch matrix port with an `origin` is joined to it at
+        the module boundary: to the tile port's matrix-facing slice (the
+        matrix reads the first `wire_count` pins of `N4END` and drives the
+        last ones of `N4BEG`), to the BEL port or to the SJUMP port. A jump
+        wire loops a matrix output back into a matrix input, and a BEL's
+        `EXTERNAL` port is wired to the tile-module port exporting it.
 
         Returns
         -------
         list[PortConnection[Port]]
-            Staging, matrix boundary, jump wires, BEL external ports.
+            Config logic pass-throughs, staging, matrix boundary, jump wires, BEL
+            external ports.
         """
+        frame = self.config_logic_ports
+        connections: list[PortConnection[Port]] = [
+            ConfigLogicPassThrough(source, sink, sink, sink.width)
+            for source, sink in zip(frame[::2], frame[1::2], strict=True)
+        ]
         ports = {(p.declaration, p.io_direction): p for p in self.portsInfo}
-        connections: list[PortConnection[Port]] = []
         for (declaration, io), out in ports.items():
             if io != IO.OUTPUT or declaration.end is None or declaration.distance < 2:
                 continue

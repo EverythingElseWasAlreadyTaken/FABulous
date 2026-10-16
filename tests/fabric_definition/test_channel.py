@@ -18,6 +18,7 @@ from fabulous.fabric_definition.channel import (
 )
 from fabulous.fabric_definition.configmem import empty_config_mem
 from fabulous.fabric_definition.connection import (
+    ConfigLogicPassThrough,
     JumpConnection,
     StagingConnection,
     SwitchMatrixConnection,
@@ -26,7 +27,7 @@ from fabulous.fabric_definition.connection import (
 from fabulous.fabric_definition.define import IO, BelPortKind, Direction
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.instance import TileInstance
-from fabulous.fabric_definition.port import BelPort
+from fabulous.fabric_definition.port import BelPort, ConfigLogicPort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix, switch_matrix_ports
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.parser.parse_csv import parse_port_line
@@ -161,6 +162,7 @@ class TestRoutingChannelProblems:
                 (c.source[0].y, c.source[1].name(), c.sink[0].y, c.sink[1].name())
                 for c in fabric.fixed_connections()
                 if c.source[0] is instance
+                and not isinstance(c.declaration, ConfigLogicPort)
             }
 
         assert [
@@ -341,6 +343,7 @@ class TestRoutingChannelProblems:
         assert [
             (c.source.full_name(), c.sink.full_name(), c.signal)
             for c in tile.fixed_connections
+            if not isinstance(c.declaration, ConfigLogicPort)
         ] == [
             ("A_C0", "Inst_A_IO__C0", "A_C0"),
             ("A_C1", "Inst_A_IO__C1", "A_C1"),
@@ -348,3 +351,27 @@ class TestRoutingChannelProblems:
         ]
         with pytest.raises(RuntimeError, match="already derived"):
             tile.add_bels([io_bel()])
+
+    def test_config_logic_ports_pass_through_the_tile(self) -> None:
+        """The frame grid enters, and leaves again on its `_O` port."""
+        tile = make_empty_tile("T", frame_bits_per_row=4, max_frames_per_col=2)
+
+        assert [(p.name, p.io_direction, p.width) for p in tile.config_logic_ports] == [
+            ("FrameData", IO.INPUT, 4),
+            ("FrameData_O", IO.OUTPUT, 4),
+            ("FrameStrobe", IO.INPUT, 2),
+            ("FrameStrobe_O", IO.OUTPUT, 2),
+        ]
+        passed = [
+            (pc.source.name, pc.sink.name, pc.width)
+            for pc in tile.port_connections
+            if isinstance(pc, ConfigLogicPassThrough)
+        ]
+        assert passed == [
+            ("FrameData", "FrameData_O", 4),
+            ("FrameStrobe", "FrameStrobe_O", 2),
+        ]
+
+        tile = make_empty_tile("T")
+        tile.config_mem = empty_config_mem(Path("ConfigMem.csv"))
+        assert tile.config_logic_ports == ()

@@ -18,7 +18,7 @@ from fabulous.fabric_cad.timing_model.FABulous_timing_model_interface import (
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import IO, BelPortKind
 from fabulous.fabric_definition.fabric import Fabric
-from fabulous.fabric_definition.port import BelExternalPort
+from fabulous.fabric_definition.port import BelExternalPort, ConfigLogicPort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 
 # Dummy BEL timing values (ns), mirroring nextpnr's historical hardcoded
@@ -287,7 +287,7 @@ def genNextpnrModel(
     # Fixed connections are pips without config bits. A BEL's EXTERNAL port
     # leaves the fabric, so nextpnr cannot route over it.
     for connection in fabric.fixed_connections():
-        if isinstance(connection.declaration, BelExternalPort):
+        if isinstance(connection.declaration, BelExternalPort | ConfigLogicPort):
             continue
         (src_at, src_pin), (dst_at, dst_pin) = connection.source, connection.sink
         src, dst = src_pin.full_name(), dst_pin.full_name()

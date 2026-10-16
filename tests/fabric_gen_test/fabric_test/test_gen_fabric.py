@@ -8,6 +8,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from fabulous.fabric_definition.cell_binding import resolve_buffers
+from fabulous.fabric_definition.configmem import empty_config_mem
 from fabulous.fabric_definition.define import (
     IO,
     USER_CLK_PREDECESSOR,
@@ -202,6 +203,7 @@ def test_vhdl_chain_tile_declares_no_config_mem_component(
         matrixDir=tmp_path / "T_switch_matrix.list",
         pinOrderConfig={},
     )
+    tile.config_mem = empty_config_mem(tmp_path / "T_ConfigMem.csv")
     _stub_entity(tmp_path / "T_switch_matrix.vhdl", "T_switch_matrix")
 
     writer = code_generator_factory(".vhd", "T")

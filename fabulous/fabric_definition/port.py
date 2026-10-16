@@ -786,6 +786,20 @@ class ConfigPort(Port):
         return f"ConfigPort({self.io_direction.value} {self.name}[{self.width - 1}:0])"
 
 
+class ConfigLogicPort(Port):
+    """A tile port of the frame grid: `FrameData` / `FrameStrobe` and their `_O`.
+
+    The frame lines enter a tile, feed its configuration memory and leave it
+    again towards the next tile. They are no routing: nextpnr and the
+    bitstream do not see them.
+    """
+
+    def __repr__(self) -> str:
+        """Return a string representation of the ConfigLogicPort."""
+        io, msb = self.io_direction.value, self.width - 1
+        return f"ConfigLogicPort({io} {self.name}[{msb}:0])"
+
+
 class BelConfigPort(ConfigPort):
     """The configuration port of a BEL, with the BEL's feature map.
 

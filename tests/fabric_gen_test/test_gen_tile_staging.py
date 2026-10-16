@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 
 from fabulous.fabric_definition.cell_binding import resolve_buffers
-from fabulous.fabric_definition.configmem import empty_config_mem
+from fabulous.fabric_definition.configmem import ConfigMem
+from fabulous.fabric_definition.define import FRAME_BITS_PER_ROW, MAX_FRAMES_PER_COL
 from fabulous.fabric_definition.fabric_cell_library import (
     FabricCellFunction,
     FabricCellLibrary,
@@ -28,7 +29,12 @@ def _tile() -> Tile:
         bels=[],
         tileDir=Path(),
         switch_matrix=SwitchMatrix(Path(), switch_matrix_ports(ports, []), {}, "T"),
-        config_mem=empty_config_mem(Path("ConfigMem.csv")),
+        config_mem=ConfigMem.default(
+            0,
+            frame_bits_per_row=FRAME_BITS_PER_ROW,
+            max_frames_per_col=MAX_FRAMES_PER_COL,
+            source=Path("ConfigMem.csv"),
+        ),
         gen_ios=[],
         pinOrderConfig={},
     )

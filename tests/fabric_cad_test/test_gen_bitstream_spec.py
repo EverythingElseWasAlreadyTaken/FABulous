@@ -160,7 +160,7 @@ def test_a_chain_fabric_is_specified_without_a_frame_map() -> None:
 def test_a_tile_with_no_configuration_bits_needs_no_mapping() -> None:
     """A tile with no configuration bits needs no mapping."""
     fabric = _fabric_from_bits([[0]])
-    fabric.tileDic["T0_0"].config_mem = None
+    fabric.tileDic["T0_0"].config_mem = empty_config_mem(Path("ConfigMem.csv"))
 
     spec = generate_bitstream_spec(fabric)
 

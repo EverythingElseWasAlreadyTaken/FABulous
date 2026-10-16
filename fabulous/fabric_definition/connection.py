@@ -16,7 +16,12 @@ from typing import TYPE_CHECKING
 
 from fabulous.fabric_definition.channel import ChannelDeclaration
 from fabulous.fabric_definition.define import grid_at
-from fabulous.fabric_definition.port import BelExternalPort, BelPort, SwitchMatrixPort
+from fabulous.fabric_definition.port import (
+    BelExternalPort,
+    BelPort,
+    ConfigLogicPort,
+    SwitchMatrixPort,
+)
 from fabulous.fabric_definition.wire import JumpWire, SJumpWire
 
 if TYPE_CHECKING:
@@ -41,6 +46,7 @@ type Declaration = (
     | JumpWire
     | SJumpWire
     | BelExternalPort
+    | ConfigLogicPort
 )
 """What a fixed connection is expanded from."""
 
@@ -242,6 +248,11 @@ class StagingConnection[E](PortConnection[E]):
         """
         source, _ = _module_pins(c)
         return source.name(indexed=True)
+
+
+@dataclass(frozen=True)
+class ConfigLogicPassThrough[E](StagingConnection[E]):
+    """A config logic port passed through the tile: `FrameData` -> `FrameData_O`."""
 
 
 @dataclass(frozen=True)
