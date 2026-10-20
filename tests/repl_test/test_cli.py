@@ -13,7 +13,6 @@ import pytest
 from pytest_mock import MockerFixture
 
 from fabulous.custom_exception import CommandError
-from fabulous.fabric_definition.configmem import empty_config_mem
 from fabulous.fabric_definition.define import ConfigBitMode
 from fabulous.fabric_generator.gds_generator.steps.tile_area_opt import OptMode
 from fabulous.fabric_generator.parser.parse_switchmatrix import parseList
@@ -149,12 +148,19 @@ def test_gen_tile_aborts_on_sub_command_failure(
 
 @pytest.fixture
 def chain_cli(cli: FABulousREPL) -> FABulousREPL:
-    """A REPL on a FLIPFLOP_CHAIN fabric, with the empty memories the parser gives."""
-    cli.fabulousAPI.fabric.configBitMode = ConfigBitMode.FLIPFLOP_CHAIN
-    for tile in cli.fabulousAPI.fabric.tileDic.values():
-        tile.config_mem = empty_config_mem(tile.config_mem.source)
-    for super_tile in cli.fabulousAPI.fabric.superTileDic.values():
-        super_tile.config_mem = empty_config_mem(super_tile.config_mem.source)
+    """A REPL on a FLIPFLOP_CHAIN fabric, with the empty memories the parser gives.
+
+    The demo is reloaded in that mode: changing the mode of a loaded fabric
+    would leave its tiles with the frame ports derived from frame memories.
+    """
+    csv = cli.fabulousAPI.fabric.fabric_dir
+    csv.write_text(
+        csv.read_text().replace(
+            "ConfigBitMode,frame_based", "ConfigBitMode,FlipFlopChain"
+        )
+    )
+    run_cmd(cli, "load_fabric")
+    assert cli.fabulousAPI.fabric.configBitMode is ConfigBitMode.FLIPFLOP_CHAIN
     return cli
 
 

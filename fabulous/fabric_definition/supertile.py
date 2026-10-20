@@ -32,13 +32,19 @@ from fabulous.fabric_definition.define import (
 )
 from fabulous.fabric_definition.port import (
     BelExternalPort,
+    ConfigLogicPort,
+    ConfigPort,
     Port,
     SJumpPort,
     SwitchMatrixPort,
     TilePort,
 )
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
-from fabulous.fabric_definition.tile import Tile
+from fabulous.fabric_definition.tile import (
+    Tile,
+    config_bit_connections,
+    config_mem_ports,
+)
 from fabulous.fabric_definition.wire import SJumpWire
 
 
@@ -307,6 +313,26 @@ class SuperTile:
         )
 
     @cached_property
+    def config_mem_ports(self) -> tuple[ConfigLogicPort | ConfigPort, ...]:
+        """The ports of the wrapper's configuration memory instance.
+
+        Its bits live in free slots of the master tile's frames, so a
+        frame-based master sizes its frame inputs.
+
+        Returns
+        -------
+        tuple[ConfigLogicPort | ConfigPort, ...]
+            The frame inputs, then the bits (`config_mem_ports`).
+        """
+        mx, my = self.get_master_tile_coords()
+        master = self.tileMap[my][mx]
+        return config_mem_ports(
+            f"Inst_{self.name}_ConfigMem",
+            master.config_logic_ports,
+            self.total_config_bits,
+        )
+
+    @cached_property
     def port_connections(self) -> list[PortConnection[tuple[tuple[int, int], Port]]]:
         """The port-to-port wiring at the supertile's switch matrix boundary.
 
@@ -318,14 +344,16 @@ class SuperTile:
         master. Then come the `TilePortConnection`s between the subtiles;
         their channels are resolved from the subtiles alone, so a supertile is
         wired without a fabric (a fabric checks that its own resolution
-        agrees, `check_routing_channels`).
+        agrees, `check_routing_channels`). Last, the configuration memory
+        drives the matrix and the BELs with their slice of its bits, at the
+        master.
 
         Returns
         -------
         list[PortConnection[tuple[tuple[int, int], Port]]]
             The matrix boundary in matrix port order, the BEL external
-            ports, then the tile port connections between the subtiles, ends
-            at `tileMap` positions.
+            ports, the tile port connections between the subtiles, then the
+            configuration; ends at `tileMap` positions.
         """
         channels = resolve_channels(
             p.declaration for tile in self.tiles for p in tile.portsInfo
@@ -354,7 +382,13 @@ class SuperTile:
             connections.append(
                 BelExternalConnection(source, sink, external, external.width)
             )
-        return connections + between
+        configuration = []
+        if self.config_mem_ports:
+            _, _, bits, bits_n = self.config_mem_ports
+            configuration = config_bit_connections(
+                self.config_bit_ranges, bits, bits_n, master
+            )
+        return connections + between + configuration
 
     @property
     def outer_ports(self) -> set[tuple[tuple[int, int], TilePort]]:

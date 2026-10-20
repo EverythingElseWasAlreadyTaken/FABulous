@@ -10,7 +10,11 @@ import pytest
 from fabulous.custom_exception import InvalidFabricDefinition
 from fabulous.fabric_cad.gen_bitstream_spec import generate_bitstream_spec
 from fabulous.fabric_definition.bel import Bel
-from fabulous.fabric_definition.cell_binding import buffered_signal, resolve_buffers
+from fabulous.fabric_definition.cell_binding import (
+    buffered_signal,
+    buffered_vector,
+    resolve_buffers,
+)
 from fabulous.fabric_definition.channel import (
     ChannelDeclaration,
     RoutingChannel,
@@ -18,6 +22,7 @@ from fabulous.fabric_definition.channel import (
 )
 from fabulous.fabric_definition.configmem import empty_config_mem
 from fabulous.fabric_definition.connection import (
+    ConfigConnection,
     ConfigLogicPassThrough,
     JumpConnection,
     StagingConnection,
@@ -26,6 +31,7 @@ from fabulous.fabric_definition.connection import (
 )
 from fabulous.fabric_definition.define import IO, BelPortKind, Direction
 from fabulous.fabric_definition.fabric import Fabric
+from fabulous.fabric_definition.fabric_cell_library import FabricCellFunction
 from fabulous.fabric_definition.instance import TileInstance
 from fabulous.fabric_definition.port import BelPort, ConfigLogicPort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix, switch_matrix_ports
@@ -375,3 +381,26 @@ class TestRoutingChannelProblems:
         tile = make_empty_tile("T")
         tile.config_mem = empty_config_mem(Path("ConfigMem.csv"))
         assert tile.config_logic_ports == ()
+
+    def test_the_config_mem_reads_the_frames_and_drives_the_matrix(self) -> None:
+        """Frames into the ConfigMem, its bits out to the matrix, as vectors."""
+        tile = make_empty_tile("T", config_bits=3)
+        frame, _, bits, _ = [
+            pc for pc in tile.port_connections if isinstance(pc, ConfigConnection)
+        ]
+        assert (frame.source.name, frame.sink.full_name(0)) == (
+            "FrameData",
+            "Inst_T_ConfigMem__FrameData0",
+        )
+        assert (bits.vector_signal, bits.source_offset, bits.width) == (
+            "ConfigBits",
+            0,
+            3,
+        )
+        assert bits.sink.full_name(2) == "Inst_T_switch_matrix__ConfigBits2"
+
+        assert buffered_vector(resolve_buffers([tile]), frame) == "FrameData_i"
+        assert buffered_vector({}, frame) == "FrameData"
+        assert (
+            buffered_vector({frame.source[0]: FabricCellFunction.BUFFER}, frame) is None
+        )

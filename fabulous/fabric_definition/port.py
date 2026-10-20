@@ -774,11 +774,59 @@ class BelExternalPort(Port):
         return f"BelExternalPort({io} {self.name}[{msb}:0])"
 
 
-class ConfigPort(Port):
-    """A port that carries configuration bits into a generated module.
+class _InstancePort(Port):
+    """A port of a module instance inside a tile, or of the tile itself.
 
-    Every configurable module (a BEL, a switch matrix, a tile) receives its
-    configuration through such a port.
+    Parameters
+    ----------
+    name : str
+        The name of the port in its module.
+    io_direction : IO
+        The I/O direction, seen from the module.
+    width : int
+        The number of pins.
+    instance : str
+        The instance of the module inside its tile, which scopes the pin
+        names; "" for a port of the tile itself. Default "".
+    """
+
+    _instance: str
+
+    def __init__(
+        self, name: str, io_direction: IO, width: int, instance: str = ""
+    ) -> None:
+        super().__init__(name, io_direction, width)
+        self._instance = instance
+
+    @property
+    def instance(self) -> str:
+        """The instance of the module inside its tile, "" for the tile's own."""
+        return self._instance
+
+    def full_name(self, index: int) -> str:
+        """Return the model name of pin `index`: the module instance and the pin.
+
+        Parameters
+        ----------
+        index : int
+            The pin index.
+
+        Returns
+        -------
+        str
+            The name, scoped by the instance if the port has one.
+        """
+        if not self._instance:
+            return self.pin_name(index)
+        return f"{self._instance}{HIERARCHY_SEPARATOR}{self.pin_name(index)}"
+
+
+class ConfigPort(_InstancePort):
+    """A port that carries configuration bits.
+
+    Every configurable module (a BEL, a switch matrix) receives its
+    configuration bits through such a port, and the configuration memory
+    drives them through such ports (`ConfigBits` / `ConfigBits_N`).
     """
 
     def __repr__(self) -> str:
@@ -786,12 +834,12 @@ class ConfigPort(Port):
         return f"ConfigPort({self.io_direction.value} {self.name}[{self.width - 1}:0])"
 
 
-class ConfigLogicPort(Port):
-    """A tile port of the frame grid: `FrameData` / `FrameStrobe` and their `_O`.
+class ConfigLogicPort(_InstancePort):
+    """A port of the frame grid: `FrameData` / `FrameStrobe` and their `_O`.
 
-    The frame lines enter a tile, feed its configuration memory and leave it
-    again towards the next tile. They are no routing: nextpnr and the
-    bitstream do not see them.
+    The frame lines enter a tile, feed its configuration memory (whose frame
+    inputs are such ports too) and leave the tile again towards the next one.
+    They are no routing: nextpnr and the bitstream do not see them.
     """
 
     def __repr__(self) -> str:
@@ -843,6 +891,28 @@ class BelConfigPort(ConfigPort):
         if self._bel is not None:
             raise ValueError(f"{self} already belongs to BEL {self._bel.name}")
         self._bel = bel
+
+    def full_name(self, index: int) -> str:
+        """Return the model name of pin `index`: the BEL instance and the pin.
+
+        Parameters
+        ----------
+        index : int
+            The pin index.
+
+        Returns
+        -------
+        str
+            The name.
+
+        Raises
+        ------
+        ValueError
+            If the port belongs to no BEL.
+        """
+        if self._bel is None:
+            raise ValueError(f"{self} belongs to no BEL, so it has no instance")
+        return f"{self._bel.instance_name}{HIERARCHY_SEPARATOR}{self.pin_name(index)}"
 
     def __repr__(self) -> str:
         """Return a string representation of the BelConfigPort."""

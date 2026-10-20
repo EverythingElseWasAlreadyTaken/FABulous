@@ -10,6 +10,7 @@ from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.connection import (
     BelExternalConnection,
+    ConfigConnection,
     ConfigLogicPassThrough,
     FixedConnection,
     JumpConnection,
@@ -28,6 +29,7 @@ from fabulous.fabric_definition.gen_io import Gen_IO
 from fabulous.fabric_definition.port import (
     BelExternalPort,
     ConfigLogicPort,
+    ConfigPort,
     Pin,
     Port,
     SJumpPort,
@@ -68,6 +70,88 @@ def tile_directory(name: str, tile_dir: Path, matrix_file: Path) -> Path:
     if tile_dir.stem == name:
         return tile_dir.parent
     return matrix_file.parent
+
+
+def config_mem_ports(
+    instance: str, frame: tuple[ConfigLogicPort, ...], bits: int
+) -> tuple[ConfigLogicPort | ConfigPort, ...]:
+    """Return the ports of a configuration memory instance.
+
+    Parameters
+    ----------
+    instance : str
+        The instance name, which scopes the pins.
+    frame : tuple[ConfigLogicPort, ...]
+        The config logic ports of the tile whose frames it reads, which size
+        its frame inputs.
+    bits : int
+        The number of configuration bits it drives.
+
+    Returns
+    -------
+    tuple[ConfigLogicPort | ConfigPort, ...]
+        The frame inputs `FrameData`, `FrameStrobe`, then the bits
+        `ConfigBits`, `ConfigBits_N`; none without a frame grid or
+        configuration bits.
+    """
+    if not frame or not bits:
+        return ()
+    data, _, strobe, _ = frame
+    return (
+        ConfigLogicPort("FrameData", IO.INPUT, data.width, instance),
+        ConfigLogicPort("FrameStrobe", IO.INPUT, strobe.width, instance),
+        ConfigPort("ConfigBits", IO.OUTPUT, bits, instance),
+        ConfigPort("ConfigBits_N", IO.OUTPUT, bits, instance),
+    )
+
+
+def config_bit_connections(
+    ranges: dict[Bel | SwitchMatrix, range],
+    bits: ConfigPort,
+    bits_n: ConfigPort,
+    at: tuple[int, int] | None = None,
+) -> list[ConfigConnection]:
+    """Wire each configurable element to its slice of the configuration bits.
+
+    A BEL's configuration port takes its slice of `bits`; the switch matrix
+    takes its slice of `bits` and of `bits_n`.
+
+    Parameters
+    ----------
+    ranges : dict[Bel | SwitchMatrix, range]
+        Each element's slice (`config_bit_ranges`).
+    bits : ConfigPort
+        The memory's `ConfigBits` output.
+    bits_n : ConfigPort
+        The memory's `ConfigBits_N` output.
+    at : tuple[int, int] | None
+        The `tileMap` position of every end inside a supertile, None inside a
+        tile. Default None.
+
+    Returns
+    -------
+    list[ConfigConnection]
+        In `ranges` order.
+    """
+
+    def end(port: Port) -> object:
+        return port if at is None else (at, port)
+
+    connections = []
+    for element, slice_ in ranges.items():
+        if isinstance(element, SwitchMatrix):
+            sinks = zip((bits, bits_n), element.config_ports, strict=False)
+        elif element.config_port is not None:
+            sinks = [(bits, element.config_port)]
+        else:
+            sinks = []
+        for source, sink in sinks:
+            connections.append(
+                ConfigConnection(
+                    end(source), end(sink), sink, len(slice_), slice_.start
+                )
+            )
+    return connections
 
 
 @dataclass
@@ -203,7 +287,12 @@ class Tile:
         """
         # The hard wires are derived from the BELs once; a BEL added later
         # would silently be missing from them.
-        derived = {"port_connections", "fixed_connections", "bel_external_ports"}
+        derived = {
+            "port_connections",
+            "fixed_connections",
+            "bel_external_ports",
+            "config_mem_ports",
+        }
         if derived & self.__dict__.keys():
             raise RuntimeError(
                 f"Cannot add BELs to tile {self.name}: its connections are "
@@ -296,6 +385,24 @@ class Tile:
         )
 
     @cached_property
+    def config_mem_ports(self) -> tuple[ConfigLogicPort | ConfigPort, ...]:
+        """The ports of the tile's configuration memory instance.
+
+        It exists in a frame-based tile with configuration bits: it reads the
+        frames and drives the bits and their inverse.
+
+        Returns
+        -------
+        tuple[ConfigLogicPort | ConfigPort, ...]
+            The frame inputs, then the bits (`config_mem_ports`).
+        """
+        return config_mem_ports(
+            f"Inst_{self.name}_ConfigMem",
+            self.config_logic_ports,
+            self.globalConfigBits,
+        )
+
+    @cached_property
     def port_connections(self) -> list[PortConnection[Port]]:
         """The port-to-port wiring inside the tile.
 
@@ -307,13 +414,16 @@ class Tile:
         matrix reads the first `wire_count` pins of `N4END` and drives the
         last ones of `N4BEG`), to the BEL port or to the SJUMP port. A jump
         wire loops a matrix output back into a matrix input, and a BEL's
-        `EXTERNAL` port is wired to the tile-module port exporting it.
+        `EXTERNAL` port is wired to the tile-module port exporting it. The
+        configuration memory reads the frames and drives each BEL's
+        configuration port and the matrix's `ConfigBits` / `ConfigBits_N`
+        with their slice (`config_bit_ranges`).
 
         Returns
         -------
         list[PortConnection[Port]]
             Config logic pass-throughs, staging, matrix boundary, jump wires, BEL
-            external ports.
+            external ports, configuration.
         """
         frame = self.config_logic_ports
         connections: list[PortConnection[Port]] = [
@@ -362,6 +472,15 @@ class Tile:
             connections.append(
                 BelExternalConnection(source, sink, external, external.width)
             )
+        if self.config_mem_ports:
+            data, strobe, bits, bits_n = self.config_mem_ports
+            # TODO(discuss): the latches read the frames behind the input
+            # buffers (`FrameData_i`), no longer the tile port pins: is the
+            # extra buffer on the configuration write path wanted?
+            frame_inputs = self.config_logic_ports[::2]
+            for source, sink in zip(frame_inputs, (data, strobe), strict=True):
+                connections.append(ConfigConnection(source, sink, sink, sink.width))
+            connections += config_bit_connections(self.config_bit_ranges, bits, bits_n)
         return connections
 
     @cached_property

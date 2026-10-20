@@ -20,6 +20,7 @@ from fabulous.fabric_definition.port import (
     BelExternalPort,
     BelPort,
     ConfigLogicPort,
+    ConfigPort,
     SwitchMatrixPort,
 )
 from fabulous.fabric_definition.wire import JumpWire, SJumpWire
@@ -47,6 +48,7 @@ type Declaration = (
     | SJumpWire
     | BelExternalPort
     | ConfigLogicPort
+    | ConfigPort
 )
 """What a fixed connection is expanded from."""
 
@@ -253,6 +255,51 @@ class StagingConnection[E](PortConnection[E]):
 @dataclass(frozen=True)
 class ConfigLogicPassThrough[E](StagingConnection[E]):
     """A config logic port passed through the tile: `FrameData` -> `FrameData_O`."""
+
+
+@dataclass(frozen=True)
+class ConfigConnection[E](PortConnection[E]):
+    """Configuration wiring into and out of a configuration memory.
+
+    The frames into the memory, and a slice of its bits (from
+    `config_bit_ranges`) out to a BEL or the switch matrix.
+    """
+
+    @property
+    def vector_signal(self) -> str:
+        """The module signal of the source port: `ConfigBits`, `FrameData`.
+
+        Inside a supertile wrapper the configuration bits are `ST_ConfigBits`.
+
+        Raises
+        ------
+        TypeError
+            If the connection is placed in the fabric: it is no signal of the
+            fabric.
+        """
+        source = self.source
+        if not isinstance(source, tuple):
+            return source.name
+        at, port = source
+        if not isinstance(at, tuple):
+            raise TypeError(f"{self} is no signal of the fabric")
+        return f"ST_{port.name}"
+
+    def pin_signal(self, c: FixedConnection) -> str:
+        """Name the signal after its source pin, `ConfigBits[3]`.
+
+        Parameters
+        ----------
+        c : FixedConnection
+            One of the connection's `pin_connections`.
+
+        Returns
+        -------
+        str
+            The pin of the `vector_signal`.
+        """
+        source, _ = _module_pins(c)
+        return f"{self.vector_signal}[{source.index}]"
 
 
 @dataclass(frozen=True)

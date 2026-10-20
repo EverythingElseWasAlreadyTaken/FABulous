@@ -13,7 +13,11 @@ from loguru import logger
 from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.define import ConfigBitMode
 from fabulous.fabric_definition.fabric import Fabric
-from fabulous.fabric_definition.port import BelExternalPort, ConfigLogicPort
+from fabulous.fabric_definition.port import (
+    BelExternalPort,
+    ConfigLogicPort,
+    ConfigPort,
+)
 
 
 def border_rows_have_config_bits(fabric: Fabric) -> bool:
@@ -180,7 +184,9 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
     # nextpnr sees them as pips (all but the BEL EXTERNAL ports, see
     # gen_npnr_model).
     for connection in fabric.fixed_connections():
-        if isinstance(connection.declaration, BelExternalPort | ConfigLogicPort):
+        if isinstance(
+            connection.declaration, BelExternalPort | ConfigLogicPort | ConfigPort
+        ):
             continue
         src_at = connection.source[0]
         for key in ("TileSpecs", "TileSpecs_No_Mask"):

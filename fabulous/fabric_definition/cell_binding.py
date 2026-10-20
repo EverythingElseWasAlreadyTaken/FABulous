@@ -18,7 +18,10 @@ from fabulous.fabric_definition.connection import StagingConnection
 from fabulous.fabric_definition.fabric_cell_library import FabricCellFunction
 
 if TYPE_CHECKING:
-    from fabulous.fabric_definition.connection import FixedConnection
+    from fabulous.fabric_definition.connection import (
+        ConfigConnection,
+        FixedConnection,
+    )
     from fabulous.fabric_definition.port import Pin, Port
     from fabulous.fabric_definition.tile import Tile
 
@@ -157,3 +160,33 @@ def buffered_signal(
         if not isinstance(end, tuple) and end in buffers:
             return inner_signal(buffers, end)
     return c.signal
+
+
+def buffered_vector(
+    buffers: Mapping[Pin, FabricCellFunction], pc: ConfigConnection
+) -> str | None:
+    """Return the module signal a configuration connection reads, as one vector.
+
+    The port-level `buffered_signal`: the inner vector of its source port
+    (`FrameData_i`) when every source pin it reads is buffered, its
+    `vector_signal` when none is.
+
+    Parameters
+    ----------
+    buffers : Mapping[Pin, FabricCellFunction]
+        The buffered pins.
+    pc : ConfigConnection
+        A configuration connection of a tile or supertile.
+
+    Returns
+    -------
+    str | None
+        The vector; None when only some source pins are buffered, which no
+        single vector carries.
+    """
+    buffered = [c.source in buffers for c in pc.pin_connections]
+    if all(buffered):
+        return inner_vector(pc.source)
+    if not any(buffered):
+        return pc.vector_signal
+    return None

@@ -39,9 +39,11 @@ from fabulous.fabric_definition.fabric_cell_library import (
     FabricCellLibrary,
 )
 from fabulous.fabric_definition.port import (
+    BelConfigPort,
     BelExternalPort,
     BelPort,
     ConfigLogicPort,
+    ConfigPort,
     Pin,
     SJumpPort,
     SwitchMatrixPort,
@@ -60,7 +62,7 @@ type Net = frozenset[Endpoint]
 
 
 def _bel_pins(bels: Iterable) -> list[Pin]:
-    return [
+    pins = [
         pin
         for bel in bels
         for kind in (BelPortKind.INTERNAL, BelPortKind.EXTERNAL)
@@ -68,6 +70,17 @@ def _bel_pins(bels: Iterable) -> list[Pin]:
         for p in bel.get_ports(kind, io)
         for pin in p.pins
     ]
+    return pins + [
+        pin for bel in bels if bel.config_port for pin in bel.config_port.pins
+    ]
+
+
+def _config_pins(
+    matrix: SwitchMatrix | None, memory: Iterable[ConfigLogicPort | ConfigPort]
+) -> list[Pin]:
+    """The configuration pins of the matrix and of the given ConfigMem ports."""
+    ports = [*(matrix.config_ports if matrix else ()), *memory]
+    return [pin for p in ports for pin in p.pins]
 
 
 def _instance_pin(pin: Pin) -> Endpoint:
@@ -79,12 +92,24 @@ def _instance_pin(pin: Pin) -> Endpoint:
         return (port.bel.instance_name, port.base_name, pin.index)
     if isinstance(port, BelExternalPort):  # scalar module ports, one per pin
         return ("", pin.name(), 0)
+    if isinstance(port, BelConfigPort):
+        return (port.bel.instance_name, port.name, pin.index)
+    if isinstance(port, ConfigPort | ConfigLogicPort):  # ConfigMem or matrix
+        return (port.instance, port.name, pin.index)
     raise TypeError(f"{port} is no port of the module or its instances")
 
 
+def _is_tile_port(port: object) -> bool:
+    """Whether `port` is a port of the tile module itself."""
+    return isinstance(port, TilePort | SJumpPort) or (
+        isinstance(port, ConfigLogicPort) and not port.instance
+    )
+
+
 def _tile_endpoint(pin: Pin) -> Endpoint:
-    if isinstance(pin.port, TilePort | SJumpPort | ConfigLogicPort):
-        return ("", pin.port.name, pin.index)
+    port = pin.port
+    if _is_tile_port(port):
+        return ("", port.name, pin.index)
     return _instance_pin(pin)
 
 
@@ -305,9 +330,7 @@ def _problems(
     driven_by = {x: a for a, x in rtl.through.items()}
     for c in connections:
         for end, step in ((c.source, rtl.through), (c.sink, driven_by)):
-            if isinstance(end, tuple) or not isinstance(
-                end.port, TilePort | ConfigLogicPort
-            ):
+            if isinstance(end, tuple) or not _is_tile_port(end.port):
                 continue
             net_id = rtl.net_id[endpoint(end)]
             if buffered(end):
@@ -394,6 +417,7 @@ def test_tile_rtl_matches_the_model(
         pins += [
             pin for p in tile.switch_matrix.ports if not p.is_constant for pin in p.pins
         ]
+        pins += _config_pins(tile.switch_matrix, tile.config_mem_ports)
         universe = {_tile_endpoint(pin) for pin in pins}
         connections = _inside(tile.fixed_connections)
         problems += _problems(
@@ -452,6 +476,9 @@ def test_supertile_wrapper_matches_the_model(
                 if not p.is_constant
                 for pin in p.pins
             ]
+        # The wrapper ConfigMem's frame inputs are wired by hand, not modelled.
+        memory = [p for p in super_tile.config_mem_ports if isinstance(p, ConfigPort)]
+        pins += _config_pins(super_tile.switch_matrix, memory)
         universe |= {_instance_pin(pin) for pin in pins}
         connections = _inside(super_tile.fixed_connections)
         problems += _problems(

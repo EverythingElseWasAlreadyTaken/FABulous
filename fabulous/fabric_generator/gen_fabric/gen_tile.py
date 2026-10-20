@@ -20,12 +20,14 @@ from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.cell_binding import (
     buffer_name,
     buffered_signal,
+    buffered_vector,
     inner_signal,
     inner_vector,
 )
 from fabulous.fabric_definition.cell_spec import CellSpec
 from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.connection import (
+    ConfigConnection,
     JumpConnection,
     StagingConnection,
     SwitchMatrixConnection,
@@ -43,7 +45,7 @@ from fabulous.fabric_definition.fabric_cell_library import (
     FabricCellFunction,
     FabricCellLibrary,
 )
-from fabulous.fabric_definition.port import Pin
+from fabulous.fabric_definition.port import Pin, Port
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_definition.wire import SJumpWire
@@ -124,6 +126,43 @@ def _add_buffer(
             (cell.output_ports[0], signal_out),
         ],
     )
+
+
+def _config_signals(
+    connections: list[ConfigConnection], buffers: Mapping[Pin, FabricCellFunction]
+) -> dict[Port, str]:
+    """Map every configuration port to its signal in the module.
+
+    A driven port takes its connection's slice of the driving vector
+    (`ConfigBits[16-1:0]`); a configuration memory output its whole vector.
+
+    Parameters
+    ----------
+    connections : list[ConfigConnection]
+        The module's configuration connections.
+    buffers : Mapping[Pin, FabricCellFunction]
+        The buffered tile port pins.
+
+    Returns
+    -------
+    dict[Port, str]
+        The signal of each port at either end.
+    """
+    signals: dict[Port, str] = {}
+    for pc in connections:
+        source, sink = (
+            (end[1] if isinstance(end, tuple) else end) for end in (pc.source, pc.sink)
+        )
+        vector = buffered_vector(buffers, pc)
+        if vector is None:
+            # Partly buffered: the pins' signals, most significant first.
+            pins = [buffered_signal(buffers, c) for c in pc.pin_connections]
+            signals[sink] = f"{{{', '.join(reversed(pins))}}}"
+        else:
+            low = pc.source_offset
+            signals[sink] = f"{vector}[{low + pc.width}-1:{low}]"
+        signals.setdefault(source, pc.vector_signal)
+    return signals
 
 
 def _add_parameters(
@@ -474,17 +513,16 @@ def generateTile(
         writer.addAssignScalar("conf_data(conf_data'high)", "CONFout")
         writer.addComment("CONFout is from tile entity")
 
-    if config_bit_mode == ConfigBitMode.FRAME_BASED and tile.globalConfigBits > 0:
+    config_signals = _config_signals(
+        [pc for pc in tile.port_connections if isinstance(pc, ConfigConnection)],
+        buffers,
+    )
+    if tile.config_mem_ports:
         writer.addComment("configuration storage latches", onNewLine=True)
         writer.addInstantiation(
             compName=f"{tile.name}_ConfigMem",
-            compInsName=f"Inst_{tile.name}_ConfigMem",
-            portsPairs=[
-                ("FrameData", "FrameData"),
-                ("FrameStrobe", "FrameStrobe"),
-                ("ConfigBits", "ConfigBits"),
-                ("ConfigBits_N", "ConfigBits_N"),
-            ],
+            compInsName=tile.config_mem_ports[0].instance,
+            portsPairs=[(p.name, config_signals[p]) for p in tile.config_mem_ports],
             emulateParamPairs=[("Emulate_Bitstream", "Emulate_Bitstream")],
         )
 
@@ -494,7 +532,6 @@ def generateTile(
         writer.addComment("BEL component instantiations", onNewLine=True)
 
     belCounter = 0
-    config_bit_ranges = tile.config_bit_ranges
     for bel in tile.bels:
         ports_pairs = []
         userclk_pair = None
@@ -517,14 +554,9 @@ def generateTile(
             ports_pairs.append(userclk_pair)
 
         if config_bit_mode == ConfigBitMode.FRAME_BASED:
-            if bel.config_port is not None:
-                bits = config_bit_ranges[bel]
-                ports_pairs.append(
-                    (
-                        bel.config_port.name,
-                        f"ConfigBits[{bits.stop}-1:{bits.start}]",
-                    )
-                )
+            if bel.config_port in config_signals:
+                port = bel.config_port
+                ports_pairs.append((port.name, config_signals[port]))
         elif config_bit_mode == ConfigBitMode.FLIPFLOP_CHAIN:
             ports_pairs.append(("MODE", "Mode"))
             ports_pairs.append(("CONFin", f"conf_data({belCounter})"))
@@ -567,12 +599,9 @@ def generateTile(
         ports_pairs.append(("CONFout", f"conf_data({belCounter + 1})"))
         ports_pairs.append(("CLK", "CLK"))
 
-    if config_bit_mode == ConfigBitMode.FRAME_BASED and tile.globalConfigBits > 0:
-        bits = config_bit_ranges[tile.switch_matrix]
-        ports_pairs.append(("ConfigBits", f"ConfigBits[{bits.stop}-1:{bits.start}]"))
-        ports_pairs.append(
-            ("ConfigBits_N", f"ConfigBits_N[{bits.stop}-1:{bits.start}]")
-        )
+    for port in tile.switch_matrix.config_ports:
+        if port in config_signals:
+            ports_pairs.append((port.name, config_signals[port]))
 
     writer.addInstantiation(
         compName=tile.switch_matrix.module_name,
@@ -964,8 +993,13 @@ def generateSuperTile(
                 emulateParamPairs=emulateParamPairs,
             )
 
+    config_signals = _config_signals(
+        [pc for pc in superTile.port_connections if isinstance(pc, ConfigConnection)],
+        {},
+    )
     # Instantiate supertile ConfigMem (shares free slots in master tile's frame space)
-    if st_config_bits > 0 and config_bit_mode == ConfigBitMode.FRAME_BASED:
+    if superTile.config_mem_ports:
+        _, _, bits, bits_n = superTile.config_mem_ports
         mx, my = superTile.get_master_tile_coords()
         if (
             0 <= mx - 1 < len(superTile.tileMap[0])
@@ -983,12 +1017,12 @@ def generateSuperTile(
             cm_frame_strobe = f"Tile_X{mx}Y{my}_FrameStrobe"
         writer.addInstantiation(
             compName=f"{superTile.name}_ConfigMem",
-            compInsName=f"Inst_{superTile.name}_ConfigMem",
+            compInsName=bits.instance,
             portsPairs=[
                 ("FrameData", cm_frame_data),
                 ("FrameStrobe", cm_frame_strobe),
-                ("ConfigBits", f"ST_ConfigBits[{st_config_bits}-1:0]"),
-                ("ConfigBits_N", f"ST_ConfigBits_N[{st_config_bits}-1:0]"),
+                (bits.name, config_signals[bits]),
+                (bits_n.name, config_signals[bits_n]),
             ],
             # The supertile config bits live in free slots of the master tile's
             # frame space, so in emulation they are preloaded from the master
@@ -1016,17 +1050,9 @@ def generateSuperTile(
             for port in ports
             for pin in port.pins
         ]
-        if (
-            superTile.supertile_matrix_config_bits > 0
-            and config_bit_mode == ConfigBitMode.FRAME_BASED
-        ):
-            bits = superTile.config_bit_ranges[superTile.switch_matrix]
-            sm_ports_pairs.append(
-                ("ConfigBits", f"ST_ConfigBits[{bits.stop}-1:{bits.start}]")
-            )
-            sm_ports_pairs.append(
-                ("ConfigBits_N", f"ST_ConfigBits_N[{bits.stop}-1:{bits.start}]")
-            )
+        for port in superTile.switch_matrix.config_ports:
+            if port in config_signals:
+                sm_ports_pairs.append((port.name, config_signals[port]))
         writer.addInstantiation(
             compName=superTile.switch_matrix.module_name,
             compInsName=superTile.switch_matrix.instance_name,
@@ -1034,7 +1060,6 @@ def generateSuperTile(
         )
 
     # Instantiate supertile BELs
-    config_bit_ranges = superTile.config_bit_ranges
     for bel in superTile.bels:
         # The signals are the supertile SM outputs / BEL inputs.
         bel_ports_pairs = _bel_bus_pairs(bel)
@@ -1048,11 +1073,9 @@ def generateSuperTile(
             else:
                 bel_user_clk = f"Tile_X{mx}Y{my}_UserCLK"
             bel_ports_pairs.append(("UserCLK", bel_user_clk))
-        if bel.config_port is not None and config_bit_mode == ConfigBitMode.FRAME_BASED:
-            bits = config_bit_ranges[bel]
-            bel_ports_pairs.append(
-                (bel.config_port.name, f"ST_ConfigBits[{bits.stop}-1:{bits.start}]")
-            )
+        if bel.config_port in config_signals:
+            port = bel.config_port
+            bel_ports_pairs.append((port.name, config_signals[port]))
         writer.addInstantiation(
             compName=bel.name,
             compInsName=bel.instance_name,
