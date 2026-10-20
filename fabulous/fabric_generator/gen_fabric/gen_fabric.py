@@ -478,10 +478,12 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
 
             name = ""
             emulateParamPairs = []
+            # Only a frame-based tile declares an emulation bitstream.
+            emulated = fabric.configBitMode == ConfigBitMode.FRAME_BASED
             if superTile:
                 name = superTile.name
                 for i, j in tileLocationOffset:
-                    if (y + j) not in (0, fabric.numberOfRows - 1):
+                    if emulated and (y + j) not in (0, fabric.numberOfRows - 1):
                         emulateParamPairs.append(
                             (
                                 f"Tile_X{i}Y{j}_Emulate_Bitstream",
@@ -490,7 +492,7 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
                         )
             else:
                 name = tile.name
-                if y not in (0, fabric.numberOfRows - 1):
+                if emulated and y not in (0, fabric.numberOfRows - 1):
                     emulateParamPairs.append(
                         ("Emulate_Bitstream", f"`Tile_X{x}Y{y}_Emulate_Bitstream")
                     )

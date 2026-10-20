@@ -221,8 +221,6 @@ class FABulous_API:
     def genTile(
         self,
         tileName: str,
-        frame_bit_per_row: int | None = None,
-        max_frame_per_col: int | None = None,
         disable_user_clk: bool | None = None,
         config_bit_mode: ConfigBitMode | None = None,
     ) -> None:
@@ -234,12 +232,6 @@ class FABulous_API:
         ----------
         tileName : str
             Name of the tile generated.
-        frame_bit_per_row : int | None
-            Override for the fabric's ``frameBitsPerRow``. If ``None``, the value
-            from ``self.fabric`` is used.
-        max_frame_per_col : int | None
-            Override for the fabric's ``maxFramesPerCol``. If ``None``, the value
-            from ``self.fabric`` is used.
         disable_user_clk : bool | None
             Override for the fabric's ``disableUserCLK``. If ``None``, the value
             from ``self.fabric`` is used.
@@ -257,8 +249,6 @@ class FABulous_API:
             generateTile(
                 self.writer,
                 tile,
-                frame_bit_per_row or self.fabric.frameBitsPerRow,
-                max_frame_per_col or self.fabric.maxFramesPerCol,
                 disable_user_clk or self.fabric.disableUserCLK,
                 config_bit_mode or self.fabric.configBitMode,
                 cells=cells,
@@ -270,8 +260,6 @@ class FABulous_API:
     def genSuperTile(
         self,
         tileName: str,
-        frame_bit_per_row: int | None = None,
-        max_frame_per_col: int | None = None,
         disable_user_clk: bool | None = None,
         config_bit_mode: ConfigBitMode | None = None,
     ) -> None:
@@ -283,12 +271,6 @@ class FABulous_API:
         ----------
         tileName : str
             Name of the super tile generated.
-        frame_bit_per_row : int | None
-            Override for the fabric's ``frameBitsPerRow``. If ``None``, the value
-            from ``self.fabric`` is used.
-        max_frame_per_col : int | None
-            Override for the fabric's ``maxFramesPerCol``. If ``None``, the value
-            from ``self.fabric`` is used.
         disable_user_clk : bool | None
             Override for the fabric's ``disableUserCLK``. If ``None``, the value
             from ``self.fabric`` is used.
@@ -305,8 +287,6 @@ class FABulous_API:
             generateSuperTile(
                 self.writer,
                 tile,
-                frame_bit_per_row or self.fabric.frameBitsPerRow,
-                max_frame_per_col or self.fabric.maxFramesPerCol,
                 disable_user_clk or self.fabric.disableUserCLK,
                 config_bit_mode or self.fabric.configBitMode,
                 user_clk_side=self.fabric.userCLKSide,

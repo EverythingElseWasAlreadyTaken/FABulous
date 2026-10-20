@@ -24,6 +24,7 @@ from fabulous.fabric_definition.cell_binding import (
     inner_vector,
 )
 from fabulous.fabric_definition.cell_spec import CellSpec
+from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.connection import (
     JumpConnection,
     StagingConnection,
@@ -125,11 +126,56 @@ def _add_buffer(
     )
 
 
+def _add_parameters(
+    writer: CodeGenerator, emulated: list[tuple[str, ConfigMem]], config_bits: int = 0
+) -> None:
+    """Declare the module parameters.
+
+    Per frame grid an emulation bitstream (Verilog only), the frame sizes and
+    the number of configuration bits. A module with none of them gets no
+    parameter list: the writers cannot close an empty one.
+
+    Parameters
+    ----------
+    writer : CodeGenerator
+        The code generator.
+    emulated : list[tuple[str, ConfigMem]]
+        One `<prefix>Emulate_Bitstream` parameter per `(prefix, memory)`, as
+        wide as the memory's frame grid; empty for a module without frames.
+    config_bits : int
+        The `NoConfigBits` parameter, none if 0. Default 0.
+    """
+    if not emulated and not config_bits:
+        return
+    writer.addParameterStart(indentLevel=1)
+    if emulated:
+        if isinstance(writer, VerilogCodeGenerator):  # emulation only in Verilog
+            writer.addPreprocIfDef("EMULATION")
+            for prefix, memory in emulated:
+                bits = memory.frame_bits_per_row * memory.max_frames_per_col
+                writer.addParameter(
+                    f"{prefix}Emulate_Bitstream",
+                    f"[{bits - 1}:0]",
+                    f"{bits}'b0",
+                    indentLevel=2,
+                )
+            writer.addPreprocEndif()
+        # Every memory is read with the fabric's frame sizes.
+        _, memory = emulated[0]
+        writer.addParameter(
+            "MaxFramesPerCol", "integer", memory.max_frames_per_col, indentLevel=2
+        )
+        writer.addParameter(
+            "FrameBitsPerRow", "integer", memory.frame_bits_per_row, indentLevel=2
+        )
+    if config_bits:
+        writer.addParameter("NoConfigBits", "integer", config_bits, indentLevel=2)
+    writer.addParameterEnd(indentLevel=1)
+
+
 def generateTile(
     writer: CodeGenerator,
     tile: Tile,
-    frame_bits_per_row: int = 32,
-    max_frame_per_col: int = 20,
     disable_user_clk: bool = False,
     config_bit_mode: ConfigBitMode = ConfigBitMode.FRAME_BASED,
     *,
@@ -173,11 +219,8 @@ def generateTile(
     writer : CodeGenerator
         The code generator instance for RTL output
     tile : Tile
-        The tile object containing BELs and port information
-    frame_bits_per_row : int
-        Number of configuration bits per row for frame-based configuration
-    max_frame_per_col : int
-        Maximum number of frames per column for frame-based configuration
+        The tile object containing BELs and port information; a frame-based
+        tile takes its frame sizes from its `config_mem`.
     disable_user_clk : bool
         If True, the UserCLK port will not be generated or connected
     config_bit_mode : ConfigBitMode
@@ -218,25 +261,8 @@ def generateTile(
             f"{tile.name}: buffers are placed at staged pins only so far"
         )
     writer.addHeader(f"{tile.name}")
-    writer.addParameterStart(indentLevel=1)
-    if isinstance(writer, VerilogCodeGenerator):  # emulation only in Verilog
-        maxBits = frame_bits_per_row * max_frame_per_col
-        writer.addPreprocIfDef("EMULATION")
-        writer.addParameter(
-            "Emulate_Bitstream",
-            f"[{maxBits - 1}:0]",
-            f"{maxBits}'b0",
-            indentLevel=2,
-        )
-        writer.addPreprocEndif()
-    writer.addParameter("MaxFramesPerCol", "integer", max_frame_per_col, indentLevel=2)
-    writer.addParameter("FrameBitsPerRow", "integer", frame_bits_per_row, indentLevel=2)
-    if tile.globalConfigBits > 0:
-        writer.addParameter(
-            "NoConfigBits", "integer", tile.globalConfigBits, indentLevel=2
-        )
-
-    writer.addParameterEnd(indentLevel=1)
+    emulated = [("", tile.config_mem)] if tile.config_logic_ports else []
+    _add_parameters(writer, emulated, tile.globalConfigBits)
     writer.addPortStart(indentLevel=1)
 
     # holder for each direction of port string
@@ -561,8 +587,6 @@ def generateTile(
 def generateSuperTile(
     writer: CodeGenerator,
     superTile: SuperTile,
-    frame_bits_per_row: int = 32,
-    max_frame_per_col: int = 20,
     disable_user_clk: bool = False,
     config_bit_mode: ConfigBitMode = ConfigBitMode.FRAME_BASED,
     user_clk_side: Side = Side.SOUTH,
@@ -582,11 +606,8 @@ def generateSuperTile(
     writer : CodeGenerator
         The code generator instance for RTL output
     superTile : SuperTile
-        Super tile object containing tile map and configuration
-    frame_bits_per_row : int
-        Number of configuration bits per row for frame-based configuration
-    max_frame_per_col : int
-        Maximum number of frames per column for frame-based configuration
+        Super tile object containing tile map and configuration; frame-based,
+        it takes the frame sizes from its subtiles' `config_mem`s.
     disable_user_clk : bool
         If True, the UserCLK port will not be generated or connected
     config_bit_mode : ConfigBitMode
@@ -603,25 +624,14 @@ def generateSuperTile(
         generation first.
     """
     writer.addHeader(f"{superTile.name}")
-    writer.addParameterStart(indentLevel=1)
-    if isinstance(writer, VerilogCodeGenerator):
-        writer.addPreprocIfDef("EMULATION")
-        maxBits = frame_bits_per_row * max_frame_per_col
-        for y, row in enumerate(superTile.tileMap):
-            for x, tile in enumerate(row):
-                if not tile:
-                    continue
-                writer.addParameter(
-                    f"Tile_X{x}Y{y}_Emulate_Bitstream",
-                    f"[{maxBits - 1}:0]",
-                    f"{maxBits}'b0",
-                    indentLevel=2,
-                )
-        writer.addPreprocEndif()
-    writer.addParameter("MaxFramesPerCol", "integer", max_frame_per_col, indentLevel=2)
-    writer.addParameter("FrameBitsPerRow", "integer", frame_bits_per_row, indentLevel=2)
-
-    writer.addParameterEnd(indentLevel=1)
+    frame_based = config_bit_mode == ConfigBitMode.FRAME_BASED
+    emulated = [
+        (f"Tile_X{x}Y{y}_", tile.config_mem)
+        for y, row in enumerate(superTile.tileMap)
+        for x, tile in enumerate(row)
+        if tile and frame_based
+    ]
+    _add_parameters(writer, emulated)
     writer.addPortStart(indentLevel=1)
 
     # The subtile ports facing out of the supertile are the wrapper's ports.
@@ -833,7 +843,8 @@ def generateSuperTile(
             if tile is None:
                 continue
             if (
-                0 <= y - 1 < len(superTile.tileMap)
+                frame_based
+                and 0 <= y - 1 < len(superTile.tileMap)
                 and superTile.tileMap[y - 1][x] is not None
             ):
                 writer.addConnectionVector(
@@ -847,7 +858,8 @@ def generateSuperTile(
             ):
                 writer.addConnectionScalar(f"Tile_X{x}Y{y}_UserCLKo", indentLevel=1)
             if (
-                0 <= x + 1 < len(superTile.tileMap[y])
+                frame_based
+                and 0 <= x + 1 < len(superTile.tileMap[y])
                 and superTile.tileMap[y][x + 1] is not None
             ):
                 writer.addConnectionVector(
@@ -939,9 +951,11 @@ def generateSuperTile(
 
                 ports_pairs.append(("FrameStrobe_O", f"Tile_X{x}Y{y}_FrameStrobe_O"))
 
-            emulateParamPairs = [
-                ("Emulate_Bitstream", f"Tile_X{x}Y{y}_Emulate_Bitstream")
-            ]
+            emulateParamPairs = []
+            if frame_based:
+                emulateParamPairs = [
+                    ("Emulate_Bitstream", f"Tile_X{x}Y{y}_Emulate_Bitstream")
+                ]
 
             writer.addInstantiation(
                 compName=tile.name,
