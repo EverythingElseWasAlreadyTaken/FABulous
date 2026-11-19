@@ -165,6 +165,29 @@ def _config_signals(
     return signals
 
 
+def _config_mem_signal(port: Port, signals: Mapping[Port, str]) -> str:
+    """Return the signal a configuration memory port is mapped to.
+
+    An output nothing reads stays open: `ConfigBits_N` has no reader when the
+    switch matrix has no config bits (BELs take only `ConfigBits`).
+
+    Parameters
+    ----------
+    port : Port
+        A port of the configuration memory.
+    signals : Mapping[Port, str]
+        The module's configuration signals (`_config_signals`).
+
+    Returns
+    -------
+    str
+        The port's signal, `""` (open) for an unread output.
+    """
+    if port.io_direction == IO.OUTPUT:
+        return signals.get(port, "")
+    return signals[port]
+
+
 def _add_parameters(
     writer: CodeGenerator, emulated: list[tuple[str, ConfigMem]], config_bits: int = 0
 ) -> None:
@@ -517,12 +540,15 @@ def generateTile(
         [pc for pc in tile.port_connections if isinstance(pc, ConfigConnection)],
         buffers,
     )
-    if tile.config_mem_ports:
+    if tile.config_mem.ports:
         writer.addComment("configuration storage latches", onNewLine=True)
         writer.addInstantiation(
-            compName=f"{tile.name}_ConfigMem",
-            compInsName=tile.config_mem_ports[0].instance,
-            portsPairs=[(p.name, config_signals[p]) for p in tile.config_mem_ports],
+            compName=tile.config_mem.module_name,
+            compInsName=tile.config_mem.instance_name,
+            portsPairs=[
+                (p.name, _config_mem_signal(p, config_signals))
+                for p in tile.config_mem.ports
+            ],
             emulateParamPairs=[("Emulate_Bitstream", "Emulate_Bitstream")],
         )
 
@@ -998,8 +1024,8 @@ def generateSuperTile(
         {},
     )
     # Instantiate supertile ConfigMem (shares free slots in master tile's frame space)
-    if superTile.config_mem_ports:
-        _, _, bits, bits_n = superTile.config_mem_ports
+    if superTile.config_mem.ports:
+        _, _, bits, bits_n = superTile.config_mem.ports
         mx, my = superTile.get_master_tile_coords()
         if (
             0 <= mx - 1 < len(superTile.tileMap[0])
@@ -1016,13 +1042,13 @@ def generateSuperTile(
         else:
             cm_frame_strobe = f"Tile_X{mx}Y{my}_FrameStrobe"
         writer.addInstantiation(
-            compName=f"{superTile.name}_ConfigMem",
+            compName=superTile.config_mem.module_name,
             compInsName=bits.instance,
             portsPairs=[
                 ("FrameData", cm_frame_data),
                 ("FrameStrobe", cm_frame_strobe),
-                (bits.name, config_signals[bits]),
-                (bits_n.name, config_signals[bits_n]),
+                (bits.name, _config_mem_signal(bits, config_signals)),
+                (bits_n.name, _config_mem_signal(bits_n, config_signals)),
             ],
             # The supertile config bits live in free slots of the master tile's
             # frame space, so in emulation they are preloaded from the master

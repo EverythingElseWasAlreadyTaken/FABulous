@@ -11,7 +11,7 @@ import pytest
 from cocotb_tools.runner import get_runner
 from pytest_mock import MockerFixture
 
-from fabulous.fabric_definition.configmem import ConfigMemFrame, empty_config_mem
+from fabulous.fabric_definition.configmem import ConfigMem, ConfigMemFrame
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
@@ -62,7 +62,7 @@ def mk_tile(tmp_path: Path) -> Callable[[str], Tile]:
             [],
             tmp_path,
             switch_matrix,
-            empty_config_mem(tmp_path / f"{name}_ConfigMem.csv"),
+            ConfigMem(source=tmp_path / f"{name}_ConfigMem.csv"),
             [],
             False,
         )

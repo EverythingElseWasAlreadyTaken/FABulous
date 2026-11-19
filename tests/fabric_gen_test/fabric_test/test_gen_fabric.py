@@ -8,7 +8,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from fabulous.fabric_definition.cell_binding import resolve_buffers
-from fabulous.fabric_definition.configmem import empty_config_mem
+from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.define import (
     IO,
     USER_CLK_PREDECESSOR,
@@ -17,7 +17,7 @@ from fabulous.fabric_definition.define import (
 )
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.fabric_cell_library import FabricCellLibrary
-from fabulous.fabric_definition.port import BelConfigPort, SJumpPort
+from fabulous.fabric_definition.port import ConfigBitPort, SJumpPort
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.code_generator.code_generator import CodeGenerator
@@ -51,10 +51,14 @@ def test_generate_fabric_uses_fabric_name(mocker: MockerFixture) -> None:
     writer.addHeader.assert_called_once_with("test_fabric")
 
 
-def _supertile(tmp_path: Path, config_port: BelConfigPort | None = None) -> SuperTile:
+def _supertile(
+    tmp_path: Path,
+    config_port: ConfigBitPort | None = None,
+    matrix: tuple[str, str] = ("{2}SUPER_A0", "[DSP_bot_A0|DSP_bot_A1]"),
+) -> SuperTile:
     """A minimal DSP-like supertile: DSP_top over master DSP_bot, one mux bit."""
     mat = tmp_path / "supertile_matrix.list"
-    create_switchmatrix_list(mat, [("{2}SUPER_A0", "[DSP_bot_A0|DSP_bot_A1]")])
+    create_switchmatrix_list(mat, [matrix])
 
     def mk(name: str, ports: list[SJumpPort]) -> Tile:
         """Build a minimal child tile rooted at `tmp_path`."""
@@ -107,7 +111,7 @@ def test_supertile_bel_config_port_connected_by_name(
     code_generator_factory: Callable[[str, str], CodeGenerator],
 ) -> None:
     """A BEL config port is wired under its own name, not a fixed `ConfigBits`."""
-    cfg = BelConfigPort("Cfg", IO.INPUT, 2, bel_map={"INIT": {}, "MODE": {}})
+    cfg = ConfigBitPort("Cfg", IO.INPUT, 2)
     writer = code_generator_factory(".v", "DSP")
     generateSuperTile(writer, _supertile(tmp_path, cfg))
     rtl = writer.outFileName.read_text()
@@ -116,6 +120,25 @@ def test_supertile_bel_config_port_connected_by_name(
     assert inst is not None, "supertile BEL not instantiated"
     assert re.search(r"\.Cfg\(ST_ConfigBits\[", inst.group(0))
     assert ".ConfigBits(" not in inst.group(0)
+
+
+def test_supertile_config_mem_leaves_unread_inverted_bits_open(
+    tmp_path: Path,
+    code_generator_factory: Callable[[str, str], CodeGenerator],
+) -> None:
+    """Only a matrix with config bits reads `ConfigBits_N`; without one it is open.
+
+    All config bits go to the BEL, which takes only `ConfigBits`.
+    """
+    cfg = ConfigBitPort("Cfg", IO.INPUT, 2)
+    writer = code_generator_factory(".v", "DSP")
+    generateSuperTile(writer, _supertile(tmp_path, cfg, ("SUPER_A0", "DSP_bot_A0")))
+    rtl = writer.outFileName.read_text()
+
+    inst = re.search(r"Inst_DSP_ConfigMem.*?\);", rtl, re.DOTALL)
+    assert inst is not None, "supertile ConfigMem not instantiated"
+    assert ".ConfigBits(ST_ConfigBits)" in inst.group(0)
+    assert ".ConfigBits_N()" in inst.group(0)
 
 
 def _stub_entity(path: Path, name: str) -> None:
@@ -203,7 +226,7 @@ def test_vhdl_chain_tile_declares_no_config_mem_component(
         matrixDir=tmp_path / "T_switch_matrix.list",
         pinOrderConfig={},
     )
-    tile.config_mem = empty_config_mem(tmp_path / "T_ConfigMem.csv")
+    tile.config_mem = ConfigMem(source=tmp_path / "T_ConfigMem.csv")
     _stub_entity(tmp_path / "T_switch_matrix.vhdl", "T_switch_matrix")
 
     writer = code_generator_factory(".vhd", "T")

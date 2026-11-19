@@ -39,11 +39,10 @@ from fabulous.fabric_definition.fabric_cell_library import (
     FabricCellLibrary,
 )
 from fabulous.fabric_definition.port import (
-    BelConfigPort,
     BelExternalPort,
     BelPort,
+    ConfigBitPort,
     ConfigLogicPort,
-    ConfigPort,
     Pin,
     SJumpPort,
     SwitchMatrixPort,
@@ -76,7 +75,7 @@ def _bel_pins(bels: Iterable) -> list[Pin]:
 
 
 def _config_pins(
-    matrix: SwitchMatrix | None, memory: Iterable[ConfigLogicPort | ConfigPort]
+    matrix: SwitchMatrix | None, memory: Iterable[ConfigLogicPort | ConfigBitPort]
 ) -> list[Pin]:
     """The configuration pins of the matrix and of the given ConfigMem ports."""
     ports = [*(matrix.config_ports if matrix else ()), *memory]
@@ -92,9 +91,7 @@ def _instance_pin(pin: Pin) -> Endpoint:
         return (port.bel.instance_name, port.base_name, pin.index)
     if isinstance(port, BelExternalPort):  # scalar module ports, one per pin
         return ("", pin.name(), 0)
-    if isinstance(port, BelConfigPort):
-        return (port.bel.instance_name, port.name, pin.index)
-    if isinstance(port, ConfigPort | ConfigLogicPort):  # ConfigMem or matrix
+    if isinstance(port, ConfigBitPort | ConfigLogicPort):  # BEL, matrix, ConfigMem
         return (port.instance, port.name, pin.index)
     raise TypeError(f"{port} is no port of the module or its instances")
 
@@ -417,7 +414,7 @@ def test_tile_rtl_matches_the_model(
         pins += [
             pin for p in tile.switch_matrix.ports if not p.is_constant for pin in p.pins
         ]
-        pins += _config_pins(tile.switch_matrix, tile.config_mem_ports)
+        pins += _config_pins(tile.switch_matrix, tile.config_mem.ports)
         universe = {_tile_endpoint(pin) for pin in pins}
         connections = _inside(tile.fixed_connections)
         problems += _problems(
@@ -477,7 +474,9 @@ def test_supertile_wrapper_matches_the_model(
                 for pin in p.pins
             ]
         # The wrapper ConfigMem's frame inputs are wired by hand, not modelled.
-        memory = [p for p in super_tile.config_mem_ports if isinstance(p, ConfigPort)]
+        memory = [
+            p for p in super_tile.config_mem.ports if isinstance(p, ConfigBitPort)
+        ]
         pins += _config_pins(super_tile.switch_matrix, memory)
         universe |= {_instance_pin(pin) for pin in pins}
         connections = _inside(super_tile.fixed_connections)

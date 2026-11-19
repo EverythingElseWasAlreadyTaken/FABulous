@@ -178,10 +178,11 @@ def test_configmem_rtl_with_generated_configmem_simulation(
     )
 
     bit_mapping = {}  # Key: "frame,framedata_bit", Value: config_bit_index
-    config_mem_entries = ConfigMem.from_csv(
-        csv_path,
-        frame_bits_per_row=fabric_config.frameBitsPerRow,
-        max_frames_per_col=fabric_config.maxFramesPerCol,
+    config_mem_entries = ConfigMem(
+        None,
+        fabric_config.frameBitsPerRow,
+        fabric_config.maxFramesPerCol,
+        source=csv_path,
     ).used_frames
 
     # Create direct mapping using the parsed ConfigMem objects

@@ -27,11 +27,10 @@ from fabulous.fabric_cad.gen_npnr_model import genNextpnrModel
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.configmem import (
     ConfigMem,
-    empty_config_mem,
 )
 from fabulous.fabric_definition.define import IO, ConfigBitMode
 from fabulous.fabric_definition.fabric import Fabric
-from fabulous.fabric_definition.port import BelConfigPort, BelExternalPort, BelPort
+from fabulous.fabric_definition.port import BelExternalPort, BelPort, ConfigBitPort
 from fabulous.fabric_definition.switch_matrix import (
     SwitchMatrix,
     switch_matrix_ports,
@@ -149,7 +148,7 @@ def test_a_chain_fabric_is_specified_without_a_frame_map() -> None:
     fabric = _fabric_from_bits([[4, 4]])
     fabric.configBitMode = ConfigBitMode.FLIPFLOP_CHAIN
     for tile in fabric.tileDic.values():
-        tile.config_mem = None
+        tile.config_mem = ConfigMem(source=Path("ConfigMem.csv"))
 
     spec = generate_bitstream_spec(fabric)
 
@@ -160,7 +159,7 @@ def test_a_chain_fabric_is_specified_without_a_frame_map() -> None:
 def test_a_tile_with_no_configuration_bits_needs_no_mapping() -> None:
     """A tile with no configuration bits needs no mapping."""
     fabric = _fabric_from_bits([[0]])
-    fabric.tileDic["T0_0"].config_mem = empty_config_mem(Path("ConfigMem.csv"))
+    fabric.tileDic["T0_0"].config_mem = ConfigMem(source=Path("ConfigMem.csv"))
 
     spec = generate_bitstream_spec(fabric)
 
@@ -375,7 +374,8 @@ def _build_fabric(
         # Matrix rows (mux outputs) are BEL inputs, columns are BEL outputs.
         ports=[BelPort(s, IO.INPUT, 1) for s in _SOURCES]
         + [BelPort(d, IO.OUTPUT, 1) for d in _DESTS],
-        config_port=BelConfigPort("ConfigBits", IO.INPUT, 4, bel_map=feature_map),
+        config_port=ConfigBitPort("ConfigBits", IO.INPUT, 4),
+        bel_map=feature_map,
     )
 
     tile = Tile(
@@ -386,14 +386,12 @@ def _build_fabric(
         switch_matrix=SwitchMatrix.from_file(
             matrix_path, _TILE_NAME, switch_matrix_ports([], [bel], wires)
         ),
-        config_mem=empty_config_mem(Path("ConfigMem.csv")),
+        config_mem=ConfigMem(source=Path("ConfigMem.csv")),
         gen_ios=[],
         jump_wires=wires,
     )
-    tile.config_mem = ConfigMem.from_csv(
-        tile_dir / f"{_TILE_NAME}_ConfigMem.csv",
-        frame_bits_per_row=_FRAME_BITS,
-        max_frames_per_col=_MAX_FRAMES,
+    tile.config_mem = ConfigMem(
+        None, _FRAME_BITS, _MAX_FRAMES, source=tile_dir / f"{_TILE_NAME}_ConfigMem.csv"
     )
     return Fabric(
         fabric_dir=root,

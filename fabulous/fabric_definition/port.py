@@ -7,8 +7,10 @@ in the FPGA fabric:
 - TilePort: Port on a tile at one end of a routing channel
 - SJumpPort: Tile port facing the switch matrix of the surrounding supertile
 - BelPort: Port on a BEL (Basic Element of Logic)
-- ConfigPort: A port carrying configuration bits into a module
-- BelConfigPort: The configuration port of a BEL, with its feature map
+- BelExternalPort: Tile-module port exporting a BEL's EXTERNAL port
+- ConfigBitPort: A port carrying configuration bits (BEL, switch matrix,
+  configuration memory)
+- ConfigLogicPort: A port of the frame grid (tile, configuration memory)
 - SwitchMatrixPort: A port of a tile's switch-matrix module
 """
 
@@ -29,6 +31,7 @@ from fabulous.fabric_definition.define import (
 if TYPE_CHECKING:
     from fabulous.fabric_definition.bel import Bel
     from fabulous.fabric_definition.channel import ChannelDeclaration
+    from fabulous.fabric_definition.configmem import ConfigMem
     from fabulous.fabric_definition.switch_matrix import SwitchMatrix
     from fabulous.fabric_definition.tile import Tile
 
@@ -777,6 +780,9 @@ class BelExternalPort(Port):
 class _InstancePort(Port):
     """A port of a module instance inside a tile, or of the tile itself.
 
+    Its owner is the instance (a BEL, a switch matrix, a configuration
+    memory), which names it; a port of the tile itself has none.
+
     Parameters
     ----------
     name : str
@@ -785,26 +791,41 @@ class _InstancePort(Port):
         The I/O direction, seen from the module.
     width : int
         The number of pins.
-    instance : str
-        The instance of the module inside its tile, which scopes the pin
-        names; "" for a port of the tile itself. Default "".
+    owner : Bel | SwitchMatrix | ConfigMem | None
+        The instance the port belongs to, None for a port of the tile itself
+        or one attached later (`owner`). Default None.
     """
 
-    _instance: str
+    _owner: Bel | SwitchMatrix | ConfigMem | None
 
     def __init__(
-        self, name: str, io_direction: IO, width: int, instance: str = ""
+        self,
+        name: str,
+        io_direction: IO,
+        width: int,
+        owner: Bel | SwitchMatrix | ConfigMem | None = None,
     ) -> None:
         super().__init__(name, io_direction, width)
-        self._instance = instance
+        self._owner = owner
+
+    @property
+    def owner(self) -> Bel | SwitchMatrix | ConfigMem | None:
+        """The instance the port belongs to, None for the tile's own."""
+        return self._owner
+
+    @owner.setter
+    def owner(self, owner: Bel | SwitchMatrix | ConfigMem) -> None:
+        if self._owner is not None and self._owner is not owner:
+            raise ValueError(f"{self} already belongs to {self._owner}")
+        self._owner = owner
 
     @property
     def instance(self) -> str:
-        """The instance of the module inside its tile, "" for the tile's own."""
-        return self._instance
+        """The owner's instance name, "" for a port of the tile itself."""
+        return "" if self._owner is None else self._owner.instance_name
 
     def full_name(self, index: int) -> str:
-        """Return the model name of pin `index`: the module instance and the pin.
+        """Return the model name of pin `index`: the instance and the pin.
 
         Parameters
         ----------
@@ -814,24 +835,26 @@ class _InstancePort(Port):
         Returns
         -------
         str
-            The name, scoped by the instance if the port has one.
+            The name, scoped by the instance if the port has an owner.
         """
-        if not self._instance:
+        if self._owner is None:
             return self.pin_name(index)
-        return f"{self._instance}{HIERARCHY_SEPARATOR}{self.pin_name(index)}"
+        return f"{self.instance}{HIERARCHY_SEPARATOR}{self.pin_name(index)}"
 
 
-class ConfigPort(_InstancePort):
+class ConfigBitPort(_InstancePort):
     """A port that carries configuration bits.
 
-    Every configurable module (a BEL, a switch matrix) receives its
-    configuration bits through such a port, and the configuration memory
-    drives them through such ports (`ConfigBits` / `ConfigBits_N`).
+    Every configurable module receives its bits through one: a BEL (its
+    `ConfigBits` port or the one marked `CONFIG`), the switch matrix
+    (`ConfigBits` / `ConfigBits_N`); the configuration memory drives them
+    through its `ConfigBits` / `ConfigBits_N`.
     """
 
     def __repr__(self) -> str:
-        """Return a string representation of the ConfigPort."""
-        return f"ConfigPort({self.io_direction.value} {self.name}[{self.width - 1}:0])"
+        """Return a string representation of the ConfigBitPort."""
+        io, msb = self.io_direction.value, self.width - 1
+        return f"ConfigBitPort({io} {self.name}[{msb}:0])"
 
 
 class ConfigLogicPort(_InstancePort):
@@ -846,83 +869,6 @@ class ConfigLogicPort(_InstancePort):
         """Return a string representation of the ConfigLogicPort."""
         io, msb = self.io_direction.value, self.width - 1
         return f"ConfigLogicPort({io} {self.name}[{msb}:0])"
-
-
-class BelConfigPort(ConfigPort):
-    """The configuration port of a BEL, with the BEL's feature map.
-
-    The port is `ConfigBits` in the BEL's HDL module, or the port marked with
-    the `CONFIG` attribute. A BEL has at most one.
-
-    Parameters
-    ----------
-    name : str
-        The name of the port in the BEL's HDL module.
-    io_direction : IO
-        The I/O direction.
-    width : int
-        The number of configuration bits.
-    bel_map : dict[str, dict]
-        The BEL's feature map (`BelMap` attribute), in bit order.
-    """
-
-    _bel_map: dict[str, dict]
-    _bel: Bel | None
-
-    def __init__(
-        self, name: str, io_direction: IO, width: int, bel_map: dict[str, dict]
-    ) -> None:
-        super().__init__(name, io_direction, width)
-        self._bel_map = bel_map
-        self._bel = None
-
-    @property
-    def bel_map(self) -> dict[str, dict]:
-        """The BEL's feature map, in bit order."""
-        return self._bel_map
-
-    @property
-    def bel(self) -> Bel | None:
-        """The BEL this port belongs to, or None while the port is unattached."""
-        return self._bel
-
-    @bel.setter
-    def bel(self, bel: Bel) -> None:
-        if self._bel is not None:
-            raise ValueError(f"{self} already belongs to BEL {self._bel.name}")
-        self._bel = bel
-
-    def full_name(self, index: int) -> str:
-        """Return the model name of pin `index`: the BEL instance and the pin.
-
-        Parameters
-        ----------
-        index : int
-            The pin index.
-
-        Returns
-        -------
-        str
-            The name.
-
-        Raises
-        ------
-        ValueError
-            If the port belongs to no BEL.
-        """
-        if self._bel is None:
-            raise ValueError(f"{self} belongs to no BEL, so it has no instance")
-        return f"{self._bel.instance_name}{HIERARCHY_SEPARATOR}{self.pin_name(index)}"
-
-    def __repr__(self) -> str:
-        """Return a string representation of the BelConfigPort."""
-        return (
-            f"BelConfigPort({self.io_direction.value} {self.name}[{self.width - 1}:0])"
-        )
-
-    def serialize(self) -> dict:
-        """Serialize the BEL config port to a dictionary."""
-        return super().serialize() | {"bel_map": self.bel_map}
 
 
 class SwitchMatrixPort(Port):
@@ -1112,4 +1058,4 @@ class SwitchMatrixPort(Port):
         )
 
 
-GenericPort = Port | TilePort | BelPort | ConfigPort | BelConfigPort | SwitchMatrixPort
+GenericPort = Port | TilePort | BelPort | ConfigBitPort | SwitchMatrixPort

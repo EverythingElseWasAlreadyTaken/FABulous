@@ -520,7 +520,7 @@ def addBelsToPrim(
             modline += "\n);"
 
             belparams: dict[str, int] = {}
-            for parameter in bel.belFeatureMap:
+            for parameter in bel.bel_map:
                 parameter = parameter.split("[")[0]
                 if parameter not in belparams:
                     belparams[parameter] = 0

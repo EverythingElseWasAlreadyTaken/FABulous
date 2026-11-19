@@ -20,8 +20,8 @@ from fabulous.fabric_definition.define import IO, BelPortKind
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.port import (
     BelExternalPort,
+    ConfigBitPort,
     ConfigLogicPort,
-    ConfigPort,
 )
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 
@@ -171,7 +171,7 @@ def belLines(
             lines.append(f"I,{stripped},X{x}Y{y}.{inp}")
         for outp, stripped in zip(pin_outputs, outputs, strict=True):
             lines.append(f"O,{stripped},X{x}Y{y}.{outp}")
-        for feat, _cfg in sorted(bel.belFeatureMap.items(), key=lambda x: x[0]):
+        for feat, _cfg in sorted(bel.bel_map.items(), key=lambda x: x[0]):
             lines.append(f"CFG,{feat}")
         if timing and cType == "FABULOUS_LC":
             lutInputs = [p for p in inputs if p.startswith("I") and p[1:].isdigit()]
@@ -292,7 +292,7 @@ def genNextpnrModel(
     # leaves the fabric, so nextpnr cannot route over it.
     for connection in fabric.fixed_connections():
         if isinstance(
-            connection.declaration, BelExternalPort | ConfigLogicPort | ConfigPort
+            connection.declaration, BelExternalPort | ConfigLogicPort | ConfigBitPort
         ):
             continue
         (src_at, src_pin), (dst_at, dst_pin) = connection.source, connection.sink

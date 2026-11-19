@@ -24,7 +24,7 @@ from fabulous.fabric_definition.define import (
     HDLType,
 )
 from fabulous.fabric_definition.fabric import Fabric
-from fabulous.fabric_definition.port import BelConfigPort, BelPort, SJumpPort, TilePort
+from fabulous.fabric_definition.port import BelPort, ConfigBitPort, SJumpPort, TilePort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabulous_repl.fabulous_repl import FABulousREPL
@@ -244,7 +244,7 @@ def make_muladd_bel(
     internal: list[tuple[str, IO]],
     *,
     prefix: str = "SUPER_",
-    config_port: BelConfigPort | None = None,
+    config_port: ConfigBitPort | None = None,
 ) -> Bel:
     """Build a MULADD-style supertile BEL with only single-bit internal ports.
 

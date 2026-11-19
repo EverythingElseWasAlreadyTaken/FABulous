@@ -19,8 +19,8 @@ from fabulous.fabric_definition.define import grid_at
 from fabulous.fabric_definition.port import (
     BelExternalPort,
     BelPort,
+    ConfigBitPort,
     ConfigLogicPort,
-    ConfigPort,
     SwitchMatrixPort,
 )
 from fabulous.fabric_definition.wire import JumpWire, SJumpWire
@@ -48,7 +48,7 @@ type Declaration = (
     | SJumpWire
     | BelExternalPort
     | ConfigLogicPort
-    | ConfigPort
+    | ConfigBitPort
 )
 """What a fixed connection is expanded from."""
 

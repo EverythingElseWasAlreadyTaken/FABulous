@@ -16,7 +16,7 @@ from fabulous.fabric_cad.gen_npnr_model import genNextpnrModel
 from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.define import IO
 from fabulous.fabric_definition.fabric import Fabric
-from fabulous.fabric_definition.port import ConfigPort, SJumpPort
+from fabulous.fabric_definition.port import ConfigBitPort, SJumpPort
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.switch_matrix import (
     SwitchMatrix,
@@ -73,9 +73,8 @@ class TestSuperTileHelpers:
         assert st.get_master_tile_coords() == (0, 0)
 
     def test_master_raises_on_empty(self) -> None:
-        st = self._supertile(tiles=[], tileMap=[[None]])
         with pytest.raises(ValueError, match="has no tiles"):
-            st.get_master_tile_coords()
+            self._supertile(tiles=[], tileMap=[[None]])
 
     def test_sjump_wires_pair_child_ports_with_matrix_ports(self) -> None:
         top = _tile("DSP_top", [sjump_port("top2bot", IO.OUTPUT)])
@@ -135,7 +134,7 @@ class TestSuperTileHelpers:
             for (src_at, src), (dst_at, dst) in (
                 (c.source, c.sink)
                 for c in st.fixed_connections
-                if not isinstance(c.declaration, ConfigPort)
+                if not isinstance(c.declaration, ConfigBitPort)
             )
         ] == [
             ((0, 0), "A0", (0, 1), f"{SM}DSP_top_A0"),
@@ -411,10 +410,8 @@ class TestGenBitstreamSpecSupertileMux:
             tileDic={t.name: t for t in (top, bot)},
         )
         # Built directly, so read the memory the parser would have.
-        supertile.config_mem = ConfigMem.from_csv(
-            configmem,
-            frame_bits_per_row=fabric.frameBitsPerRow,
-            max_frames_per_col=fabric.maxFramesPerCol,
+        supertile.config_mem = ConfigMem(
+            None, fabric.frameBitsPerRow, fabric.maxFramesPerCol, source=configmem
         )
         return generate_bitstream_spec(fabric)
 

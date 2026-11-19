@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fabulous.fabric_definition.define import IO, BelPortKind, HDLType
-from fabulous.fabric_definition.port import BelConfigPort, BelPort
+from fabulous.fabric_definition.port import BelPort, ConfigBitPort
 
 if TYPE_CHECKING:
     from fabulous.fabric_definition.supertile import SuperTile
@@ -44,9 +44,12 @@ class Bel:
     ports : list[BelPort]
         The ports of the BEL's HDL module, in module order, except the
         configuration port. Each port is attached to this BEL.
-    config_port : BelConfigPort | None
-        The configuration port with the BEL's feature map, or None for a BEL
-        without configuration bits. It is attached to this BEL.
+    config_port : ConfigBitPort | None
+        The configuration port, or None for a BEL without configuration
+        bits. This BEL becomes its owner.
+    bel_map : dict[str, dict] | None
+        The BEL's feature map (`BelMap` attribute), in bit order; None for
+        none. Default None.
 
     Attributes
     ----------
@@ -65,8 +68,10 @@ class Bel:
     ports : list[BelPort]
         The ports of the BEL's HDL module, in module order, except the
         configuration port.
-    config_port : BelConfigPort | None
+    config_port : ConfigBitPort | None
         The configuration port, or None.
+    bel_map : dict[str, dict]
+        The BEL's feature map, in bit order.
     language : str
         Language of the BEL. Currently only VHDL and Verilog are supported.
 
@@ -82,7 +87,8 @@ class Bel:
     module_name: str
     filetype: HDLType
     ports: list[BelPort]
-    config_port: BelConfigPort | None
+    config_port: ConfigBitPort | None
+    bel_map: dict[str, dict]
     language: str
 
     def __init__(
@@ -91,7 +97,8 @@ class Bel:
         prefix: str,
         module_name: str,
         ports: list[BelPort],
-        config_port: BelConfigPort | None = None,
+        config_port: ConfigBitPort | None = None,
+        bel_map: dict[str, dict] | None = None,
     ) -> None:
         self.src = src
         self.prefix = prefix
@@ -102,7 +109,8 @@ class Bel:
             port.bel = self
         self.config_port = config_port
         if config_port is not None:
-            config_port.bel = self
+            config_port.owner = self
+        self.bel_map = bel_map or {}
         self._owner: Tile | SuperTile | None = None
         if self.src.suffix in [".sv", ".v"]:
             self.language = "verilog"
@@ -145,11 +153,6 @@ class Bel:
     def configBit(self) -> int:
         """The number of configuration bits of the BEL."""
         return 0 if self.config_port is None else self.config_port.width
-
-    @property
-    def belFeatureMap(self) -> dict[str, dict]:
-        """The feature map of the BEL, in bit order."""
-        return {} if self.config_port is None else self.config_port.bel_map
 
     def get_ports(self, kind: BelPortKind, io: IO) -> list[BelPort]:
         """Return the ports of one kind and direction, in module order.

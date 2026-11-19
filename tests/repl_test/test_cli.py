@@ -230,20 +230,25 @@ def test_an_unused_supertile_still_finds_its_master(cli: FABulousREPL) -> None:
     for child in super_tile.tiles:
         fabric.unusedTileDic[child.name] = fabric.tileDic.pop(child.name)
 
-    # Reaching the mapping check at all is the point; the master is ungenerated.
-    with pytest.raises(ValueError, match="Generate its mapping before"):
-        cli.fabulousAPI.gen_super_tile_config_mem("DSP")
+    cli.fabulousAPI.gen_super_tile_config_mem("DSP")
+
+    assert super_tile.config_mem.source.is_file()
 
 
-def test_a_supertile_will_not_borrow_from_an_ungenerated_master(
+def test_a_supertile_takes_the_crosspoints_its_master_leaves_free(
     cli: FABulousREPL,
 ) -> None:
-    """A supertile mapping is refused until its master's mapping exists."""
-    # The demo supertile has no bits of its own.
+    """Without a mapping file of its own, the master's default mapping is used."""
     _give_dsp_four_config_bits(cli)
+    super_tile = cli.fabulousAPI.fabric.superTileDic["DSP"]
+    mx, my = super_tile.get_master_tile_coords()
+    master = super_tile.tileMap[my][mx].config_mem
+    assert not master.source.is_file()
 
-    with pytest.raises(ValueError, match="Generate its mapping before"):
-        cli.fabulousAPI.gen_super_tile_config_mem("DSP")
+    cli.fabulousAPI.gen_super_tile_config_mem("DSP")
+
+    assert super_tile.config_mem.config_bits == 4
+    assert not super_tile.config_mem.bit_at.keys() & master.bit_at.keys()
 
 
 def test_a_tile_generates_into_its_own_directory(cli: FABulousREPL) -> None:

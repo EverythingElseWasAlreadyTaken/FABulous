@@ -20,7 +20,7 @@ from pytest_mock import MockerFixture
 
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import IO, Side
-from fabulous.fabric_definition.port import BelConfigPort
+from fabulous.fabric_definition.port import ConfigBitPort
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
 from tests.conftest import make_muladd_bel
@@ -200,7 +200,7 @@ def _configurable_bels(*bits: int) -> list[Bel]:
         make_muladd_bel(
             [],
             prefix=f"B{i}_",
-            config_port=BelConfigPort("ConfigBits", IO.INPUT, n, {}) if n else None,
+            config_port=ConfigBitPort("ConfigBits", IO.INPUT, n) if n else None,
         )
         for i, n in enumerate(bits)
     ]

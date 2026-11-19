@@ -21,7 +21,7 @@ from loguru import logger
 from fabulous.custom_exception import InvalidFileType, InvalidSwitchMatrixDefinition
 from fabulous.fabric_definition.connection import FixedConnection, Pip
 from fabulous.fabric_definition.define import IO, SWITCH_MATRIX_CONSTANTS, BelPortKind
-from fabulous.fabric_definition.port import ConfigPort, Pin, SwitchMatrixPort
+from fabulous.fabric_definition.port import ConfigBitPort, Pin, SwitchMatrixPort
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -256,18 +256,18 @@ class SwitchMatrix:
         return sum(mux.width for mux in self.muxes)
 
     @cached_property
-    def config_ports(self) -> tuple[ConfigPort, ...]:
+    def config_ports(self) -> tuple[ConfigBitPort, ...]:
         """The `ConfigBits` / `ConfigBits_N` inputs; none without config bits.
 
         Returns
         -------
-        tuple[ConfigPort, ...]
+        tuple[ConfigBitPort, ...]
             The true and the inverted configuration bits.
         """
         if not self.no_config_bits:
             return ()
         return tuple(
-            ConfigPort(name, IO.INPUT, self.no_config_bits, self.instance_name)
+            ConfigBitPort(name, IO.INPUT, self.no_config_bits, self)
             for name in ("ConfigBits", "ConfigBits_N")
         )
 

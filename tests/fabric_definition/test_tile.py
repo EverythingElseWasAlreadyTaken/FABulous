@@ -7,7 +7,7 @@ import pytest
 
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.channel import ChannelDeclaration
-from fabulous.fabric_definition.configmem import empty_config_mem
+from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.define import IO, Direction, Side
 from fabulous.fabric_definition.port import BelPort, TilePort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix
@@ -24,7 +24,7 @@ def _mk_tile(ports: list[TilePort], bels: list[Bel] | None = None) -> Tile:
         switch_matrix=SwitchMatrix(
             matrix_file=Path(), ports=(), connections={}, name="T"
         ),
-        config_mem=empty_config_mem(Path("ConfigMem.csv")),
+        config_mem=ConfigMem(source=Path("ConfigMem.csv")),
         gen_ios=[],
     )
 

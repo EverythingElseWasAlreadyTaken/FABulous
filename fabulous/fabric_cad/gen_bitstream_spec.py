@@ -15,8 +15,8 @@ from fabulous.fabric_definition.define import ConfigBitMode
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.port import (
     BelExternalPort,
+    ConfigBitPort,
     ConfigLogicPort,
-    ConfigPort,
 )
 
 
@@ -87,12 +87,6 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
     -------
     dict[str, dict]
         The bits stream specification of the fabric.
-
-    Raises
-    ------
-    ValueError
-        If a tile's or supertile's configuration memory holds a different number
-        of bits than it has, which is how an ungenerated mapping shows.
     """
     fabric.check_routing_channels()
     spec_data = {
@@ -140,13 +134,7 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
                 spec_data["FrameMapEncode"][tile.name] = {}
                 positions = [-1] * (fabric.maxFramesPerCol * fabric.frameBitsPerRow)
             else:
-                # Grid cells are deep copies; the memory lives on the tile type.
-                memory = fabric.tileDic[tile.name].config_mem
-                if memory.config_bits != tile.globalConfigBits:
-                    raise ValueError(
-                        f"{tile.name} holds {memory.config_bits} configuration "
-                        f"bits in {memory} for {tile.globalConfigBits} bits."
-                    )
+                memory = tile.config_mem
 
                 positions = bit_positions(memory, fabric)
                 spec_data["FrameMap"][tile.name] = {
@@ -160,7 +148,7 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
 
             for i, bel in enumerate(tile.bels):
                 bit_offset = config_bit_ranges[bel].start
-                for feature, feature_bits in bel.belFeatureMap.items():
+                for feature, feature_bits in bel.bel_map.items():
                     for entry in (k for k in feature_bits if isinstance(k, int)):
                         for v in feature_bits[entry]:
                             tile_specs[f"{string.ascii_uppercase[i]}.{feature}"] = {
@@ -185,7 +173,7 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
     # gen_npnr_model).
     for connection in fabric.fixed_connections():
         if isinstance(
-            connection.declaration, BelExternalPort | ConfigLogicPort | ConfigPort
+            connection.declaration, BelExternalPort | ConfigLogicPort | ConfigBitPort
         ):
             continue
         src_at = connection.source[0]
@@ -209,17 +197,6 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
         st_frame_map: dict[int, str] = {}
         if st_config_bits > 0:
             st_memory = super_tile.config_mem
-            if st_memory is None:
-                raise ValueError(
-                    f"Supertile {super_tile.name} was built without a "
-                    "configuration memory."
-                )
-            if st_memory.config_bits != st_config_bits:
-                raise ValueError(
-                    f"Supertile {super_tile.name} has {st_config_bits} config bits "
-                    f"but {st_memory} holds {st_memory.config_bits}; run "
-                    "gen_config_mem for it first."
-                )
             st_frame_map = {
                 frame.frame_index: frame.used_bits_mask.to01()
                 for frame in st_memory.used_frames
@@ -269,7 +246,7 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
             for i, bel in enumerate(super_tile.bels):
                 letter = string.ascii_uppercase[bel_offset + i]
                 bit_offset = config_bit_ranges[bel].start
-                for feature, feature_bits in bel.belFeatureMap.items():
+                for feature, feature_bits in bel.bel_map.items():
                     for entry in feature_bits:
                         if not isinstance(entry, int):
                             continue

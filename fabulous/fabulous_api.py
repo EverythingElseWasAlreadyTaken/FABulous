@@ -54,7 +54,7 @@ from fabulous.fabric_generator.gds_generator.gen_io_pin_config_yaml import (
 from fabulous.fabric_generator.gds_generator.steps.tile_area_opt import OptMode
 from fabulous.fabric_generator.gen_fabric.fabric_automation import genIOBel
 from fabulous.fabric_generator.gen_fabric.gen_configmem import (
-    generate_super_tile_config_mem,
+    generate_tile_config_mem,
 )
 from fabulous.fabric_generator.gen_fabric.gen_fabric import generateFabric
 from fabulous.fabric_generator.gen_fabric.gen_switchmatrix import (
@@ -337,32 +337,10 @@ class FABulous_API:
         Raises
         ------
         ValueError
-            If the super tile is not found in the fabric, if its master is not
-            a tile, or if the master's mapping is not generated yet.
+            If the super tile is not found in the fabric.
         """
         if tile := self.fabric.getSuperTileByName(tileName):
-            if tile.total_config_bits <= 0:
-                logger.info(f"{tileName} has no configuration bits of its own")
-                return
-            mx, my = tile.get_master_tile_coords()
-            master_tile = tile.tileMap[my][mx]
-            # tileMap holds a copy; the memory lives on the tile type.
-            master_type = self.fabric.getTileByName(master_tile.name)
-            if not isinstance(master_type, Tile):
-                raise ValueError(
-                    f"{master_tile.name}, the master tile of {tileName}, is a "
-                    "supertile; a supertile cannot be the master of another."
-                )
-            master = master_type.config_mem
-            if master.config_bits != master_type.globalConfigBits:
-                # An ungenerated master reads as all free crosspoints.
-                raise ValueError(
-                    f"{master_tile.name}, the master tile of {tileName}, maps "
-                    f"{master.config_bits} of its {master_type.globalConfigBits} "
-                    "configuration bits. Generate its mapping before the "
-                    "supertile takes the crosspoints it leaves free."
-                )
-            generate_super_tile_config_mem(self.writer, tile, master)
+            generate_tile_config_mem(self.writer, tile)
         else:
             raise ValueError(f"SuperTile {tileName} not found")
 

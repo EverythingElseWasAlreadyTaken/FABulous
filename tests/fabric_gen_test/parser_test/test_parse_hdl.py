@@ -41,9 +41,9 @@ def test_config_port_holds_the_bel_map(
     assert bel.config_port is not None
     assert bel.config_port.name == name
     assert bel.config_port.io_direction == IO.INPUT
-    assert bel.config_port.bel is bel
+    assert bel.config_port.owner is bel
     assert bel.configBit == 2
-    assert list(bel.belFeatureMap) == ["INIT", "MODE"]
+    assert list(bel.bel_map) == ["INIT", "MODE"]
     assert [p.name for p in bel.ports] == ["X_A", "X_Q"]
 
 

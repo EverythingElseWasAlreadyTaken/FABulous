@@ -14,7 +14,7 @@ from fabulous.fabric_definition.define import (
     BelPortKind,
     FABulousAttribute,
 )
-from fabulous.fabric_definition.port import BelConfigPort, BelPort
+from fabulous.fabric_definition.port import BelPort, ConfigBitPort
 from fabulous.fabric_definition.yosys_obj import YosysJson, YosysModule
 
 
@@ -319,7 +319,6 @@ def parseBelFile(
         prefix=belPrefix,
         module_name=module_name,
         ports=ports,
-        config_port=None
-        if configPort is None
-        else BelConfigPort(*configPort, bel_map=belMapDic),
+        config_port=None if configPort is None else ConfigBitPort(*configPort),
+        bel_map=belMapDic,
     )

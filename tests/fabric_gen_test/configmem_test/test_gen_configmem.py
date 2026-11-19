@@ -16,11 +16,8 @@ from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.code_generator.code_generator import CodeGenerator
 from fabulous.fabric_generator.gen_fabric.gen_configmem import (
-    build_super_tile_config_mem,
     generate_config_mem,
-    generate_super_tile_config_mem,
     generate_tile_config_mem,
-    validate_super_tile_config_mem,
 )
 from tests.conftest import make_empty_tile
 from tests.fabric_gen_test.conftest import create_config_csv, verify_csv_content
@@ -412,7 +409,7 @@ def _read_masks(path: Path) -> dict[int, str]:
 
 
 class TestConfigMemFrameKeySet:
-    """`ConfigMem.from_csv` requires exactly one row per frame index."""
+    """A mapping file needs exactly one row per frame index."""
 
     def test_complete_frame_set_is_read(self, tmp_path: Path) -> None:
         """A CSV with exactly one row per frame index round-trips cleanly."""
@@ -423,7 +420,7 @@ class TestConfigMemFrameKeySet:
             ["0;1", "# NULL", "# NULL", "# NULL"],
         )
 
-        memory = ConfigMem.from_csv(path, frame_bits_per_row=4, max_frames_per_col=4)
+        memory = ConfigMem(None, 4, 4, source=path)
 
         assert [frame.used_bits_mask.to01() for frame in memory.frames] == [
             "1100",
@@ -461,7 +458,17 @@ class TestConfigMemFrameKeySet:
         )
 
         with pytest.raises(ValueError, match="indexed 0 .. n-1 in order"):
-            ConfigMem.from_csv(path, frame_bits_per_row=4, max_frames_per_col=4)
+            _ = ConfigMem(None, 4, 4, source=path).frames
+
+
+def _matrix(directory: Path, name: str, bits: int) -> Path:
+    """Write a hand-written supertile matrix holding `bits` config bits."""
+    directory.mkdir(parents=True, exist_ok=True)
+    matrix = directory / f"{name}_switch_matrix.v"
+    matrix.write_text(
+        f"// NumberOfConfigBits: {bits}\nmodule {name}_switch_matrix(); endmodule\n"
+    )
+    return matrix
 
 
 class TestSuperTileConfigMemAllocation:
@@ -475,65 +482,62 @@ class TestSuperTileConfigMemAllocation:
     MASTER_MASKS = ["1100", "0000", "0000", "0000"]
     MASTER_RANGES = ["1:0", "# NULL", "# NULL", "# NULL"]
 
-    def _master(self, tmp_path: Path) -> ConfigMem:
+    def _super_tile(self, tmp_path: Path, bits: int) -> SuperTile:
+        """A supertile of `bits` bits over a master holding the master mapping."""
         path = tmp_path / "DSP_bot_ConfigMem.csv"
         _write_configmem_csv(path, self.MASTER_MASKS, self.MASTER_RANGES)
-        return ConfigMem.from_csv(
-            path,
+        master = make_empty_tile(
+            "DSP_bot",
+            config_bits=2,
             frame_bits_per_row=self.FRAME_BITS,
             max_frames_per_col=self.MAX_FRAMES,
         )
-
-    def _existing(
-        self, tmp_path: Path, masks: list[str], ranges: list[str]
-    ) -> ConfigMem:
-        path = tmp_path / "DSP_ConfigMem.csv"
-        _write_configmem_csv(path, masks, ranges)
-        return ConfigMem.from_csv(
-            path,
-            frame_bits_per_row=self.FRAME_BITS,
-            max_frames_per_col=self.MAX_FRAMES,
+        master.config_mem = ConfigMem(
+            None, self.FRAME_BITS, self.MAX_FRAMES, source=path
+        )
+        return SuperTile(
+            name="DSP",
+            tileDir=tmp_path / "DSP.csv",
+            tiles=[master],
+            tileMap=[[master]],
+            matrix_file=_matrix(tmp_path, "DSP", bits),
         )
 
     def test_the_bits_avoid_every_crosspoint_the_master_uses(
         self, tmp_path: Path
     ) -> None:
-        master = self._master(tmp_path)
+        super_tile = self._super_tile(tmp_path, 2)
+        master = super_tile.tiles[0].config_mem
 
-        built = build_super_tile_config_mem(master, 2, source=Path("ST_ConfigMem.csv"))
+        built = super_tile.config_mem
 
         assert built.config_bits == 2
         assert set(built.bit_at) <= set(master.free_crosspoints)
         assert not set(built.bit_at) & set(master.bit_at)
 
     def test_a_master_without_room_is_refused(self, tmp_path: Path) -> None:
-        master = self._master(tmp_path)
+        super_tile = self._super_tile(tmp_path, self.FRAME_BITS * self.MAX_FRAMES)
 
         with pytest.raises(ValueError, match="Not enough free config bit slots"):
-            build_super_tile_config_mem(
-                master,
-                self.FRAME_BITS * self.MAX_FRAMES,
-                source=Path("ST_ConfigMem.csv"),
-            )
+            _ = super_tile.config_mem.frames
 
     def test_an_existing_disjoint_memory_passes(self, tmp_path: Path) -> None:
-        master = self._master(tmp_path)
-        existing = self._existing(
-            tmp_path,
+        super_tile = self._super_tile(tmp_path, 2)
+        _write_configmem_csv(
+            tmp_path / "DSP_ConfigMem.csv",
             ["0011", "0000", "0000", "0000"],
             ["0;1", "# NULL", "# NULL", "# NULL"],
         )
 
-        validate_super_tile_config_mem(existing, master, 2)
+        assert super_tile.config_mem.config_bits == 2
 
     @pytest.mark.parametrize(
-        ("masks", "ranges", "bits", "error_match"),
+        ("masks", "ranges", "error_match"),
         [
             # Bit 0 (MSB) is used by the master (1100) -> conflict.
             pytest.param(
                 ["1010", "0000", "0000", "0000"],
                 ["0;1", "# NULL", "# NULL", "# NULL"],
-                2,
                 "conflicts with the master",
                 id="conflict_with_master",
             ),
@@ -541,125 +545,92 @@ class TestSuperTileConfigMemAllocation:
             pytest.param(
                 ["0001", "0000", "0000", "0000"],
                 ["0", "# NULL", "# NULL", "# NULL"],
-                2,
-                "needs 2",
+                "maps 1 bits but DSP has 2",
                 id="stale_bit_count",
             ),
         ],
     )
     def test_an_invalid_existing_memory_raises(
-        self,
-        tmp_path: Path,
-        masks: list[str],
-        ranges: list[str],
-        bits: int,
-        error_match: str,
+        self, tmp_path: Path, masks: list[str], ranges: list[str], error_match: str
     ) -> None:
-        master = self._master(tmp_path)
-        existing = self._existing(tmp_path, masks, ranges)
+        super_tile = self._super_tile(tmp_path, 2)
+        _write_configmem_csv(tmp_path / "DSP_ConfigMem.csv", masks, ranges)
 
         with pytest.raises(ValueError, match=error_match):
-            validate_super_tile_config_mem(existing, master, bits)
-
-
-def _four_bit_matrix(directory: Path) -> Path:
-    """Write a hand-written supertile matrix holding 4 config bits."""
-    directory.mkdir(parents=True, exist_ok=True)
-    matrix = directory / "ST_switch_matrix.v"
-    matrix.write_text(
-        "// NumberOfConfigBits: 4\nmodule ST_switch_matrix(); endmodule\n"
-    )
-    return matrix
+            _ = super_tile.config_mem.frames
 
 
 class TestGenerateSuperTileConfigMem:
-    """What `generate_super_tile_config_mem` does with the memory it finds."""
+    """What `generate_tile_config_mem` does with the memory it finds."""
 
-    def test_a_mapping_file_holding_no_bits_is_refused(
-        self, tmp_path: Path, code_generator_factory: Callable[..., CodeGenerator]
-    ) -> None:
-        """An existing file mapping no bits is refused, not rebuilt over."""
-        master = ConfigMem.default(
-            2, frame_bits_per_row=32, max_frames_per_col=20, source=Path("master.csv")
-        )
-        stale = ConfigMem.default(
-            0,
-            frame_bits_per_row=32,
-            max_frames_per_col=20,
-            source=tmp_path / "ST_ConfigMem.csv",
-        )
-        stale.to_csv()
-        super_tile = SuperTile(
-            name="ST",
-            tileDir=tmp_path / "ST.csv",
-            tiles=[],
-            tileMap=[[]],
-            matrix_file=_four_bit_matrix(tmp_path),
-            config_mem=stale,
-        )
-
-        with pytest.raises(ValueError, match="maps no configuration bits"):
-            generate_super_tile_config_mem(
-                code_generator_factory(".v"), super_tile, master
-            )
-
-    def test_a_supertile_declared_in_the_fabric_csv_is_found_by_its_children(
-        self, tmp_path: Path, code_generator_factory: Callable[..., CodeGenerator]
-    ) -> None:
-        """A supertile declared in `fabric.csv` writes beside its children."""
+    @staticmethod
+    def _super_tile(tmp_path: Path) -> tuple[SuperTile, Path]:
+        """A supertile declared in `fabric.csv`, its child under `Tile/ST/C`."""
         st_dir = tmp_path / "Tile" / "ST"
         child = make_empty_tile(
             "C",
             tileDir=tmp_path / "fabric.csv",
             matrixDir=st_dir / "C" / "C_switch_matrix.csv",
         )
-        master = ConfigMem.default(
-            2, frame_bits_per_row=32, max_frames_per_col=20, source=Path("master.csv")
-        )
         super_tile = SuperTile(
             name="ST",
             tileDir=tmp_path / "fabric.csv",
             tiles=[child],
             tileMap=[[child]],
-            matrix_file=_four_bit_matrix(st_dir),
-            config_mem=ConfigMem.default(
-                0,
-                frame_bits_per_row=32,
-                max_frames_per_col=20,
-                source=st_dir / "ST_ConfigMem.csv",
-            ),
+            matrix_file=_matrix(st_dir, "ST", 4),
         )
+        return super_tile, st_dir
 
-        generate_super_tile_config_mem(code_generator_factory(".v"), super_tile, master)
+    def test_a_mapping_file_holding_no_bits_is_refused(
+        self, tmp_path: Path, code_generator_factory: Callable[..., CodeGenerator]
+    ) -> None:
+        """An existing file mapping no bits is refused, not rebuilt over."""
+        super_tile, st_dir = self._super_tile(tmp_path)
+        ConfigMem.default(
+            0,
+            frame_bits_per_row=32,
+            max_frames_per_col=20,
+            source=st_dir / "ST_ConfigMem.csv",
+        ).to_csv()
+
+        with pytest.raises(ValueError, match="maps 0 bits but ST has 4"):
+            generate_tile_config_mem(code_generator_factory(".v"), super_tile)
+
+    def test_a_supertile_declared_in_the_fabric_csv_is_found_by_its_children(
+        self, tmp_path: Path, code_generator_factory: Callable[..., CodeGenerator]
+    ) -> None:
+        """A supertile declared in `fabric.csv` writes beside its children."""
+        super_tile, st_dir = self._super_tile(tmp_path)
+
+        generate_tile_config_mem(code_generator_factory(".v"), super_tile)
 
         assert (st_dir / "ST_ConfigMem.v").is_file()
+        assert (st_dir / "ST_ConfigMem.csv").is_file()
 
 
 class TestGenerateTileConfigMem:
     """What `generate_tile_config_mem` does with the memory the tile carries."""
 
     @staticmethod
-    def _tile(tmp_path: Path, memory: ConfigMem) -> Tile:
+    def _tile(tmp_path: Path, memory: ConfigMem | None = None) -> Tile:
+        """A 4-bit tile with `memory` at `T_ConfigMem.csv`; None reads it lazily."""
         tile = make_empty_tile(
             "T",
             config_bits=4,
             tileDir=tmp_path / "T.csv",
             matrixDir=tmp_path / "T_switch_matrix.csv",
         )
-        tile.config_mem = replace(memory, source=tmp_path / "T_ConfigMem.csv")
+        source = tmp_path / "T_ConfigMem.csv"
+        if memory is None:
+            memory = ConfigMem(None, 32, 20, source=source)
+        tile.config_mem = replace(memory, source=source)
         return tile
 
     def test_an_unwritten_mapping_is_generated_and_saved(
         self, tmp_path: Path, code_generator_factory: Callable[..., CodeGenerator]
     ) -> None:
-        """A tile parsed before any mapping existed gets the default written out."""
-        empty = ConfigMem.default(
-            0,
-            frame_bits_per_row=32,
-            max_frames_per_col=20,
-            source=Path("ConfigMem.csv"),
-        )
-        tile = self._tile(tmp_path, empty)
+        """A tile without a mapping file gets the default written out."""
+        tile = self._tile(tmp_path)
 
         generate_tile_config_mem(code_generator_factory(".v"), tile)
 
@@ -675,12 +646,11 @@ class TestGenerateTileConfigMem:
     ) -> None:
         """The module stays in the tile's directory wherever the CSVs point."""
         elsewhere = tmp_path / "elsewhere"
-        empty = ConfigMem.default(
-            0, frame_bits_per_row=32, max_frames_per_col=20, source=Path("unused.csv")
-        )
-        tile = self._tile(tmp_path, empty)
+        tile = self._tile(tmp_path)
         if relocated == "CONFIGMEM":
-            tile.config_mem = replace(empty, source=elsewhere / "Shared_ConfigMem.csv")
+            tile.config_mem = ConfigMem(
+                None, 32, 20, source=elsewhere / "Shared_ConfigMem.csv"
+            )
         else:
             tile.switch_matrix = replace(
                 tile.switch_matrix, matrix_file=elsewhere / "Shared_matrix.csv"
@@ -713,16 +683,15 @@ class TestGenerateTileConfigMem:
         self, tmp_path: Path, code_generator_factory: Callable[..., CodeGenerator]
     ) -> None:
         """An existing file mapping no bits is refused, not overwritten."""
-        empty = ConfigMem.default(
+        ConfigMem.default(
             0,
             frame_bits_per_row=32,
             max_frames_per_col=20,
             source=tmp_path / "T_ConfigMem.csv",
-        )
-        empty.to_csv()
-        tile = self._tile(tmp_path, empty)
+        ).to_csv()
+        tile = self._tile(tmp_path)
 
-        with pytest.raises(ValueError, match="maps no configuration bits"):
+        with pytest.raises(ValueError, match="maps 0 bits but T has 4"):
             generate_tile_config_mem(code_generator_factory(".v"), tile)
 
     def test_a_mapping_for_another_tile_is_refused(

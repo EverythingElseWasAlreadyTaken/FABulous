@@ -14,7 +14,7 @@ from fabulous.custom_exception import (
     InvalidSupertileDefinition,
     InvalidTileDefinition,
 )
-from fabulous.fabric_definition.configmem import ConfigMem, empty_config_mem
+from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.define import (
     DEFAULT_CONFIG_BIT_MODE,
     DEFAULT_DISABLE_USER_CLK,
@@ -196,51 +196,6 @@ def parse_port_line(
     else:
         raise InvalidPortType(f"Unknown port type: {port_type}")
     return (ports, jump_wire)
-
-
-def _read_config_mem(
-    memory: ConfigMem,
-    *,
-    config_bit_mode: ConfigBitMode,
-    frame_bits_per_row: int,
-    max_frames_per_col: int,
-) -> ConfigMem:
-    """Read the mapping at `memory.source`, if the fabric has one.
-
-    A frame-based holder with no file yet gets an empty memory on the fabric's
-    grid, for `gen_config_mem` to fill. A FLIPFLOP_CHAIN holder keeps `memory`
-    unchanged, so a stale file from a frame-based run is not read.
-
-    Parameters
-    ----------
-    memory : ConfigMem
-        The memory naming the file, as the parser built it.
-    config_bit_mode : ConfigBitMode
-        How the fabric holds its configuration.
-    frame_bits_per_row : int
-        The fabric's `FrameBitsPerRow`, the width every frame must have.
-    max_frames_per_col : int
-        The fabric's `MaxFramesPerCol`, the number of frames the grid holds.
-
-    Returns
-    -------
-    ConfigMem
-        The mapping from the file, or an empty one.
-    """
-    if config_bit_mode is not ConfigBitMode.FRAME_BASED:
-        return memory
-    if not memory.source.is_file():
-        return ConfigMem.default(
-            0,
-            frame_bits_per_row=frame_bits_per_row,
-            max_frames_per_col=max_frames_per_col,
-            source=memory.source,
-        )
-    return ConfigMem.from_csv(
-        memory.source,
-        frame_bits_per_row=frame_bits_per_row,
-        max_frames_per_col=max_frames_per_col,
-    )
 
 
 def parseTilesCSV(fileName: Path, preserve_list_order: bool = False) -> list[Tile]:
@@ -568,7 +523,7 @@ def parseTilesCSV(fileName: Path, preserve_list_order: bool = False) -> list[Til
                 bels=bels,
                 tileDir=fileName,
                 switch_matrix=switch_matrix,
-                config_mem=empty_config_mem(config_mem_csv),
+                config_mem=ConfigMem(source=config_mem_csv),
                 gen_ios=gen_ios,
                 jump_wires=jump_wires,
                 sjump_ports=sjump_ports,
@@ -720,9 +675,6 @@ def parseSupertilesCSV(fileName: Path, tileDic: dict[str, Tile]) -> list[SuperTi
             master_tile_coords=master_coords,
             matrix_file=st_matrix_dir,
         )
-        super_tile.config_mem = empty_config_mem(
-            super_tile.directory / f"{name}_ConfigMem.csv"
-        )
         if st_matrix_dir is None and super_tile.sjump_wires:
             raise InvalidSupertileDefinition(
                 f"Supertile '{name}': its subtiles declare SJUMP wires, but it has "
@@ -795,12 +747,8 @@ def parse_tile_from_dir(
         tiles = parseTilesCSV(tile_csv)
         for tile in tiles:
             if tile.name == tile_name:
-                tile.config_mem = _read_config_mem(
-                    tile.config_mem,
-                    config_bit_mode=config_bit_mode,
-                    frame_bits_per_row=frame_bits_per_row,
-                    max_frames_per_col=max_frames_per_col,
-                )
+                if config_bit_mode is ConfigBitMode.FRAME_BASED:
+                    tile.config_mem.set_grid(frame_bits_per_row, max_frames_per_col)
                 return tile
         raise InvalidTileDefinition(f"Tile {tile_name!r} not found in {tile_csv}")
 
@@ -832,23 +780,15 @@ def parse_tile_from_dir(
         subtile_csv = tile_dir / subtile_name / f"{subtile_name}.csv"
         tiles = parseTilesCSV(subtile_csv)
         for tile in tiles:
-            tile.config_mem = _read_config_mem(
-                tile.config_mem,
-                config_bit_mode=config_bit_mode,
-                frame_bits_per_row=frame_bits_per_row,
-                max_frames_per_col=max_frames_per_col,
-            )
+            if config_bit_mode is ConfigBitMode.FRAME_BASED:
+                tile.config_mem.set_grid(frame_bits_per_row, max_frames_per_col)
         tile_dic.update({tile.name: tile for tile in tiles})
 
     supertiles = parseSupertilesCSV(tile_csv, tile_dic)
     for supertile in supertiles:
         if supertile.name == tile_name:
-            supertile.config_mem = _read_config_mem(
-                supertile.config_mem,
-                config_bit_mode=config_bit_mode,
-                frame_bits_per_row=frame_bits_per_row,
-                max_frames_per_col=max_frames_per_col,
-            )
+            if config_bit_mode is ConfigBitMode.FRAME_BASED:
+                supertile.config_mem.set_grid(frame_bits_per_row, max_frames_per_col)
             return supertile
     raise InvalidSupertileDefinition(f"SuperTile {tile_name!r} not found in {tile_csv}")
 
@@ -1072,21 +1012,19 @@ def parseFabricCSV(fileName: str) -> Fabric:
     height = len(fabricTiles)
     width = len(fabricTiles[0])
 
-    # Read after every parameter row is known. Grid cells are deep copies made
-    # above, so the memory lives on the tile types.
+    # The frame grid is known once every parameter row is read; the memories
+    # live on the tile and supertile types.
     holders = (
         list(tileDic.values())
         + list(unusedTileDic.values())
         + list(superTileDic.values())
         + list(unusedSuperTileDic.values())
     )
+    # A FLIPFLOP_CHAIN fabric gives no grid, so a stale frame mapping file is
+    # never read.
     for holder in holders:
-        holder.config_mem = _read_config_mem(
-            holder.config_mem,
-            config_bit_mode=configBitMode,
-            frame_bits_per_row=frameBitsPerRow,
-            max_frames_per_col=maxFramesPerCol,
-        )
+        if configBitMode is ConfigBitMode.FRAME_BASED:
+            holder.config_mem.set_grid(frameBitsPerRow, maxFramesPerCol)
 
     return Fabric(
         fabric_dir=fName,

@@ -32,7 +32,7 @@ import pytest
 
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.channel import ChannelDeclaration
-from fabulous.fabric_definition.configmem import empty_config_mem
+from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.define import (
     IO,
     USER_CLK_PREDECESSOR,
@@ -360,7 +360,7 @@ class TestBelExternalPorts:
             switch_matrix=SwitchMatrix(
                 matrix_file=Path(), ports=(), connections={}, name="BelTile"
             ),
-            config_mem=empty_config_mem(Path("ConfigMem.csv")),
+            config_mem=ConfigMem(source=Path("ConfigMem.csv")),
             gen_ios=[],
         )
         net = supertile_netlist([[tile]])
@@ -397,7 +397,7 @@ class TestInterTileRouting:
             switch_matrix=SwitchMatrix(
                 matrix_file=Path(), ports=(), connections={}, name="Left"
             ),
-            config_mem=empty_config_mem(Path("ConfigMem.csv")),
+            config_mem=ConfigMem(source=Path("ConfigMem.csv")),
             gen_ios=[],
         )
         right = Tile(
@@ -420,7 +420,7 @@ class TestInterTileRouting:
             switch_matrix=SwitchMatrix(
                 matrix_file=Path(), ports=(), connections={}, name="Right"
             ),
-            config_mem=empty_config_mem(Path("ConfigMem.csv")),
+            config_mem=ConfigMem(source=Path("ConfigMem.csv")),
             gen_ios=[],
         )
         net = supertile_netlist([[left, right]])

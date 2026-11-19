@@ -32,8 +32,6 @@ from fabulous.fabric_definition.define import (
 )
 from fabulous.fabric_definition.port import (
     BelExternalPort,
-    ConfigLogicPort,
-    ConfigPort,
     Port,
     SJumpPort,
     SwitchMatrixPort,
@@ -43,7 +41,6 @@ from fabulous.fabric_definition.switch_matrix import SwitchMatrix
 from fabulous.fabric_definition.tile import (
     Tile,
     config_bit_connections,
-    config_mem_ports,
 )
 from fabulous.fabric_definition.wire import SJumpWire
 
@@ -71,7 +68,8 @@ class SuperTile:
         anchored to this tile.
     config_mem : ConfigMem | None
         The supertile's own bits, placed in the crosspoints its master tile
-        leaves free. The parser always sets it; None only on direct construction.
+        leaves free. None (the default) builds the memory of
+        `<name>_ConfigMem.csv` in the supertile's directory, read on first use.
     matrix_file : InitVar[Path | None]
         The supertile switch matrix file (`.list`, `.csv` or hand-written
         HDL), None for a supertile without a switch matrix.
@@ -111,6 +109,17 @@ class SuperTile:
                     tile.super_tile = self
         for bel in self.bels:
             bel.owner = self
+        if self.config_mem is None:
+            # The bits sit in the master tile's frames, so on its grid.
+            mx, my = self.get_master_tile_coords()
+            grid = self.tileMap[my][mx].config_mem
+            self.config_mem = ConfigMem(
+                None,
+                grid.frame_bits_per_row,
+                grid.max_frames_per_col,
+                source=self.directory / f"{self.name}_ConfigMem.csv",
+            )
+        self.config_mem.holder = self
         if self.bels:
             mx, my = self.get_master_tile_coords()
             master_tile = self.tileMap[my][mx]
@@ -313,26 +322,6 @@ class SuperTile:
         )
 
     @cached_property
-    def config_mem_ports(self) -> tuple[ConfigLogicPort | ConfigPort, ...]:
-        """The ports of the wrapper's configuration memory instance.
-
-        Its bits live in free slots of the master tile's frames, so a
-        frame-based master sizes its frame inputs.
-
-        Returns
-        -------
-        tuple[ConfigLogicPort | ConfigPort, ...]
-            The frame inputs, then the bits (`config_mem_ports`).
-        """
-        mx, my = self.get_master_tile_coords()
-        master = self.tileMap[my][mx]
-        return config_mem_ports(
-            f"Inst_{self.name}_ConfigMem",
-            master.config_logic_ports,
-            self.total_config_bits,
-        )
-
-    @cached_property
     def port_connections(self) -> list[PortConnection[tuple[tuple[int, int], Port]]]:
         """The port-to-port wiring at the supertile's switch matrix boundary.
 
@@ -383,8 +372,8 @@ class SuperTile:
                 BelExternalConnection(source, sink, external, external.width)
             )
         configuration = []
-        if self.config_mem_ports:
-            _, _, bits, bits_n = self.config_mem_ports
+        if self.config_mem.ports:
+            _, _, bits, bits_n = self.config_mem.ports
             configuration = config_bit_connections(
                 self.config_bit_ranges, bits, bits_n, master
             )

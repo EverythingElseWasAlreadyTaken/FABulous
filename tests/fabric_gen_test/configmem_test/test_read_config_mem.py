@@ -1,4 +1,4 @@
-"""Tests for reading a configuration memory with `ConfigMem.from_csv`."""
+"""Tests for reading a configuration memory from its `ConfigMem.csv`."""
 
 from pathlib import Path
 from typing import NamedTuple
@@ -22,10 +22,8 @@ class ParseConfigTestCase(NamedTuple):
 
 def _read(csv_file: Path, test_case: ParseConfigTestCase) -> tuple:
     """Read a test case's CSV as the tile it describes, returning its used frames."""
-    return ConfigMem.from_csv(
-        csv_file,
-        frame_bits_per_row=test_case.frame_bits,
-        max_frames_per_col=test_case.max_frames,
+    return ConfigMem(
+        None, test_case.frame_bits, test_case.max_frames, source=csv_file
     ).used_frames
 
 

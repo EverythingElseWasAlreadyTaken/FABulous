@@ -20,7 +20,7 @@ from fabulous.fabric_definition.channel import (
     RoutingChannel,
     resolve_channels,
 )
-from fabulous.fabric_definition.configmem import empty_config_mem
+from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.connection import (
     ConfigConnection,
     ConfigLogicPassThrough,
@@ -194,7 +194,7 @@ class TestRoutingChannelProblems:
             switch_matrix=SwitchMatrix(
                 Path(), switch_matrix_ports(ports, []), {}, "MID"
             ),
-            config_mem=empty_config_mem(Path("ConfigMem.csv")),
+            config_mem=ConfigMem(source=Path("ConfigMem.csv")),
             gen_ios=[],
             pinOrderConfig={},
         )
@@ -223,7 +223,7 @@ class TestRoutingChannelProblems:
             switch_matrix=SwitchMatrix(
                 Path(), switch_matrix_ports(ports, [bel], jumps), {}, "T"
             ),
-            config_mem=empty_config_mem(Path("ConfigMem.csv")),
+            config_mem=ConfigMem(source=Path("ConfigMem.csv")),
             gen_ios=[],
             pinOrderConfig={},
             jump_wires=jumps,
@@ -261,7 +261,7 @@ class TestRoutingChannelProblems:
             bels=[],
             tileDir=Path(),
             switch_matrix=SwitchMatrix(Path(), switch_matrix_ports(ports, []), {}, "T"),
-            config_mem=empty_config_mem(Path("ConfigMem.csv")),
+            config_mem=ConfigMem(source=Path("ConfigMem.csv")),
             gen_ios=[],
             pinOrderConfig={},
         )
@@ -307,7 +307,7 @@ class TestRoutingChannelProblems:
             switch_matrix=SwitchMatrix(
                 Path(), switch_matrix_ports(ports, [bel], jumps), {}, "T"
             ),
-            config_mem=empty_config_mem(Path("ConfigMem.csv")),
+            config_mem=ConfigMem(source=Path("ConfigMem.csv")),
             gen_ios=[],
             pinOrderConfig={},
             jump_wires=jumps,
@@ -379,7 +379,7 @@ class TestRoutingChannelProblems:
         ]
 
         tile = make_empty_tile("T")
-        tile.config_mem = empty_config_mem(Path("ConfigMem.csv"))
+        tile.config_mem = ConfigMem(source=Path("ConfigMem.csv"))
         assert tile.config_logic_ports == ()
 
     def test_the_config_mem_reads_the_frames_and_drives_the_matrix(self) -> None:
