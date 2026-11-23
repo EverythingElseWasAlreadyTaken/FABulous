@@ -17,7 +17,9 @@ from fabulous.fabric_definition.channel import resolve_channels
 from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.connection import (
     BelExternalConnection,
+    ConfigConnection,
     FixedConnection,
+    FrameChainConnection,
     LocalPin,
     PortConnection,
     SwitchMatrixConnection,
@@ -32,6 +34,7 @@ from fabulous.fabric_definition.define import (
 )
 from fabulous.fabric_definition.port import (
     BelExternalPort,
+    ConfigLogicPort,
     Port,
     SJumpPort,
     SwitchMatrixPort,
@@ -333,16 +336,17 @@ class SuperTile:
         master. Then come the `TilePortConnection`s between the subtiles;
         their channels are resolved from the subtiles alone, so a supertile is
         wired without a fabric (a fabric checks that its own resolution
-        agrees, `check_routing_channels`). Last, the configuration memory
-        drives the matrix and the BELs with their slice of its bits, at the
-        master.
+        agrees, `check_routing_channels`). Then the frame chains between
+        subtiles next to each other (`frame_chains`). Last, the configuration
+        memory reads the frames where the master tile does and drives the
+        matrix and the BELs with their slice of its bits, at the master.
 
         Returns
         -------
         list[PortConnection[tuple[tuple[int, int], Port]]]
             The matrix boundary in matrix port order, the BEL external
-            ports, the tile port connections between the subtiles, then the
-            configuration; ends at `tileMap` positions.
+            ports, the tile port connections between the subtiles, the frame
+            chains, then the configuration; ends at `tileMap` positions.
         """
         channels = resolve_channels(
             p.declaration for tile in self.tiles for p in tile.portsInfo
@@ -371,13 +375,85 @@ class SuperTile:
             connections.append(
                 BelExternalConnection(source, sink, external, external.width)
             )
-        configuration = []
+        configuration: list[PortConnection] = []
         if self.config_mem.ports:
-            _, _, bits, bits_n = self.config_mem.ports
-            configuration = config_bit_connections(
+            data, strobe, bits, bits_n = self.config_mem.ports
+            # The master tile's frame inputs, as the chain feeds them.
+            fed = {pc.sink: pc.source for pc in self.frame_chains}
+            for sink in (data, strobe):
+                frame_input = (master, self._frame_port(master, sink.name))
+                source = fed.get(frame_input, frame_input)
+                configuration.append(
+                    ConfigConnection(source, (master, sink), sink, sink.width)
+                )
+            configuration += config_bit_connections(
                 self.config_bit_ranges, bits, bits_n, master
             )
-        return connections + between + configuration
+        return connections + between + list(self.frame_chains) + configuration
+
+    @cached_property
+    def frame_chains(
+        self,
+    ) -> tuple[FrameChainConnection[tuple[tuple[int, int], ConfigLogicPort]], ...]:
+        """The frame chains between subtiles next to each other.
+
+        A subtile reads `FrameData` from the `FrameData_O` of the subtile
+        directly west of it and `FrameStrobe` from the `FrameStrobe_O` of the
+        one directly south. A subtile with no subtile there (the edge or a
+        hole of the `tileMap`) reads the frame from the fabric
+        (`outer_config_logic_ports`).
+
+        Returns
+        -------
+        tuple[FrameChainConnection[tuple[tuple[int, int], ConfigLogicPort]], ...]
+            Row by row, `FrameData` before `FrameStrobe`; none without a
+            frame grid.
+        """
+        chains = []
+        for y, row in enumerate(self.tileMap):
+            for x, tile in enumerate(row):
+                if tile is None:
+                    continue
+                for name, (dx, dy) in (("FrameData", (-1, 0)), ("FrameStrobe", (0, 1))):
+                    sink = next(
+                        (p for p in tile.config_logic_ports if p.name == name), None
+                    )
+                    if sink is None or grid_at(self.tileMap, x + dx, y + dy) is None:
+                        continue
+                    source = self._frame_port((x + dx, y + dy), f"{name}_O")
+                    chains.append(
+                        FrameChainConnection(
+                            ((x + dx, y + dy), source), ((x, y), sink), sink, sink.width
+                        )
+                    )
+        return tuple(chains)
+
+    @property
+    def outer_config_logic_ports(self) -> set[tuple[tuple[int, int], ConfigLogicPort]]:
+        """The subtile frame ports facing out of the supertile.
+
+        A frame port faces out when no `frame_chains` connection inside the
+        supertile reads or drives it; those are the frame ports of the wrapper.
+
+        Returns
+        -------
+        set[tuple[tuple[int, int], ConfigLogicPort]]
+            The ports at their `tileMap` positions.
+        """
+        inner = {end for pc in self.frame_chains for end in (pc.source, pc.sink)}
+        return {
+            ((x, y), port)
+            for y, row in enumerate(self.tileMap)
+            for x, tile in enumerate(row)
+            if tile is not None
+            for port in tile.config_logic_ports
+            if ((x, y), port) not in inner
+        }
+
+    def _frame_port(self, at: tuple[int, int], name: str) -> ConfigLogicPort:
+        """Return the frame port `name` of the subtile at `at`."""
+        x, y = at
+        return next(p for p in self.tileMap[y][x].config_logic_ports if p.name == name)
 
     @property
     def outer_ports(self) -> set[tuple[tuple[int, int], TilePort]]:

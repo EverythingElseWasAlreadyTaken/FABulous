@@ -330,9 +330,10 @@ class TestConfigBitMode:
     def test_flipflop_chain_has_no_frame_ports(
         self, supertile_netlist: Callable[..., GridConnectivity]
     ) -> None:
-        net = supertile_netlist(
-            grid(1, 2), config_bit_mode=ConfigBitMode.FLIPFLOP_CHAIN
-        )
+        tile_map = grid(1, 2)
+        for tile in tile_map[0]:  # chain tiles have no frame grid
+            tile.config_mem = ConfigMem(source=Path("ConfigMem.csv"))
+        net = supertile_netlist(tile_map, config_bit_mode=ConfigBitMode.FLIPFLOP_CHAIN)
         assert not any("FrameData" in p for p in net.top_port_names())
         assert not any("FrameStrobe" in p for p in net.top_port_names())
 
@@ -360,7 +361,7 @@ class TestBelExternalPorts:
             switch_matrix=SwitchMatrix(
                 matrix_file=Path(), ports=(), connections={}, name="BelTile"
             ),
-            config_mem=ConfigMem(source=Path("ConfigMem.csv")),
+            config_mem=ConfigMem(None, 32, 20, source=Path("ConfigMem.csv")),
             gen_ios=[],
         )
         net = supertile_netlist([[tile]])
@@ -397,7 +398,7 @@ class TestInterTileRouting:
             switch_matrix=SwitchMatrix(
                 matrix_file=Path(), ports=(), connections={}, name="Left"
             ),
-            config_mem=ConfigMem(source=Path("ConfigMem.csv")),
+            config_mem=ConfigMem(None, 32, 20, source=Path("ConfigMem.csv")),
             gen_ios=[],
         )
         right = Tile(
@@ -420,7 +421,7 @@ class TestInterTileRouting:
             switch_matrix=SwitchMatrix(
                 matrix_file=Path(), ports=(), connections={}, name="Right"
             ),
-            config_mem=ConfigMem(source=Path("ConfigMem.csv")),
+            config_mem=ConfigMem(None, 32, 20, source=Path("ConfigMem.csv")),
             gen_ios=[],
         )
         net = supertile_netlist([[left, right]])

@@ -39,6 +39,7 @@ def test_generate_fabric_uses_fabric_name(mocker: MockerFixture) -> None:
     fabric.port_connections = []
     fabric.super_tile_instances = []
     fabric.configBitMode = ConfigBitMode.FLIPFLOP_CHAIN
+    fabric.config_logic_ports = ()
     fabric.maxFramesPerCol = 20
     fabric.frameBitsPerRow = 32
     fabric.numberOfRows = 0

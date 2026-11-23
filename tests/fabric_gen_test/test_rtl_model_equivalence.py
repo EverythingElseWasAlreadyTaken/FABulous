@@ -113,7 +113,7 @@ def _tile_endpoint(pin: Pin) -> Endpoint:
 def _wrapper_endpoint(super_tile: SuperTile) -> Callable[[tuple], Endpoint]:
     def endpoint(end: tuple) -> Endpoint:
         (x, y), pin = end
-        if isinstance(pin.port, TilePort | SJumpPort):
+        if _is_tile_port(pin.port):  # a subtile's own port
             tile = super_tile.tileMap[y][x]
             return (f"Tile_X{x}Y{y}_{tile.name}", pin.port.name, pin.index)
         return _instance_pin(pin)
@@ -128,7 +128,9 @@ def _top_endpoint(fabric: Fabric) -> Callable[[tuple], Endpoint]:
         for xy, instance in placement.tiles.items()
     }
 
-    def endpoint(end: tuple) -> Endpoint:
+    def endpoint(end: tuple | Pin) -> Endpoint:
+        if not isinstance(end, tuple):  # a port of the fabric itself
+            return ("", end.port.name, end.index)
         at, pin = end
         if at not in wrapper_of:
             return (f"{at.name}_{at.tile_type.name}", pin.port.name, pin.index)
@@ -460,7 +462,7 @@ def test_supertile_wrapper_matches_the_model(
             for y, row in enumerate(super_tile.tileMap)
             for x, tile in enumerate(row)
             if tile is not None
-            for p in [*tile.portsInfo, *tile.sjump_ports]
+            for p in [*tile.portsInfo, *tile.sjump_ports, *tile.config_logic_ports]
             for pin in p.pins
         ]
         universe = {endpoint(end) for end in ends}
@@ -473,11 +475,7 @@ def test_supertile_wrapper_matches_the_model(
                 if not p.is_constant
                 for pin in p.pins
             ]
-        # The wrapper ConfigMem's frame inputs are wired by hand, not modelled.
-        memory = [
-            p for p in super_tile.config_mem.ports if isinstance(p, ConfigBitPort)
-        ]
-        pins += _config_pins(super_tile.switch_matrix, memory)
+        pins += _config_pins(super_tile.switch_matrix, super_tile.config_mem.ports)
         universe |= {_instance_pin(pin) for pin in pins}
         connections = _inside(super_tile.fixed_connections)
         problems += _problems(
@@ -494,7 +492,9 @@ def test_fabric_top_matches_the_model(
     buffers: dict[str, CellSpec],
     tmp_path: Path,
 ) -> None:
-    """The fabric top wires the tiles by their tile port connections, as modelled."""
+    """The fabric top wires the tiles by their tile port connections and frame
+    chains, as modelled.
+    """
     fabric_dir = generated.fabric_dir.parent / "Fabric"
     tile_root = generated.fabric_dir.parent / "Tile"
     black_boxes = [
@@ -523,12 +523,16 @@ def test_fabric_top_matches_the_model(
         for instance in row:
             if instance is None:
                 continue
-            for port in instance.tile_type.portsInfo:
+            tile = instance.tile_type
+            for port in [*tile.portsInfo, *tile.config_logic_ports]:
                 for pin in port.pins:
                     e = endpoint((instance, pin))
                     # A subtile port is a wrapper port only if it faces outward.
                     if instance not in placement_of or e in rtl.net_id:
                         universe.add(e)
+    universe |= {
+        endpoint(pin) for port in generated.config_logic_ports for pin in port.pins
+    }
     connections = [c for pc in generated.port_connections for c in pc.pin_connections]
     pin_buffers = resolve_buffers(
         generated.tileDic.values(), cell_library.rules.buffers

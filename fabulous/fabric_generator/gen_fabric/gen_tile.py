@@ -45,7 +45,7 @@ from fabulous.fabric_definition.fabric_cell_library import (
     FabricCellFunction,
     FabricCellLibrary,
 )
-from fabulous.fabric_definition.port import Pin, Port
+from fabulous.fabric_definition.port import ConfigLogicPort, Pin, Port
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_definition.wire import SJumpWire
@@ -60,6 +60,9 @@ from fabulous.fabric_generator.gen_fabric.gen_switchmatrix import (
     supertile_matrix_module_ports,
     tile_matrix_module_ports,
 )
+
+# The module parameter holding the width of each frame port, without `_O`.
+FRAME_SIZE = {"FrameData": "FrameBitsPerRow", "FrameStrobe": "MaxFramesPerCol"}
 
 # The side port getters, in the order the wrapper lists a subtile's ports.
 _SIDE_PORTS = (
@@ -366,10 +369,8 @@ def generateTile(
         writer.addPortScalar("UserCLK", IO.INPUT, indentLevel=2)
         writer.addPortScalar("UserCLKo", IO.OUTPUT, indentLevel=2)
 
-    # The tile module keeps the frame sizes as its parameters.
-    frame_size = {"FrameData": "FrameBitsPerRow", "FrameStrobe": "MaxFramesPerCol"}
     for port in tile.config_logic_ports:
-        size = frame_size[port.name.removesuffix("_O")]
+        size = FRAME_SIZE[port.name.removesuffix("_O")]
         writer.addPortVector(port.name, port.io_direction, f"{size}-1", indentLevel=2)
         if port.is_input:
             writer.addComment("CONFIG_PORT", onNewLine=False, end="")
@@ -673,6 +674,9 @@ def generateSuperTile(
 
     Raises
     ------
+    ValueError
+        If the subtiles have config logic ports and the mode is not
+        frame-based, or the other way round.
     FileNotFoundError
         If the supertile's switch matrix or ConfigMem HDL file is expected
         (per the instantiation conditions) but missing; run matrix / config_mem
@@ -680,6 +684,12 @@ def generateSuperTile(
     """
     writer.addHeader(f"{superTile.name}")
     frame_based = config_bit_mode == ConfigBitMode.FRAME_BASED
+    if frame_based != any(tile.config_logic_ports for tile in superTile.tiles):
+        raise ValueError(
+            f"{superTile.name}: a {config_bit_mode.name} supertile needs subtiles "
+            "with config logic ports exactly when frame-based"
+        )
+    frame_chain_of = {pc.sink: pc for pc in superTile.frame_chains}
     emulated = [
         (f"Tile_X{x}Y{y}_", tile.config_mem)
         for y, row in enumerate(superTile.tileMap)
@@ -738,47 +748,23 @@ def generateSuperTile(
 
     st_config_bits = superTile.total_config_bits
 
-    # add config port
-    if config_bit_mode == ConfigBitMode.FRAME_BASED:
-        for y, row in enumerate(superTile.tileMap):
-            for x, tile in enumerate(row):
-                if tile is None:
-                    continue
-                if y - 1 < 0 or superTile.tileMap[y - 1][x] is None:
+    # add config port: the subtile frame ports facing out of the wrapper
+    outer_frame = superTile.outer_config_logic_ports
+    declaration_order = ("FrameStrobe_O", "FrameData", "FrameStrobe", "FrameData_O")
+    for y, row in enumerate(superTile.tileMap):
+        for x, tile in enumerate(row):
+            if tile is None:
+                continue
+            ports = sorted(
+                tile.config_logic_ports, key=lambda p: declaration_order.index(p.name)
+            )
+            for port in ports:
+                if ((x, y), port) in outer_frame:
+                    size = FRAME_SIZE[port.name.removesuffix("_O")]
                     writer.addPortVector(
-                        f"Tile_X{x}Y{y}_FrameStrobe_O",
-                        IO.OUTPUT,
-                        "MaxFramesPerCol-1",
-                        indentLevel=2,
-                    )
-                    writer.addComment("CONFIG_PORT", onNewLine=False)
-                if x - 1 < 0 or superTile.tileMap[y][x - 1] is None:
-                    writer.addPortVector(
-                        f"Tile_X{x}Y{y}_FrameData",
-                        IO.INPUT,
-                        "FrameBitsPerRow-1",
-                        indentLevel=2,
-                    )
-                    writer.addComment("CONFIG_PORT", onNewLine=False)
-                if (
-                    y + 1 >= len(superTile.tileMap)
-                    or superTile.tileMap[y + 1][x] is None
-                ):
-                    writer.addPortVector(
-                        f"Tile_X{x}Y{y}_FrameStrobe",
-                        IO.INPUT,
-                        "MaxFramesPerCol-1",
-                        indentLevel=2,
-                    )
-                    writer.addComment("CONFIG_PORT", onNewLine=False)
-                if (
-                    x + 1 >= len(superTile.tileMap[y])
-                    or superTile.tileMap[y][x + 1] is None
-                ):
-                    writer.addPortVector(
-                        f"Tile_X{x}Y{y}_FrameData_O",
-                        IO.OUTPUT,
-                        "FrameBitsPerRow-1",
+                        f"Tile_X{x}Y{y}_{port.name}",
+                        port.io_direction,
+                        f"{size}-1",
                         indentLevel=2,
                     )
                     writer.addComment("CONFIG_PORT", onNewLine=False)
@@ -893,15 +879,15 @@ def generateSuperTile(
                         writer.addComment(str(p), onNewLine=False)
 
     # declare internal connections for frameData, frameStrobe, and UserCLK
+    chained = {pc.source for pc in superTile.frame_chains}
     for y, row in enumerate(superTile.tileMap):
         for x, tile in enumerate(row):
             if tile is None:
                 continue
-            if (
-                frame_based
-                and 0 <= y - 1 < len(superTile.tileMap)
-                and superTile.tileMap[y - 1][x] is not None
-            ):
+            frame_out = {
+                p.name for p in tile.config_logic_ports if ((x, y), p) in chained
+            }
+            if "FrameStrobe_O" in frame_out:
                 writer.addConnectionVector(
                     f"Tile_X{x}Y{y}_FrameStrobe_O",
                     "MaxFramesPerCol-1",
@@ -912,11 +898,7 @@ def generateSuperTile(
                 and grid_at(superTile.tileMap, x - dx, y - dy) is not None
             ):
                 writer.addConnectionScalar(f"Tile_X{x}Y{y}_UserCLKo", indentLevel=1)
-            if (
-                frame_based
-                and 0 <= x + 1 < len(superTile.tileMap[y])
-                and superTile.tileMap[y][x + 1] is not None
-            ):
+            if "FrameData_O" in frame_out:
                 writer.addConnectionVector(
                     f"Tile_X{x}Y{y}_FrameData_O", "FrameBitsPerRow-1", indentLevel=1
                 )
@@ -982,29 +964,15 @@ def generateSuperTile(
                 else:
                     ports_pairs.append(("UserCLK", f"Tile_X{x}Y{y}_UserCLK"))
                 ports_pairs.append(("UserCLKo", f"Tile_X{x}Y{y}_UserCLKo"))
-            if config_bit_mode == ConfigBitMode.FRAME_BASED:
-                # add connection for frameData, frameStrobe
-                if (
-                    0 <= x - 1 < len(superTile.tileMap[0])
-                    and superTile.tileMap[y][x - 1] is not None
-                ):
-                    ports_pairs.append(("FrameData", f"Tile_X{x - 1}Y{y}_FrameData_O"))
-                else:
-                    ports_pairs.append(("FrameData", f"Tile_X{x}Y{y}_FrameData"))
-
-                ports_pairs.append(("FrameData_O", f"Tile_X{x}Y{y}_FrameData_O"))
-
-                if (
-                    0 <= y + 1 < len(superTile.tileMap)
-                    and superTile.tileMap[y + 1][x] is not None
-                ):
-                    ports_pairs.append(
-                        ("FrameStrobe", f"Tile_X{x}Y{y + 1}_FrameStrobe_O")
+            # A frame input reads its chain inside, else the wrapper port.
+            for port in tile.config_logic_ports:
+                chain = frame_chain_of.get(((x, y), port))
+                ports_pairs.append(
+                    (
+                        port.name,
+                        chain.vector_signal if chain else f"Tile_X{x}Y{y}_{port.name}",
                     )
-                else:
-                    ports_pairs.append(("FrameStrobe", f"Tile_X{x}Y{y}_FrameStrobe"))
-
-                ports_pairs.append(("FrameStrobe_O", f"Tile_X{x}Y{y}_FrameStrobe_O"))
+                )
 
             emulateParamPairs = []
             if frame_based:
@@ -1019,36 +987,24 @@ def generateSuperTile(
                 emulateParamPairs=emulateParamPairs,
             )
 
-    config_signals = _config_signals(
-        [pc for pc in superTile.port_connections if isinstance(pc, ConfigConnection)],
-        {},
-    )
+    configuration = [
+        pc for pc in superTile.port_connections if isinstance(pc, ConfigConnection)
+    ]
+    config_signals = _config_signals(configuration, {})
+    # The memory reads the frames where the master tile does, as whole vectors.
+    for pc in configuration:
+        _, sink = pc.sink
+        if isinstance(sink, ConfigLogicPort):
+            config_signals[sink] = pc.vector_signal
     # Instantiate supertile ConfigMem (shares free slots in master tile's frame space)
     if superTile.config_mem.ports:
-        _, _, bits, bits_n = superTile.config_mem.ports
         mx, my = superTile.get_master_tile_coords()
-        if (
-            0 <= mx - 1 < len(superTile.tileMap[0])
-            and superTile.tileMap[my][mx - 1] is not None
-        ):
-            cm_frame_data = f"Tile_X{mx - 1}Y{my}_FrameData_O"
-        else:
-            cm_frame_data = f"Tile_X{mx}Y{my}_FrameData"
-        if (
-            0 <= my + 1 < len(superTile.tileMap)
-            and superTile.tileMap[my + 1][mx] is not None
-        ):
-            cm_frame_strobe = f"Tile_X{mx}Y{my + 1}_FrameStrobe_O"
-        else:
-            cm_frame_strobe = f"Tile_X{mx}Y{my}_FrameStrobe"
         writer.addInstantiation(
             compName=superTile.config_mem.module_name,
-            compInsName=bits.instance,
+            compInsName=superTile.config_mem.instance_name,
             portsPairs=[
-                ("FrameData", cm_frame_data),
-                ("FrameStrobe", cm_frame_strobe),
-                (bits.name, _config_mem_signal(bits, config_signals)),
-                (bits_n.name, _config_mem_signal(bits_n, config_signals)),
+                (p.name, _config_mem_signal(p, config_signals))
+                for p in superTile.config_mem.ports
             ],
             # The supertile config bits live in free slots of the master tile's
             # frame space, so in emulation they are preloaded from the master

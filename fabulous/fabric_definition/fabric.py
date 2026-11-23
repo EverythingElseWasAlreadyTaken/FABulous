@@ -21,6 +21,7 @@ from fabulous.fabric_definition.channel import (
 )
 from fabulous.fabric_definition.connection import (
     FixedConnection,
+    FrameChainConnection,
     InstancePin,
     PortConnection,
     TilePortConnection,
@@ -51,9 +52,10 @@ from fabulous.fabric_definition.define import (
     ConfigBitMode,
     MultiplexerStyle,
     Side,
+    grid_at,
 )
 from fabulous.fabric_definition.instance import SuperTileInstance, TileInstance
-from fabulous.fabric_definition.port import Port
+from fabulous.fabric_definition.port import ConfigLogicPort, Pin, Port
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
 
@@ -251,6 +253,20 @@ class Fabric:
                         "of any supertile. SJUMP wires route to a supertile-hosted "
                         "BEL and are only valid inside a supertile's tiles."
                     )
+        # The frames chain through every placed tile on the fabric's grid.
+        if self.configBitMode == ConfigBitMode.FRAME_BASED:
+            fabric_grid = (self.frameBitsPerRow, self.maxFramesPerCol)
+            holders = [i.tile_type for row in self.instances for i in row if i]
+            holders += [p.super_tile for p in self.super_tile_instances]
+            for holder in holders:
+                memory = holder.config_mem
+                grid = (memory.frame_bits_per_row, memory.max_frames_per_col)
+                if grid != fabric_grid:
+                    raise ValueError(
+                        f"'{holder.name}' holds its configuration on a "
+                        f"{grid[0]} x {grid[1]} frame grid, but the frame-based "
+                        f"fabric's is {fabric_grid[0]} x {fabric_grid[1]}."
+                    )
 
         self.channels = resolve_channels(
             port.declaration
@@ -297,21 +313,51 @@ class Fabric:
         return placements
 
     @cached_property
-    def port_connections(self) -> list[TilePortConnection[tuple[TileInstance, Port]]]:
-        """The fabric's own wiring: the tile port connections between tiles.
+    def config_logic_ports(self) -> tuple[ConfigLogicPort, ...]:
+        """The fabric's frame inputs: `FrameData` per row, `FrameStrobe` per column.
+
+        Row `y` takes `FrameData[y * FrameBitsPerRow +: FrameBitsPerRow]`,
+        column `x` the same slice of `FrameStrobe` by `MaxFramesPerCol`.
+
+        Returns
+        -------
+        tuple[ConfigLogicPort, ...]
+            `FrameData`, `FrameStrobe`; none in a FLIPFLOP_CHAIN or a fabric
+            without rows or columns (their width would be zero).
+        """
+        if (
+            self.configBitMode != ConfigBitMode.FRAME_BASED
+            or self.numberOfRows == 0
+            or self.numberOfColumns == 0
+        ):
+            return ()
+        return (
+            ConfigLogicPort(
+                "FrameData", IO.INPUT, self.frameBitsPerRow * self.numberOfRows
+            ),
+            ConfigLogicPort(
+                "FrameStrobe", IO.INPUT, self.maxFramesPerCol * self.numberOfColumns
+            ),
+        )
+
+    @cached_property
+    def port_connections(self) -> list[PortConnection]:
+        """The fabric's own wiring: tile port connections and frame chains.
 
         A connection is held by the smallest module containing both ends: a
-        tile holds its inner wiring, a supertile its matrix boundary and the
-        tile port connections between its subtiles, the fabric only the tile
-        port connections between tiles that are not inside one supertile
-        placement (`tile_port_connections`). A dangling channel has none, which
+        tile holds its inner wiring, a supertile its matrix boundary, the
+        tile port connections and the frame chains between its subtiles, the
+        fabric only the tile port connections between tiles that are not
+        inside one supertile placement (`tile_port_connections`), then every
+        other frame chain (`_frame_chains`). A dangling channel has none, which
         `check_routing_channels` reports. `placed_port_connections` adds the
         placed tiles' and supertiles' own.
 
         Returns
         -------
-        list[TilePortConnection[tuple[TileInstance, Port]]]
-            The connections, their ends at the tile instances.
+        list[PortConnection]
+            The connections, their ends at the tile instances or, for the
+            first tile of a frame chain, at the fabric's frame port.
         """
         placement_of = {
             instance: placement
@@ -329,11 +375,79 @@ class Fabric:
             connections.append(
                 replace(pc, source=(source_at, source), sink=(sink_at, sink))
             )
-        return connections
+        return connections + self._frame_chains()
+
+    def _frame_chains(self) -> list[FrameChainConnection]:
+        """Chain every frame input a supertile does not feed itself.
+
+        A tile reads `FrameData` from the `FrameData_O` of the nearest placed
+        tile to the west, `FrameStrobe` from the `FrameStrobe_O` of the
+        nearest one to the south, skipping empty cells; with none, the first
+        tile of the row / column reads its slice of the fabric's frame port.
+        Across a hole of a supertile the tile before may be a subtile of the
+        same placement.
+
+        Every placed tile has its frame ports on the fabric's grid (checked
+        when the fabric is built).
+
+        Returns
+        -------
+        list[FrameChainConnection]
+            Row by row, `FrameData` before `FrameStrobe`.
+        """
+        if not self.config_logic_ports:
+            return []
+        fabric_ports = {p.name: p for p in self.config_logic_ports}
+        inner = {
+            (placement.tiles[at], port)
+            for placement in self.super_tile_instances
+            for (at, port) in (pc.sink for pc in placement.super_tile.frame_chains)
+        }
+        chains = []
+        for row in self.instances:
+            for instance in row:
+                if instance is None:
+                    continue
+                ports = {p.name: p for p in instance.tile_type.config_logic_ports}
+                # FrameData comes from the west, FrameStrobe from the south.
+                west = row[: instance.x][::-1]
+                south = [
+                    grid_at(self.instances, instance.x, y)
+                    for y in range(instance.y + 1, len(self.instances))
+                ]
+                for name, cells in (("FrameData", west), ("FrameStrobe", south)):
+                    sink = ports[name]
+                    if (instance, sink) in inner:
+                        continue
+                    before = next((c for c in cells if c is not None), None)
+                    if before is None:
+                        source = fabric_ports[name]
+                        index = instance.y if name == "FrameData" else instance.x
+                        offset = index * sink.width
+                    else:
+                        source = (
+                            before,
+                            next(
+                                p
+                                for p in before.tile_type.config_logic_ports
+                                if p.name == f"{name}_O"
+                            ),
+                        )
+                        offset = 0
+                    chains.append(
+                        FrameChainConnection(
+                            source,
+                            (instance, sink),
+                            sink,
+                            sink.width,
+                            source_offset=offset,
+                        )
+                    )
+        return chains
 
     def placed_port_connections(
         self,
-    ) -> Iterator[PortConnection[tuple[TileInstance, Port]]]:
+    ) -> Iterator[PortConnection[tuple[TileInstance, Port] | ConfigLogicPort]]:
         """Yield every port connection of the fabric, placed at tile instances.
 
         A view, nothing is stored: every tile instance lifts its tile type's,
@@ -342,8 +456,9 @@ class Fabric:
 
         Yields
         ------
-        PortConnection[tuple[TileInstance, Port]]
-            The connections, their ends at the tile instances.
+        PortConnection[tuple[TileInstance, Port] | ConfigLogicPort]
+            The connections, their ends at the tile instances; the first frame
+            chain hop of a row / column starts at the fabric's own frame port.
         """
         for row in self.instances:
             for instance in row:
@@ -353,7 +468,7 @@ class Fabric:
             yield from placement.port_connections
         yield from self.port_connections
 
-    def fixed_connections(self) -> Iterator[FixedConnection[InstancePin]]:
+    def fixed_connections(self) -> Iterator[FixedConnection[InstancePin | Pin]]:
         """Yield every hard wire of the fabric.
 
         The pin connections of the `placed_port_connections`, then the switch
@@ -361,8 +476,9 @@ class Fabric:
 
         Yields
         ------
-        FixedConnection[InstancePin]
-            The connections, each end at the tile instance it sits in.
+        FixedConnection[InstancePin | Pin]
+            The connections, each end at the tile instance it sits in; a pin of
+            the fabric's own frame ports stands alone.
         """
         for pc in self.placed_port_connections():
             yield from pc.pin_connections

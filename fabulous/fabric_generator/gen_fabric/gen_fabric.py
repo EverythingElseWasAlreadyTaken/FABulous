@@ -13,6 +13,7 @@ Key features:
 - Configuration data distribution and management
 """
 
+from fabulous.fabric_definition.connection import FrameChainConnection
 from fabulous.fabric_definition.define import (
     IO,
     USER_CLK_PREDECESSOR,
@@ -93,20 +94,12 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
                 )
                 writer.addComment("EXTERNAL", onNewLine=False)
 
-    if fabric.configBitMode == ConfigBitMode.FRAME_BASED:
-        writer.addPortVector(
-            "FrameData",
-            IO.INPUT,
-            f"(FrameBitsPerRow*{fabric.numberOfRows})-1",
-            indentLevel=2,
-        )
-        writer.addComment("CONFIG_PORT", onNewLine=False)
-        writer.addPortVector(
-            "FrameStrobe",
-            IO.INPUT,
-            f"(MaxFramesPerCol*{fabric.numberOfColumns})-1",
-            indentLevel=2,
-        )
+    frame_width = {
+        "FrameData": f"(FrameBitsPerRow*{fabric.numberOfRows})-1",
+        "FrameStrobe": f"(MaxFramesPerCol*{fabric.numberOfColumns})-1",
+    }
+    for port in fabric.config_logic_ports:
+        writer.addPortVector(port.name, IO.INPUT, frame_width[port.name], indentLevel=2)
         writer.addComment("CONFIG_PORT", onNewLine=False)
 
     if not fabric.disableUserCLK:
@@ -221,6 +214,11 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
             )
 
     drivers = {pc.sink: pc.source for pc in fabric.port_connections}
+    frame_chain_of = {
+        pc.sink: pc
+        for pc in fabric.port_connections
+        if isinstance(pc, FrameChainConnection)
+    }
     instantiatedPosition = []
     # Tile instantiations
     for y, row in enumerate(fabric.tile):
@@ -241,6 +239,7 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
 
             if superTile:
                 outer = superTile.outer_ports
+                outer_frame = superTile.outer_config_logic_ports
                 for j, row in enumerate(superTile.tileMap):
                     for i, sub in enumerate(row):
                         if sub is None:
@@ -357,124 +356,17 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
                                 (f"{pre}UserCLKo", f"Tile_X{x + i}Y{y + j}_UserCLKo")
                             )
 
-            if fabric.configBitMode == ConfigBitMode.FRAME_BASED:
-                for i, j in tileLocationOffset:
-                    # prefix for super tile port
-                    pre = ""
-                    if superTile:
-                        pre = f"Tile_X{i}Y{j}_"
-
-                    supertile_x = x + i
-                    supertile_y = y + j
-
-                    # Connect the FrameData port to the previous tiles'
-                    # (to the west of it) FrameData_O signals.
-                    # If the previous tile is NULL, continue the search.
-                    # If all previous tiles are NULL, connect to the fabrics
-                    # Row_Y{y}_FrameData signals.
-
-                    done = False
-
-                    # Get all x-positions to the west of this tile
-                    for search_x in range(supertile_x - 1, -1, -1):
-                        # Previous tile is part of the same supertile.
-                        # FrameData signals are connected internally.
-                        # Stop the search and be done.
-                        if (search_x, supertile_y) in superTileLoc:
-                            done = True
-                            break
-
-                        # Previous tile is NULL, continue search
-                        if fabric.tile[supertile_y][search_x] is None:
-                            continue
-
-                        # Found a non-NULL tile, connect FrameData
-                        portsPairs.append(
-                            (
-                                f"{pre}FrameData",
-                                f"Tile_X{search_x}Y{supertile_y}_FrameData_O",
-                            )
-                        )
-
-                        done = True
-                        break
-
-                    # No non-NULL tile was found, and tile is not part of a supertile.
-                    # Connect to the fabrics Row_Y{y}_FrameData signals.
-                    if not done:
-                        portsPairs.append(
-                            (f"{pre}FrameData", f"Row_Y{supertile_y}_FrameData")
-                        )
-
-                    # Connecting FrameData_O is easier:
-                    # Always connect FrameData_O, except the next tile
-                    # (to the east of it)
-                    # in the row is part of the supertile
-                    # (already connected internally).
-                    if (supertile_x + 1, supertile_y) not in superTileLoc:
-                        portsPairs.append(
-                            (
-                                f"{pre}FrameData_O",
-                                f"Tile_X{supertile_x}Y{supertile_y}_FrameData_O",
-                            )
-                        )
-
-                    # Connect the FrameStrobe port to the previous tiles'
-                    # (to the south of it) FrameStrobe_O signals.
-                    # If the previous tile is NULL, continue the search.
-                    # If all previous tiles are NULL, connect to the fabrics
-                    # Column_X{x}_FrameStrobe signals.
-
-                    done = False
-
-                    # Get all y-positions to the south of this tile
-                    # Note: the FrameStrobe signals come from the bottom of the
-                    #       fabric, therefore count upwards
-                    for search_y in range(supertile_y + 1, fabric.numberOfRows):
-                        # Previous tile is part of the same supertile.
-                        # FrameStrobe signals are connected internally.
-                        # Stop the search and be done.
-                        if (supertile_x, search_y) in superTileLoc:
-                            done = True
-                            break
-
-                        # Previous tile is NULL, continue search
-                        if fabric.tile[search_y][supertile_x] is None:
-                            continue
-
-                        # Found a non-NULL tile, connect FrameStrobe
-                        portsPairs.append(
-                            (
-                                f"{pre}FrameStrobe",
-                                f"Tile_X{supertile_x}Y{search_y}_FrameStrobe_O",
-                            )
-                        )
-
-                        done = True
-                        break
-
-                    # No non-NULL tile was found, and tile is not part of a supertile.
-                    # Connect to the fabrics Column_X{x}_FrameStrobe signals.
-                    if not done:
-                        portsPairs.append(
-                            (
-                                f"{pre}FrameStrobe",
-                                f"Column_X{supertile_x}_FrameStrobe",
-                            )
-                        )
-
-                    # Connecting FrameStrobe_O is easier:
-                    # Always connect FrameStrobe_O, except the next tile
-                    # (to the north of it)
-                    # in the column is part of the supertile
-                    # (already connected internally).
-                    if (supertile_x, supertile_y - 1) not in superTileLoc:
-                        portsPairs.append(
-                            (
-                                f"{pre}FrameStrobe_O",
-                                f"Tile_X{supertile_x}Y{supertile_y}_FrameStrobe_O",
-                            )
-                        )
+            # Frame inputs from their chain; a subtile's only when it faces out.
+            for i, j in tileLocationOffset:
+                at = fabric.instances[y + j][x + i]
+                pre = f"Tile_X{i}Y{j}_" if superTile else ""
+                for port in at.tile_type.config_logic_ports:
+                    if port.is_input:
+                        chain = frame_chain_of.get((at, port))
+                        if chain is not None:
+                            portsPairs.append((pre + port.name, chain.vector_signal))
+                    elif not superTile or ((i, j), port) in outer_frame:
+                        portsPairs.append((pre + port.name, at.port_signal(port)))
 
             name = ""
             emulateParamPairs = []

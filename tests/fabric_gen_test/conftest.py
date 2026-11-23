@@ -62,7 +62,7 @@ def mk_tile(tmp_path: Path) -> Callable[[str], Tile]:
             [],
             tmp_path,
             switch_matrix,
-            ConfigMem(source=tmp_path / f"{name}_ConfigMem.csv"),
+            ConfigMem(None, 32, 20, source=tmp_path / f"{name}_ConfigMem.csv"),
             [],
             False,
         )

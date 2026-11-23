@@ -269,7 +269,9 @@ class ConfigConnection[E](PortConnection[E]):
     def vector_signal(self) -> str:
         """The module signal of the source port: `ConfigBits`, `FrameData`.
 
-        Inside a supertile wrapper the configuration bits are `ST_ConfigBits`.
+        Inside a supertile wrapper the configuration bits are `ST_ConfigBits`
+        and a subtile's frame port is named by its position,
+        `Tile_X0Y1_FrameData`.
 
         Raises
         ------
@@ -283,6 +285,8 @@ class ConfigConnection[E](PortConnection[E]):
         at, port = source
         if not isinstance(at, tuple):
             raise TypeError(f"{self} is no signal of the fabric")
+        if isinstance(port, ConfigLogicPort):  # a subtile's frame port
+            return f"Tile_X{at[0]}Y{at[1]}_{port.name}"
         return f"ST_{port.name}"
 
     def pin_signal(self, c: FixedConnection) -> str:
@@ -322,6 +326,50 @@ class TilePortConnection[E](PortConnection[E]):
         at, pin = c.source
         tile = f"Tile_X{at[0]}Y{at[1]}" if isinstance(at, tuple) else at.name
         return f"{tile}_{pin.port.name}[{pin.index}]"
+
+
+@dataclass(frozen=True)
+class FrameChainConnection[E](PortConnection[E]):
+    """A frame line chained into a tile's `FrameData` / `FrameStrobe` input.
+
+    `FrameData` runs west to east, `FrameStrobe` south to north: the source is
+    the `_O` output of the tile before, or, for the first tile of a row /
+    column, the fabric's own frame port, of which the row / column takes its
+    slice (`source_offset`).
+    """
+
+    @property
+    def vector_signal(self) -> str:
+        """The signal the sink port reads.
+
+        The output before it named by its tile (`Tile_X1Y3_FrameData_O`, at a
+        `tileMap` position inside a supertile wrapper), or the fabric's row /
+        column slice (`Row_Y3_FrameData`, `Column_X1_FrameStrobe`).
+        """
+        if not isinstance(self.source, tuple):
+            at, port = self.sink
+            if port.name == "FrameData":
+                return f"Row_Y{at.y}_{port.name}"
+            return f"Column_X{at.x}_{port.name}"
+        at, port = self.source
+        tile = f"Tile_X{at[0]}Y{at[1]}" if isinstance(at, tuple) else at.name
+        return f"{tile}_{port.name}"
+
+    def pin_signal(self, c: FixedConnection) -> str:
+        """Name the signal after the sink pin's line, `Tile_X1Y3_FrameData_O[0]`.
+
+        Parameters
+        ----------
+        c : FixedConnection
+            One of the connection's `pin_connections`.
+
+        Returns
+        -------
+        str
+            The pin of the `vector_signal`.
+        """
+        _, pin = c.sink
+        return f"{self.vector_signal}[{pin.index}]"
 
 
 @dataclass(frozen=True)

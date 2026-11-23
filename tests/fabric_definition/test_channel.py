@@ -167,8 +167,8 @@ class TestRoutingChannelProblems:
             return {
                 (c.source[0].y, c.source[1].name(), c.sink[0].y, c.sink[1].name())
                 for c in fabric.fixed_connections()
-                if c.source[0] is instance
-                and not isinstance(c.declaration, ConfigLogicPort)
+                if not isinstance(c.declaration, ConfigLogicPort)
+                and c.source[0] is instance
             }
 
         assert [
