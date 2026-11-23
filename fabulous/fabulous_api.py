@@ -221,7 +221,6 @@ class FABulous_API:
     def genTile(
         self,
         tileName: str,
-        disable_user_clk: bool | None = None,
         config_bit_mode: ConfigBitMode | None = None,
     ) -> None:
         """Generate a tile based on its name.
@@ -232,9 +231,6 @@ class FABulous_API:
         ----------
         tileName : str
             Name of the tile generated.
-        disable_user_clk : bool | None
-            Override for the fabric's ``disableUserCLK``. If ``None``, the value
-            from ``self.fabric`` is used.
         config_bit_mode : ConfigBitMode | None
             Override for the fabric's ``configBitMode``. If ``None``, the value
             from ``self.fabric`` is used.
@@ -249,7 +245,6 @@ class FABulous_API:
             generateTile(
                 self.writer,
                 tile,
-                disable_user_clk or self.fabric.disableUserCLK,
                 config_bit_mode or self.fabric.configBitMode,
                 cells=cells,
                 buffers=resolve_buffers([tile], cells.rules.buffers),

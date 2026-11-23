@@ -200,7 +200,8 @@ def parseBelFile(
     InvalidBelDefinition
         The BEL file contains invalid BEL definitions. Such as wrong attribute type on
         wrong port type. i.e SHARE_EN on output ports, or more than one
-        configuration port.
+        configuration port, or a shared clock input wider than one pin (the
+        tile's `UserCLK` is one pin).
     ValueError
         - If CARRY port prefix is not a string
         - Port naming is reused
@@ -256,6 +257,16 @@ def parseBelFile(
             kind = BelPortKind.SHARED
         else:
             kind = BelPortKind.INTERNAL
+        if (
+            kind is BelPortKind.SHARED
+            and direction is IO.INPUT
+            and "UserCLK" in portName
+            and len(bits) > 1
+        ):
+            raise InvalidBelDefinition(
+                f"BEL {filename}: clock port {portName} has {len(bits)} pins, "
+                "but the tile's UserCLK has one."
+            )
 
         localShared: str | None = None
         if "SHARED_ENABLE" in attributes or "SHARED_RESET" in attributes:

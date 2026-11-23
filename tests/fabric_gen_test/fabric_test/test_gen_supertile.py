@@ -318,10 +318,26 @@ class TestClockMode:
     def test_disable_user_clk_removes_clock_ports(
         self, supertile_netlist: Callable[..., GridConnectivity]
     ) -> None:
-        net = supertile_netlist(grid(2, 2), disable_user_clk=True)
+        tiles = grid(2, 2)
+        for tile in (t for row in tiles for t in row):
+            tile.user_clk = False
+        net = supertile_netlist(tiles, disable_user_clk=True)
         assert not any("UserCLK" in p for p in net.top_port_names())
         # The config chain is unaffected: column 0 still feeds column 1.
         assert net.cell_net(0, 0, "FrameData_O") == net.cell_net(1, 0, "FrameData")
+
+    @pytest.mark.parametrize("disable_user_clk", [True, False])
+    def test_a_clock_setting_other_than_the_subtiles_raises(
+        self, disable_user_clk: bool
+    ) -> None:
+        tiles = grid(1, 2)
+        for tile in tiles[0]:
+            tile.user_clk = disable_user_clk
+        st = SuperTile(name="ST", tileDir=Path(), tiles=tiles[0], tileMap=tiles)
+        with pytest.raises(ValueError, match="parsed with the other setting"):
+            generateSuperTile(
+                VerilogCodeGenerator(), st, disable_user_clk=disable_user_clk
+            )
 
 
 class TestConfigBitMode:

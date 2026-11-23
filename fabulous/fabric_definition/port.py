@@ -11,6 +11,7 @@ in the FPGA fabric:
 - ConfigBitPort: A port carrying configuration bits (BEL, switch matrix,
   configuration memory)
 - ConfigLogicPort: A port of the frame grid (tile, configuration memory)
+- ClockPort: A port of the user clock (tile)
 - SwitchMatrixPort: A port of a tile's switch-matrix module
 """
 
@@ -869,6 +870,19 @@ class ConfigLogicPort(_InstancePort):
         """Return a string representation of the ConfigLogicPort."""
         io, msb = self.io_direction.value, self.width - 1
         return f"ConfigLogicPort({io} {self.name}[{msb}:0])"
+
+
+class ClockPort(_InstancePort):
+    """A port of the user clock: the tile's `UserCLK` / `UserCLKo`.
+
+    The clock enters a tile, clocks its BELs and leaves the tile again
+    towards the next one. It is no routing: nextpnr and the bitstream do not
+    see it.
+    """
+
+    def __repr__(self) -> str:
+        """Return a string representation of the ClockPort."""
+        return f"ClockPort({self.io_direction.value} {self.name})"
 
 
 class SwitchMatrixPort(Port):

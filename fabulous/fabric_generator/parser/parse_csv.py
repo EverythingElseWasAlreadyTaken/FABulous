@@ -701,6 +701,7 @@ def parse_tile_from_dir(
     config_bit_mode: ConfigBitMode,
     frame_bits_per_row: int,
     max_frames_per_col: int,
+    user_clk: bool,
 ) -> Tile | SuperTile:
     """Parse a single tile or supertile from its own directory.
 
@@ -724,6 +725,8 @@ def parse_tile_from_dir(
         The fabric's `FrameBitsPerRow`.
     max_frames_per_col : int
         The fabric's `MaxFramesPerCol`.
+    user_clk : bool
+        Whether the tiles have the user clock ports (`Tile.user_clk`).
 
     Raises
     ------
@@ -749,6 +752,7 @@ def parse_tile_from_dir(
             if tile.name == tile_name:
                 if config_bit_mode is ConfigBitMode.FRAME_BASED:
                     tile.config_mem.set_grid(frame_bits_per_row, max_frames_per_col)
+                tile.user_clk = user_clk
                 return tile
         raise InvalidTileDefinition(f"Tile {tile_name!r} not found in {tile_csv}")
 
@@ -782,6 +786,7 @@ def parse_tile_from_dir(
         for tile in tiles:
             if config_bit_mode is ConfigBitMode.FRAME_BASED:
                 tile.config_mem.set_grid(frame_bits_per_row, max_frames_per_col)
+            tile.user_clk = user_clk
         tile_dic.update({tile.name: tile for tile in tiles})
 
     supertiles = parseSupertilesCSV(tile_csv, tile_dic)
@@ -1025,6 +1030,8 @@ def parseFabricCSV(fileName: str) -> Fabric:
     for holder in holders:
         if configBitMode is ConfigBitMode.FRAME_BASED:
             holder.config_mem.set_grid(frameBitsPerRow, maxFramesPerCol)
+    for tile in [*tileDic.values(), *unusedTileDic.values()]:
+        tile.user_clk = not disableUserCLK
 
     return Fabric(
         fabric_dir=fName,

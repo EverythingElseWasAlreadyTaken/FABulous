@@ -52,7 +52,25 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
     tiles and connecting them based on the provided fabric definition. It handles the
     generation of top-level I/O ports, wiring between adjacent tiles, and the
     configuration infrastructure (either Frame-based or FlipFlop chain).
+
+    Parameters
+    ----------
+    writer : CodeGenerator
+        The code generator instance for RTL output.
+    fabric : Fabric
+        The fabric to generate.
+
+    Raises
+    ------
+    ValueError
+        If `disableUserCLK` disagrees with the tiles' `user_clk`, set by the
+        parser: the tile modules would not have the clock ports wired here.
     """
+    if any(tile.user_clk == fabric.disableUserCLK for tile in fabric.tileDic.values()):
+        raise ValueError(
+            f"disableUserCLK is {fabric.disableUserCLK}, but the tiles were parsed "
+            "with the other setting"
+        )
     fabric.check_routing_channels()
     # we first scan all tiles if those have IOs that have to go to top
     # the order of this scan is later maintained when instantiating the actual tiles

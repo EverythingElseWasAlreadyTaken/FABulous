@@ -211,6 +211,25 @@ class TestUserCLKDirection:
             parseFabricCSV(str(self._set_direction(project, "UP")))
 
 
+@pytest.mark.parametrize(("value", "user_clk"), [("TRUE", False), ("FALSE", True)])
+def test_disable_user_clk_takes_the_clock_ports_off_the_tiles(
+    project: Path, value: str, user_clk: bool
+) -> None:
+    """`DisableUserCLK` decides whether the tile types have clock ports."""
+    csv = project / "fabric.csv"
+    csv.write_text(
+        csv.read_text().replace(
+            "ParametersBegin,", f"ParametersBegin,\nDisableUserCLK,{value},", 1
+        )
+    )
+    init_context(project)
+    fabric = parseFabricCSV(str(csv))
+
+    tiles = [*fabric.tileDic.values(), *fabric.unusedTileDic.values()]
+    assert {tile.user_clk for tile in tiles} == {user_clk}
+    assert all(bool(tile.clock_ports) is user_clk for tile in tiles)
+
+
 def _fresh_dsp_tiles(project: Path) -> dict[str, Tile]:
     """Parse the DSP subtiles anew, free to join another supertile."""
     tiles = {}
@@ -380,6 +399,7 @@ def test_a_chain_tile_parsed_from_its_directory_ignores_a_stale_mapping(
         config_bit_mode=ConfigBitMode.FLIPFLOP_CHAIN,
         frame_bits_per_row=32,
         max_frames_per_col=20,
+        user_clk=True,
     )
 
     assert tile.config_mem.config_bits == 0

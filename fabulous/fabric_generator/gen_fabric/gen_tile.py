@@ -27,6 +27,8 @@ from fabulous.fabric_definition.cell_binding import (
 from fabulous.fabric_definition.cell_spec import CellSpec
 from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.connection import (
+    ClockConnection,
+    ClockPassThrough,
     ConfigConnection,
     JumpConnection,
     StagingConnection,
@@ -241,7 +243,6 @@ def _add_parameters(
 def generateTile(
     writer: CodeGenerator,
     tile: Tile,
-    disable_user_clk: bool = False,
     config_bit_mode: ConfigBitMode = ConfigBitMode.FRAME_BASED,
     *,
     cells: FabricCellLibrary,
@@ -285,9 +286,8 @@ def generateTile(
         The code generator instance for RTL output
     tile : Tile
         The tile object containing BELs and port information; a frame-based
-        tile takes its frame sizes from its `config_mem`.
-    disable_user_clk : bool
-        If True, the UserCLK port will not be generated or connected
+        tile takes its frame sizes from its `config_mem`, its user clock from
+        its `clock_ports`.
     config_bit_mode : ConfigBitMode
         The configuration bit mode to use (frame-based or FlipFlop chain)
     cells : FabricCellLibrary
@@ -365,9 +365,8 @@ def generateTile(
 
     writer.addComment("Tile IO ports from BELs", onNewLine=True, indentLevel=1)
 
-    if not disable_user_clk:
-        writer.addPortScalar("UserCLK", IO.INPUT, indentLevel=2)
-        writer.addPortScalar("UserCLKo", IO.OUTPUT, indentLevel=2)
+    for port in tile.clock_ports:
+        writer.addPortScalar(port.name, port.io_direction, indentLevel=2)
 
     for port in tile.config_logic_ports:
         size = FRAME_SIZE[port.name.removesuffix("_O")]
@@ -521,12 +520,19 @@ def generateTile(
                 c.sink.name(indexed=True),
             )
 
-    if not disable_user_clk:
-        writer.addInstantiation(
-            "clk_buf",
-            "inst_clk_buf",
-            portsPairs=[("A", "UserCLK"), ("X", "UserCLKo")],
-        )
+    for pc in tile.port_connections:
+        if isinstance(pc, ClockPassThrough):
+            writer.addInstantiation(
+                "clk_buf",
+                "inst_clk_buf",
+                portsPairs=[("A", pc.source.name), ("X", pc.sink.name)],
+            )
+    clock_of = {
+        c.sink: c.signal
+        for pc in tile.port_connections
+        if isinstance(pc, ClockConnection)
+        for c in pc.pin_connections
+    }
 
     writer.addNewLine()
     # top configuration data daisy chaining
@@ -569,8 +575,8 @@ def generateTile(
                 continue
             for pin in port.pins:
                 if port.is_clock:
-                    if not disable_user_clk:
-                        userclk_pair = (pin.name(), pin.name())
+                    if pin in clock_of:
+                        userclk_pair = (pin.name(), clock_of[pin])
                 else:
                     ports_pairs.append((pin.name(), pin.name()))
 
@@ -676,7 +682,8 @@ def generateSuperTile(
     ------
     ValueError
         If the subtiles have config logic ports and the mode is not
-        frame-based, or the other way round.
+        frame-based, or the other way round; or if `disable_user_clk`
+        disagrees with the subtiles' `user_clk`.
     FileNotFoundError
         If the supertile's switch matrix or ConfigMem HDL file is expected
         (per the instantiation conditions) but missing; run matrix / config_mem
@@ -688,6 +695,11 @@ def generateSuperTile(
         raise ValueError(
             f"{superTile.name}: a {config_bit_mode.name} supertile needs subtiles "
             "with config logic ports exactly when frame-based"
+        )
+    if any(tile.user_clk == disable_user_clk for tile in superTile.tiles):
+        raise ValueError(
+            f"{superTile.name}: disable_user_clk is {disable_user_clk}, but the "
+            "subtiles were parsed with the other setting"
         )
     frame_chain_of = {pc.sink: pc for pc in superTile.frame_chains}
     emulated = [

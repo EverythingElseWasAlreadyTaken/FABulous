@@ -332,6 +332,7 @@ class TestFABulousTileRunAdapter:
             config_bit_mode=ConfigBitMode.FRAME_BASED,
             frame_bits_per_row=32,
             max_frames_per_col=20,
+            user_clk=False,
         )
         emit_verilog.assert_called_once()
         # Pin YAML should be generated below run_dir.
@@ -436,6 +437,7 @@ class TestFABulousTileRunAdapter:
             config_bit_mode=ConfigBitMode.FRAME_BASED,
             frame_bits_per_row=32,
             max_frames_per_col=20,
+            user_clk=False,
         )
         # Supertile logical dimensions must be taken from the tile itself.
         assert flow.config["FABULOUS_TILE_LOGICAL_WIDTH"] == 4

@@ -19,6 +19,7 @@ from fabulous.fabric_definition.define import grid_at
 from fabulous.fabric_definition.port import (
     BelExternalPort,
     BelPort,
+    ClockPort,
     ConfigBitPort,
     ConfigLogicPort,
     SwitchMatrixPort,
@@ -49,6 +50,7 @@ type Declaration = (
     | BelExternalPort
     | ConfigLogicPort
     | ConfigBitPort
+    | ClockPort
 )
 """What a fixed connection is expanded from."""
 
@@ -255,6 +257,36 @@ class StagingConnection[E](PortConnection[E]):
 @dataclass(frozen=True)
 class ConfigLogicPassThrough[E](StagingConnection[E]):
     """A config logic port passed through the tile: `FrameData` -> `FrameData_O`."""
+
+
+@dataclass(frozen=True)
+class ClockPassThrough[E](PortConnection[E]):
+    """The user clock passed through the tile, `UserCLK` -> `UserCLKo`.
+
+    Always through one clock buffer (`clk_buf`), so the two ends are two
+    signals and the connection names neither.
+    """
+
+
+@dataclass(frozen=True)
+class ClockConnection[E](PortConnection[E]):
+    """The tile's user clock into a BEL's clock port."""
+
+    def pin_signal(self, c: FixedConnection) -> str:
+        """Name the signal after the tile's clock port, `UserCLK`.
+
+        Parameters
+        ----------
+        c : FixedConnection
+            One of the connection's `pin_connections`.
+
+        Returns
+        -------
+        str
+            The clock port.
+        """
+        source, _ = _module_pins(c)
+        return source.port.name
 
 
 @dataclass(frozen=True)

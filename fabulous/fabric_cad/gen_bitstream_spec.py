@@ -15,6 +15,7 @@ from fabulous.fabric_definition.define import ConfigBitMode
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.port import (
     BelExternalPort,
+    ClockPort,
     ConfigBitPort,
     ConfigLogicPort,
 )
@@ -173,7 +174,8 @@ def generate_bitstream_spec(fabric: Fabric) -> dict[str, dict]:
     # gen_npnr_model).
     for connection in fabric.fixed_connections():
         if isinstance(
-            connection.declaration, BelExternalPort | ConfigLogicPort | ConfigBitPort
+            connection.declaration,
+            BelExternalPort | ConfigLogicPort | ConfigBitPort | ClockPort,
         ):
             continue
         src_at = connection.source[0]

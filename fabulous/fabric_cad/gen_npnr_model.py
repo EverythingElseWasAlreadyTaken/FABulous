@@ -20,6 +20,7 @@ from fabulous.fabric_definition.define import IO, BelPortKind
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.port import (
     BelExternalPort,
+    ClockPort,
     ConfigBitPort,
     ConfigLogicPort,
 )
@@ -292,7 +293,8 @@ def genNextpnrModel(
     # leaves the fabric, so nextpnr cannot route over it.
     for connection in fabric.fixed_connections():
         if isinstance(
-            connection.declaration, BelExternalPort | ConfigLogicPort | ConfigBitPort
+            connection.declaration,
+            BelExternalPort | ConfigLogicPort | ConfigBitPort | ClockPort,
         ):
             continue
         (src_at, src_pin), (dst_at, dst_pin) = connection.source, connection.sink

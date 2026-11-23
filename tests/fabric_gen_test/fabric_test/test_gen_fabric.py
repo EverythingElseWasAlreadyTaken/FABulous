@@ -35,6 +35,7 @@ def test_generate_fabric_uses_fabric_name(mocker: MockerFixture) -> None:
     fabric = mocker.create_autospec(Fabric)
     fabric.name = "test_fabric"
     fabric.tile = []
+    fabric.tileDic = {}
     fabric.instances = []
     fabric.port_connections = []
     fabric.super_tile_instances = []
@@ -50,6 +51,20 @@ def test_generate_fabric_uses_fabric_name(mocker: MockerFixture) -> None:
     generateFabric(writer, fabric)
 
     writer.addHeader.assert_called_once_with("test_fabric")
+
+
+@pytest.mark.parametrize("disable_user_clk", [True, False])
+def test_a_clock_setting_other_than_the_tiles_raises(
+    mocker: MockerFixture, disable_user_clk: bool
+) -> None:
+    """`disableUserCLK` must match the `user_clk` the parser gave the tiles."""
+    tile = make_empty_tile("T")
+    tile.user_clk = disable_user_clk
+    fabric = mocker.create_autospec(Fabric)
+    fabric.tileDic = {"T": tile}
+    fabric.disableUserCLK = disable_user_clk
+    with pytest.raises(ValueError, match="parsed with the other setting"):
+        generateFabric(mocker.create_autospec(CodeGenerator), fabric)
 
 
 def _supertile(

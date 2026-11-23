@@ -131,6 +131,7 @@ class FABulousTile(SequentialFlow):
                 config_bit_mode=config_bit_mode,
                 frame_bits_per_row=FRAME_BITS_PER_ROW,
                 max_frames_per_col=MAX_FRAMES_PER_COL,
+                user_clk=False,
             )
         except (
             FileNotFoundError,
@@ -284,7 +285,6 @@ def _emit_regular_tile_verilog(
     generateTile(
         writer,
         tile,
-        disable_user_clk=True,
         config_bit_mode=config_bit_mode,
         cells=cells,
         buffers=resolve_buffers([tile], cells.rules.buffers),

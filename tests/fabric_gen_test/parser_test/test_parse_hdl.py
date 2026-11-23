@@ -52,3 +52,10 @@ def test_second_config_port_raises(tmp_path: Path) -> None:
     decl = "input [1:0] ConfigBits,\n    (* FABulous, CONFIG *) input Cfg"
     with pytest.raises(InvalidBelDefinition, match="more than one configuration"):
         parseBelFile(_write_bel(tmp_path, decl))
+
+
+def test_a_wide_shared_clock_raises(tmp_path: Path) -> None:
+    """A BEL clock input is one pin, like the tile's `UserCLK`."""
+    decl = "(* FABulous, SHARED_PORT *) input [1:0] UserCLK"
+    with pytest.raises(InvalidBelDefinition, match="UserCLK has one"):
+        parseBelFile(_write_bel(tmp_path, decl))

@@ -22,6 +22,8 @@ from fabulous.fabric_definition.channel import (
 )
 from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.connection import (
+    ClockConnection,
+    ClockPassThrough,
     ConfigConnection,
     ConfigLogicPassThrough,
     JumpConnection,
@@ -33,7 +35,7 @@ from fabulous.fabric_definition.define import IO, BelPortKind, Direction
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.fabric_cell_library import FabricCellFunction
 from fabulous.fabric_definition.instance import TileInstance
-from fabulous.fabric_definition.port import BelPort, ConfigLogicPort
+from fabulous.fabric_definition.port import BelPort, ClockPort, ConfigLogicPort
 from fabulous.fabric_definition.switch_matrix import SwitchMatrix, switch_matrix_ports
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.parser.parse_csv import parse_port_line
@@ -167,7 +169,7 @@ class TestRoutingChannelProblems:
             return {
                 (c.source[0].y, c.source[1].name(), c.sink[0].y, c.sink[1].name())
                 for c in fabric.fixed_connections()
-                if not isinstance(c.declaration, ConfigLogicPort)
+                if not isinstance(c.declaration, ConfigLogicPort | ClockPort)
                 and c.source[0] is instance
             }
 
@@ -198,6 +200,7 @@ class TestRoutingChannelProblems:
             gen_ios=[],
             pinOrderConfig={},
         )
+        tile.user_clk = False
 
         assert {
             (c.source.full_name(), c.sink.full_name()) for c in tile.fixed_connections
@@ -312,6 +315,7 @@ class TestRoutingChannelProblems:
             pinOrderConfig={},
             jump_wires=jumps,
         )
+        tile.user_clk = False
         staging, *wires = tile.fixed_connections
         boundary = tile.port_connections[1]
 
@@ -349,7 +353,7 @@ class TestRoutingChannelProblems:
         assert [
             (c.source.full_name(), c.sink.full_name(), c.signal)
             for c in tile.fixed_connections
-            if not isinstance(c.declaration, ConfigLogicPort)
+            if not isinstance(c.declaration, ConfigLogicPort | ClockPort)
         ] == [
             ("A_C0", "Inst_A_IO__C0", "A_C0"),
             ("A_C1", "Inst_A_IO__C1", "A_C1"),
@@ -381,6 +385,47 @@ class TestRoutingChannelProblems:
         tile = make_empty_tile("T")
         tile.config_mem = ConfigMem(source=Path("ConfigMem.csv"))
         assert tile.config_logic_ports == ()
+
+    def test_the_user_clock_passes_through_and_clocks_the_bels(self) -> None:
+        """`UserCLK` leaves on `UserCLKo` and clocks each BEL clock port."""
+
+        def clocked_bel() -> Bel:
+            ports = [
+                BelPort("UserCLK", IO.INPUT, 1, BelPortKind.SHARED, is_clock=True),
+                BelPort("I", IO.INPUT, 1, prefix="A_"),
+            ]
+            return Bel(Path("FF.v"), "A_", "FF", ports)
+
+        tile = make_empty_tile("T")
+        tile.add_bels([clocked_bel()])
+
+        assert [(p.name, p.io_direction) for p in tile.clock_ports] == [
+            ("UserCLK", IO.INPUT),
+            ("UserCLKo", IO.OUTPUT),
+        ]
+        clock = [
+            (type(pc), pc.source.full_name(0), pc.sink.full_name(0))
+            for pc in tile.port_connections
+            if isinstance(pc, ClockPassThrough | ClockConnection)
+        ]
+        assert clock == [
+            (ClockPassThrough, "UserCLK0", "UserCLKo0"),
+            (ClockConnection, "UserCLK0", "Inst_A_FF__UserCLK"),
+        ]
+        (into_bel,) = (
+            c
+            for c in tile.fixed_connections
+            if isinstance(c.port_connection, ClockConnection)
+        )
+        assert into_bel.signal == "UserCLK"
+
+        tile = make_empty_tile("T")
+        tile.user_clk = False
+        tile.add_bels([clocked_bel()])
+        assert tile.clock_ports == ()
+        assert not any(
+            isinstance(c.declaration, ClockPort) for c in tile.fixed_connections
+        )
 
     def test_the_config_mem_reads_the_frames_and_drives_the_matrix(self) -> None:
         """Frames into the ConfigMem, its bits out to the matrix, as vectors."""

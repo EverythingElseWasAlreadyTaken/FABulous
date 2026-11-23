@@ -10,7 +10,8 @@ wrappers). Connections inside an instantiated module are not part of it.
 
 The buffer cells of the fabric cell library pass their signal on, so a net runs
 through them; every connection must pass as many of them as its end pins have
-inside the module (the default `resolve_buffers`). Every connection's signal
+inside the module (the default `resolve_buffers`), the clock pass-through its
+one `clk_buf`. Every connection's signal
 (`buffered_signal`), behind its source pin's buffer, must be the module's
 signal of that name; every tile port pin's inner signal and buffer name
 (`inner_signal`, `buffer_name`) must be the RTL's.
@@ -30,7 +31,7 @@ from fabulous.fabric_definition.cell_binding import (
     resolve_buffers,
 )
 from fabulous.fabric_definition.cell_spec import CellSpec
-from fabulous.fabric_definition.connection import FixedConnection
+from fabulous.fabric_definition.connection import ClockPassThrough, FixedConnection
 from fabulous.fabric_definition.define import IO, BelPortKind
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.fabric_cell_library import (
@@ -41,6 +42,7 @@ from fabulous.fabric_definition.fabric_cell_library import (
 from fabulous.fabric_definition.port import (
     BelExternalPort,
     BelPort,
+    ClockPort,
     ConfigBitPort,
     ConfigLogicPort,
     Pin,
@@ -67,6 +69,13 @@ def _bel_pins(bels: Iterable) -> list[Pin]:
         for kind in (BelPortKind.INTERNAL, BelPortKind.EXTERNAL)
         for io in (IO.INPUT, IO.OUTPUT)
         for p in bel.get_ports(kind, io)
+        for pin in p.pins
+    ]
+    pins += [
+        pin
+        for bel in bels
+        for p in bel.get_ports(BelPortKind.SHARED, IO.INPUT)
+        if p.is_clock
         for pin in p.pins
     ]
     return pins + [
@@ -98,7 +107,7 @@ def _instance_pin(pin: Pin) -> Endpoint:
 
 def _is_tile_port(port: object) -> bool:
     """Whether `port` is a port of the tile module itself."""
-    return isinstance(port, TilePort | SJumpPort) or (
+    return isinstance(port, TilePort | SJumpPort | ClockPort) or (
         isinstance(port, ConfigLogicPort) and not port.instance
     )
 
@@ -313,12 +322,16 @@ def _problems(
         c.feature
         for c in connections
         if rtl.buffers_between(endpoint(c.source), endpoint(c.sink))
-        != buffered(c.source) + buffered(c.sink)
+        != buffered(c.source)
+        + buffered(c.sink)
+        + isinstance(c.port_connection, ClockPassThrough)
     ]
     if miscounted:
         problems.append(f"{module}: buffers differ on {miscounted[:5]}")
     misnamed = []
     for c in connections:
+        if isinstance(c.port_connection, ClockPassThrough):  # two signals
+            continue
         net_id = rtl.net_id[endpoint(c.source)]
         if buffered(c.source):
             net_id = rtl.through.get(net_id)
@@ -376,9 +389,14 @@ def generated(cli: FABulousREPL, cell_library: FabricCellLibrary) -> Fabric:  # 
 
 @pytest.fixture
 def buffers(fabulous_project: Path) -> dict[str, CellSpec]:
-    """Return the buffer cells of the project's fabric cell library."""
+    """Return the buffer cells of the project's fabric cell library, and the
+    clock buffer.
+    """
     library = FabricCellLibrary.load(fabulous_project)
-    return {spec.cell: spec for spec in library.cells[FabricCellFunction.BUFFER]}
+    cells = {spec.cell: spec for spec in library.cells[FabricCellFunction.BUFFER]}
+    return cells | {
+        "clk_buf": CellSpec(cell="clk_buf", input_ports=("A",), output_ports=("X",))
+    }
 
 
 @pytest.mark.slow
@@ -411,6 +429,7 @@ def test_tile_rtl_matches_the_model(
             *tile.sjump_ports,
             *tile.bel_external_ports,
             *tile.config_logic_ports,
+            *tile.clock_ports,
         ]
         pins = [pin for p in ports for pin in p.pins] + _bel_pins(tile.bels)
         pins += [

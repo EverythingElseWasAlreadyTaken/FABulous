@@ -10,6 +10,8 @@ from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.connection import (
     BelExternalConnection,
+    ClockConnection,
+    ClockPassThrough,
     ConfigConnection,
     ConfigLogicPassThrough,
     FixedConnection,
@@ -28,6 +30,7 @@ from fabulous.fabric_definition.define import (
 from fabulous.fabric_definition.gen_io import Gen_IO
 from fabulous.fabric_definition.port import (
     BelExternalPort,
+    ClockPort,
     ConfigBitPort,
     ConfigLogicPort,
     Pin,
@@ -175,6 +178,10 @@ class Tile:
         The path to the tile folder
     pinOrderConfig : dict, optional
         Configuration for pin ordering on each side of the tile.
+    user_clk : bool
+        Whether the tile has the user clock ports, set by the parser before
+        anything derives from them: none in a fabric with `DisableUserCLK`
+        and in the standalone GDS tile flow. Default True.
 
     Raises
     ------
@@ -191,6 +198,7 @@ class Tile:
     gen_ios: list[Gen_IO]
     tileDir: Path = Path()
     pinOrderConfig: dict = field(default_factory=dict)
+    user_clk: bool = True
 
     def __init__(
         self,
@@ -355,6 +363,22 @@ class Tile:
         )
 
     @cached_property
+    def clock_ports(self) -> tuple[ClockPort, ...]:
+        """The user clock ports, `UserCLK` in and `UserCLKo` out.
+
+        Every tile with a user clock has both, clocked BELs or not, so tiles
+        stitch by abutment.
+
+        Returns
+        -------
+        tuple[ClockPort, ...]
+            `UserCLK`, `UserCLKo`; none without a user clock (`user_clk`).
+        """
+        if not self.user_clk:
+            return ()
+        return (ClockPort("UserCLK", IO.INPUT, 1), ClockPort("UserCLKo", IO.OUTPUT, 1))
+
+    @cached_property
     def port_connections(self) -> list[PortConnection[Port]]:
         """The port-to-port wiring inside the tile.
 
@@ -369,13 +393,14 @@ class Tile:
         `EXTERNAL` port is wired to the tile-module port exporting it. The
         configuration memory reads the frames and drives each BEL's
         configuration port and the matrix's `ConfigBits` / `ConfigBits_N`
-        with their slice (`config_bit_ranges`).
+        with their slice (`config_bit_ranges`). The user clock passes through
+        the tile and clocks each BEL clock port.
 
         Returns
         -------
         list[PortConnection[Port]]
             Config logic pass-throughs, staging, matrix boundary, jump wires, BEL
-            external ports, configuration.
+            external ports, configuration, clock.
         """
         frame = self.config_logic_ports
         connections: list[PortConnection[Port]] = [
@@ -433,6 +458,15 @@ class Tile:
             for source, sink in zip(frame_inputs, (data, strobe), strict=True):
                 connections.append(ConfigConnection(source, sink, sink, sink.width))
             connections += config_bit_connections(self.config_bit_ranges, bits, bits_n)
+        if self.clock_ports:
+            clock, clock_out = self.clock_ports
+            connections.append(ClockPassThrough(clock, clock_out, clock_out, 1))
+            connections += [
+                ClockConnection(clock, port, clock, port.width)
+                for bel in self.bels
+                for port in bel.get_ports(BelPortKind.SHARED, IO.INPUT)
+                if port.is_clock
+            ]
         return connections
 
     @cached_property
