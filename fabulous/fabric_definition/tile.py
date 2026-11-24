@@ -319,11 +319,6 @@ class Tile:
             )
         self._super_tile = super_tile
 
-    @property
-    def withUserCLK(self) -> bool:
-        """Whether any BEL of the tile uses the user clock."""
-        return any(bel.withUserCLK for bel in self.bels)
-
     @cached_property
     def bel_external_ports(self) -> tuple[BelExternalPort, ...]:
         """The tile-module ports exporting the BELs' `EXTERNAL` ports.

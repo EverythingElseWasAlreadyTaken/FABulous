@@ -16,6 +16,7 @@ from fabulous.fabric_cad.timing_model.FABulous_timing_model_interface import (
     FABulousTimingModelInterface,
 )
 from fabulous.fabric_definition.bel import Bel
+from fabulous.fabric_definition.connection import ClockConnection
 from fabulous.fabric_definition.define import IO, BelPortKind
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.port import (
@@ -123,7 +124,7 @@ IO_BEL_TYPES = (
 
 
 def belLines(
-    bel: Bel, letter: str, x: int, y: int
+    bel: Bel, letter: str, x: int, y: int, *, clocked: bool
 ) -> tuple[str, list[str], list[str], list[str]]:
     """Build a BEL's legacy v1 line, its v2/v3 blocks, and any pin constraint.
 
@@ -142,6 +143,9 @@ def belLines(
         Tile X coordinate the BEL belongs to.
     y : int
         Tile Y coordinate the BEL belongs to.
+    clocked : bool
+        Whether the user clock feeds the BEL (a `ClockConnection`): it gets a
+        `GlobalClk` line.
 
     Returns
     -------
@@ -200,7 +204,7 @@ def belLines(
             for p in outputs:
                 if p.startswith("O") and p[1:].isdigit():
                     lines.append(f"ClkToOut,{p},CLK,{IO_CLK_TO_OUT}")
-        if bel.withUserCLK:
+        if clocked:
             # only v3 carries the arrival time; v2 uses nextpnr's default
             lines.append(f"GlobalClk,{CLOCK_DELAY}" if timing else "GlobalClk")
         lines.append("BelEnd")
@@ -279,10 +283,15 @@ def genNextpnrModel(
             belStr.append(f"#Tile_X{x}Y{y}")
             belv2Str.append(f"#Tile_X{x}Y{y}")
             belv3Str.append(f"#Tile_X{x}Y{y}")
+            clocked = {
+                pc.sink.bel
+                for pc in tile.port_connections
+                if isinstance(pc, ClockConnection)
+            }
             for i, bel in enumerate(tile.bels):
                 letter = string.ascii_uppercase[i]
                 v1_line, v2_lines, v3_lines, constrain_lines = belLines(
-                    bel, letter, x, y
+                    bel, letter, x, y, clocked=bel in clocked
                 )
                 belStr.append(v1_line)
                 belv2Str.extend(v2_lines)
@@ -325,10 +334,15 @@ def genNextpnrModel(
         belStr.append(f"#SuperTile_{super_tile.name}_X{ftx}Y{fty}")
         belv2Str.append(f"#SuperTile_{super_tile.name}_X{ftx}Y{fty}")
         belv3Str.append(f"#SuperTile_{super_tile.name}_X{ftx}Y{fty}")
+        clocked = {
+            pc.sink[1].bel
+            for pc in super_tile.port_connections
+            if isinstance(pc, ClockConnection)
+        }
         for i, bel in enumerate(super_tile.bels):
             letter = string.ascii_uppercase[bel_offset + i]
             v1_line, v2_lines, v3_lines, constrain_lines = belLines(
-                bel, letter, ftx, fty
+                bel, letter, ftx, fty, clocked=bel in clocked
             )
             belStr.append(v1_line)
             belv2Str.extend(v2_lines)

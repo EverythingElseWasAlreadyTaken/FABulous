@@ -151,11 +151,6 @@ class SuperTile:
         """
         return self._switch_matrix
 
-    @property
-    def withUserCLK(self) -> bool:
-        """Whether any supertile-level BEL uses the user clock."""
-        return any(bel.withUserCLK for bel in self.bels)
-
     def get_ports_around_tile(self) -> dict[str, list[list[TilePort]]]:
         """Return all the ports that are around the supertile.
 

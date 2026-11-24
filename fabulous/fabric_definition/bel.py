@@ -194,8 +194,3 @@ class Bel:
             for port in self.get_ports(kind, io)
             for pin in port.pins
         ]
-
-    @property
-    def withUserCLK(self) -> bool:
-        """Whether the BEL has a user clock port."""
-        return any(port.is_clock for port in self.ports)

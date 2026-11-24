@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from pytest_mock import MockerFixture
 
 from fabulous.fabric_cad.gen_npnr_model import (
@@ -10,7 +11,8 @@ from fabulous.fabric_cad.gen_npnr_model import (
     genNextpnrModel,
 )
 from fabulous.fabric_definition.bel import Bel
-from fabulous.fabric_definition.define import IO
+from fabulous.fabric_definition.define import IO, BelPortKind, Side
+from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.port import BelPort
 from fabulous.fabulous_repl.fabulous_repl import FABulousREPL
 from tests.conftest import make_empty_tile
@@ -69,7 +71,7 @@ def test_belLines_unknown_type_emits_no_timing_arcs() -> None:
     )
     make_empty_tile("W_IO").add_bels([bel])
 
-    _, _, v3_lines, _ = belLines(bel, "A", 0, 0)
+    _, _, v3_lines, _ = belLines(bel, "A", 0, 0, clocked=False)
 
     for keyword in ("Delay,", "SetupHold,", "ClkToOut,", "Clock,"):
         assert not any(line.startswith(keyword) for line in v3_lines)
@@ -132,3 +134,26 @@ def test_genNextpnrModel_bel_timing_unaffected_by_real_pip_delay(
     assert "Delay,Ci,Co,0.2,Ci/Co?" in belv3
     assert "SetupHold,I0,CLK,2.5,0.1,FF=1" in belv3
     assert "ClkToOut,Q,CLK,1.0,FF=1" in belv3
+
+
+@pytest.mark.parametrize("disable_user_clk", [False, True])
+def test_global_clk_only_where_the_user_clock_feeds_the_bel(
+    tmp_path: Path, disable_user_clk: bool
+) -> None:
+    """A BEL clock port is `GlobalClk` only when a clock connection drives it."""
+    tile = make_empty_tile("T")
+    tile.user_clk_side = None if disable_user_clk else Side.SOUTH
+    clock = BelPort("UserCLK", IO.INPUT, 1, BelPortKind.SHARED, is_clock=True)
+    tile.add_bels([Bel(Path("FF.v"), "A_", "FF", [clock])])
+    fabric = Fabric(
+        fabric_dir=tmp_path,
+        tile=[[tile]],
+        numberOfRows=1,
+        numberOfColumns=1,
+        disableUserCLK=disable_user_clk,
+    )
+
+    belv2 = genNextpnrModel(fabric)[2]
+
+    assert "BelBegin,X0Y0,A,FF,A_" in belv2
+    assert ("GlobalClk" in belv2) is not disable_user_clk

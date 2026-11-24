@@ -104,7 +104,7 @@ class TestGetMinDieArea:
 
 
 class TestTileOwnership:
-    """A tile owns its ports and derives its clock use from its BELs."""
+    """A tile owns its ports."""
 
     def test_attaches_its_ports_once(self) -> None:
         """Each port points back at its tile; it cannot join a second tile."""
@@ -113,13 +113,6 @@ class TestTileOwnership:
         assert all(port.tile is tile for port in ports)
         with pytest.raises(ValueError, match="already belongs"):
             _mk_tile(ports)
-
-    @pytest.mark.parametrize("is_clock", [True, False])
-    def test_user_clk_follows_the_bels(self, is_clock: bool) -> None:
-        """`withUserCLK` is true exactly when a BEL has a clock port."""
-        clk = BelPort("UserCLK", IO.INPUT, 1, is_clock=is_clock)
-        bel = Bel(Path("FF.v"), "", "FF", [clk])
-        assert _mk_tile([], [bel]).withUserCLK is is_clock
 
     @pytest.mark.parametrize(
         ("num_bels", "should_raise"),

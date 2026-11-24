@@ -43,7 +43,6 @@ def _serialize_tile_ports(
     tile: Tile,
     prefix: str = "",
     external_port_side: Side = Side.SOUTH,
-    user_clk_side: Side = Side.SOUTH,
 ) -> dict[str, list[dict]]:
     """Serialize a single tile's ports for IO pin placement."""
     port_dict = {
@@ -52,10 +51,13 @@ def _serialize_tile_ports(
         Side.SOUTH.name: [],
         Side.WEST.name: [],
     }
-    # UserCLK enters on user_clk_side and UserCLKo leaves on the opposite side.
+    # UserCLK enters on the tile's clock side and UserCLKo leaves opposite.
+    side = tile.user_clk_side
     clk_pins = {
-        user_clk_side.name: PinOrderConfig()([f"{prefix}UserCLK"]).to_dict(),
-        user_clk_side.opposite.name: PinOrderConfig()([f"{prefix}UserCLKo"]).to_dict(),
+        (side if port.is_input else side.opposite).name: PinOrderConfig()(
+            [f"{prefix}{port.name}"]
+        ).to_dict()
+        for port in tile.clock_ports
     }
 
     for port in tile.getNorthSidePorts():
@@ -121,11 +123,17 @@ def _serialize_supertile_ports(
     super_tile: SuperTile,
     prefix: str = "",
     external_port_sides: dict[tuple[int, int], Side] | None = None,
-    user_clk_side: Side = Side.SOUTH,
 ) -> dict[str, dict[str, list[dict]]]:
     """Serialize SuperTile ports, processing only perimeter sides."""
     config_payload: dict[str, dict[str, list[dict]]] = {}
     ports_around = super_tile.get_ports_around_tile()
+    # The wrapper's clock ports by subtile and side: UserCLK on the subtile's
+    # clock side, UserCLKo opposite.
+    clock_on: dict[tuple[int, int], dict] = {}
+    for (cx, cy), port in super_tile.outer_clock_ports:
+        side = super_tile.tileMap[cy][cx].user_clk_side
+        on = side if port.is_input else side.opposite
+        clock_on.setdefault((cx, cy), {})[on] = port
 
     for coord_key, port_lists in ports_around.items():
         if not port_lists:
@@ -175,14 +183,11 @@ def _serialize_supertile_ports(
         if x_int == 0 or tm[y_int][x_int - 1] is None:
             all_perimeter_sides.add(Side.WEST)
 
+        clock_here = clock_on.get((x_int, y_int), {})
         for side in all_perimeter_sides:
-            if side == user_clk_side:
+            if (port := clock_here.get(side)) is not None:
                 config_payload[tile_key][side.name].append(
-                    PinOrderConfig()([f"{tile_prefix}UserCLK"]).to_dict()
-                )
-            elif side == user_clk_side.opposite:
-                config_payload[tile_key][side.name].append(
-                    PinOrderConfig()([f"{tile_prefix}UserCLKo"]).to_dict()
+                    PinOrderConfig()([f"{tile_prefix}{port.name}"]).to_dict()
                 )
             if side == Side.NORTH:
                 config_payload[tile_key][side.name].append(
@@ -275,7 +280,6 @@ def generate_IO_pin_order_config(
         Fallback side used for BEL external ports when no fabric placement
         context applies.
     """
-    user_clk_side = fabric.userCLKSide if fabric is not None else Side.SOUTH
     if isinstance(tile_or_super_tile, SuperTile):
         sides: dict[tuple[int, int], Side] = {}
         if (fabric is not None) and (
@@ -303,9 +307,7 @@ def generate_IO_pin_order_config(
                 if subtile is not None
             }
 
-        payload = _serialize_supertile_ports(
-            tile_or_super_tile, prefix, sides, user_clk_side
-        )
+        payload = _serialize_supertile_ports(tile_or_super_tile, prefix, sides)
     else:
         if fabric is not None and (
             positions := fabric.find_tile_positions(tile_or_super_tile)
@@ -316,9 +318,7 @@ def generate_IO_pin_order_config(
             side = external_port_side
 
         payload = {
-            "X0Y0": _serialize_tile_ports(
-                tile_or_super_tile, prefix, side, user_clk_side
-            ),
+            "X0Y0": _serialize_tile_ports(tile_or_super_tile, prefix, side),
         }
 
     with outfile.open("w") as file_descriptor:

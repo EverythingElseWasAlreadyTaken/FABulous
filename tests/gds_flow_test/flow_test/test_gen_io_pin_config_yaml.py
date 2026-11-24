@@ -16,7 +16,7 @@ from pytest_mock import MockerFixture
 from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.define import IO, BelPortKind, PinSortMode, Side
 from fabulous.fabric_definition.fabric import Fabric
-from fabulous.fabric_definition.port import BelPort
+from fabulous.fabric_definition.port import BelPort, ClockPort
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.gds_generator.gen_io_pin_config_yaml import (
@@ -25,6 +25,8 @@ from fabulous.fabric_generator.gds_generator.gen_io_pin_config_yaml import (
     _serialize_tile_ports,
     generate_IO_pin_order_config,
 )
+
+_CLOCK_PORTS = (ClockPort("UserCLK", IO.INPUT, 1), ClockPort("UserCLKo", IO.OUTPUT, 1))
 
 
 def _external_bel(inputs: list[str], outputs: list[str]) -> Bel:
@@ -132,6 +134,8 @@ class TestSerializeTilePorts:
     def mock_tile(self, mocker: MockerFixture) -> Tile:
         """Create a mock tile for testing."""
         tile = mocker.MagicMock(spec=Tile)
+        tile.clock_ports = _CLOCK_PORTS
+        tile.user_clk_side = Side.SOUTH
 
         # Mock ports
         north_port = mocker.MagicMock()
@@ -204,9 +208,18 @@ class TestSerializeTilePorts:
 
         assert "UserCLK" in all_pins or any("UserCLK" in str(p) for p in all_pins)
 
+    def test_serialize_tile_ports_without_a_user_clock(self, mock_tile: Tile) -> None:
+        """A tile without clock ports (`DisableUserCLK`) gets no clock pins."""
+        mock_tile.clock_ports = ()
+        result = _serialize_tile_ports(mock_tile)
+
+        pins = [p for configs in result.values() for c in configs for p in c["pins"]]
+        assert not any("UserCLK" in p for p in pins)
+
     def test_serialize_tile_ports_user_clk_side_west(self, mock_tile: Tile) -> None:
         """With a W2E clock, UserCLK sits on WEST and UserCLKo on EAST."""
-        result = _serialize_tile_ports(mock_tile, user_clk_side=Side.WEST)
+        mock_tile.user_clk_side = Side.WEST
+        result = _serialize_tile_ports(mock_tile)
 
         def pins(side: str) -> list[str]:
             return [p for config in result[side] for p in config["pins"]]
@@ -246,6 +259,7 @@ class TestSerializeTilePorts:
     def test_serialize_tile_ports_with_bels(self, mocker: MockerFixture) -> None:
         """Test serialization with BEL external ports."""
         tile = mocker.MagicMock()
+        tile.clock_ports = ()
 
         # Empty side ports
         tile.getNorthSidePorts.return_value = []
@@ -491,6 +505,8 @@ class TestGenerateIOPinOrderConfig:
     def mock_tile(self, mocker: MockerFixture) -> Tile:
         """Create a mock tile for testing."""
         tile = mocker.MagicMock(spec=Tile)
+        tile.clock_ports = _CLOCK_PORTS
+        tile.user_clk_side = Side.SOUTH
 
         # Empty side ports for simplicity
         tile.getNorthSidePorts.return_value = []
