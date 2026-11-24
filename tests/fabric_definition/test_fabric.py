@@ -7,12 +7,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from fabulous.fabric_definition.bel import Bel
 from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.connection import (
+    ClockChainConnection,
+    ClockConnection,
     FrameChainConnection,
     TilePortConnection,
 )
+from fabulous.fabric_definition.define import IO, BelPortKind, Side
 from fabulous.fabric_definition.fabric import Fabric
+from fabulous.fabric_definition.port import BelPort, ClockPort
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.parser.parse_csv import parse_port_line
@@ -399,3 +404,124 @@ class TestFrameChains:
         # Subtiles next to each other are chained by the supertile, not here.
         assert ("Tile_X1Y2", "FrameData") not in chains
         assert ("Tile_X0Y0", "FrameStrobe") not in chains
+
+
+def _clocked(name: str, side: Side | None) -> Tile:
+    """An empty tile whose user clock enters from `side`."""
+    tile = make_empty_tile(name)
+    tile.user_clk_side = side
+    return tile
+
+
+def _clock_chains(fabric: Fabric) -> dict[str, str]:
+    """Each tile clock input the fabric chains and the signal it reads."""
+    return {
+        pc.sink[0].name: wire.signal
+        for pc in fabric.port_connections
+        if isinstance(pc, ClockChainConnection)
+        for wire in pc.pin_connections
+    }
+
+
+class TestClockChains:
+    """A tile's `UserCLK` reads the `UserCLKo` of the tile before it."""
+
+    def test_a_tile_reads_its_direct_neighbour_else_the_fabric_clock(
+        self, make_fabric: Callable[..., Fabric]
+    ) -> None:
+        a, b, c = (_clocked(n, Side.WEST) for n in "ABC")
+        fabric = make_fabric(
+            tile=[[a, b, None, c]],
+            numberOfRows=1,
+            numberOfColumns=4,
+            userCLKSide=Side.WEST,
+        )
+
+        assert [(p.name, p.io_direction) for p in fabric.clock_ports] == [
+            ("UserCLK", IO.INPUT)
+        ]
+        # No skipping across the empty cell, unlike the frames.
+        assert _clock_chains(fabric) == {
+            "Tile_X0Y0": "UserCLK",
+            "Tile_X1Y0": "Tile_X0Y0_UserCLKo",
+            "Tile_X3Y0": "UserCLK",
+        }
+
+    def test_without_a_user_clock_there_is_no_clock(
+        self, make_fabric: Callable[..., Fabric]
+    ) -> None:
+        fabric = make_fabric(
+            tile=[[_clocked("A", None)]],
+            numberOfRows=1,
+            numberOfColumns=1,
+            disableUserCLK=True,
+        )
+
+        assert fabric.clock_ports == ()
+        assert _clock_chains(fabric) == {}
+
+    def test_a_supertile_chains_its_subtiles_and_clocks_its_bels(
+        self, make_fabric: Callable[..., Fabric]
+    ) -> None:
+        """A column supertile, clock from the south: the bottom subtile faces
+        out with `UserCLK`, the top one with `UserCLKo`; its BEL reads the
+        master's (the top's) clock net, the bottom's `UserCLKo`.
+        """
+        top, bot = _clocked("TOP", Side.SOUTH), _clocked("BOT", Side.SOUTH)
+        clock = BelPort("UserCLK", IO.INPUT, 1, BelPortKind.SHARED, is_clock=True)
+        super_tile = SuperTile(
+            name="ST",
+            tileDir=Path(),
+            tiles=[top, bot],
+            tileMap=[[top], [bot]],
+            bels=[Bel(Path("FF.v"), "A_", "FF", [clock])],
+            master_tile_coords=(0, 0),
+        )
+
+        (chain,) = super_tile.clock_chains
+        assert (chain.source[0], chain.source[1].name) == ((0, 1), "UserCLKo")
+        assert (chain.sink[0], chain.sink[1].name) == ((0, 0), "UserCLK")
+        assert {(at, p.name) for at, p in super_tile.outer_clock_ports} == {
+            ((0, 0), "UserCLKo"),
+            ((0, 1), "UserCLK"),
+        }
+        (into_bel,) = (
+            c
+            for pc in super_tile.port_connections
+            if isinstance(pc, ClockConnection)
+            for c in pc.pin_connections
+        )
+        assert into_bel.signal == "Tile_X0Y1_UserCLKo"
+        # A dedicated wire: no pip for nextpnr, no FASM feature.
+        assert isinstance(into_bel.declaration, ClockPort)
+
+        fabric = make_fabric(
+            tile=[[top], [bot]],
+            superTileDic={"ST": super_tile},
+            numberOfRows=2,
+            numberOfColumns=1,
+        )
+        # The fabric feeds only the bottom subtile; the supertile the top.
+        assert _clock_chains(fabric) == {"Tile_X0Y1": "UserCLK"}
+
+    @pytest.mark.parametrize(
+        ("side", "overrides"),
+        [
+            pytest.param(Side.WEST, {}, id="other_side"),
+            pytest.param(None, {}, id="no_clock_in_a_clocked_fabric"),
+            pytest.param(Side.SOUTH, {"disableUserCLK": True}, id="clock_without"),
+        ],
+    )
+    def test_a_tile_with_another_clock_than_the_fabric_is_rejected(
+        self,
+        make_fabric: Callable[..., Fabric],
+        side: Side | None,
+        overrides: dict,
+    ) -> None:
+        with pytest.raises(ValueError, match="'A' has its user clock from"):
+            make_fabric(
+                tile=[[_clocked("A", side)]],
+                numberOfRows=1,
+                numberOfColumns=1,
+                **overrides,
+            )

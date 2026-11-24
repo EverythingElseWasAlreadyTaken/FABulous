@@ -268,12 +268,39 @@ class ClockPassThrough[E](PortConnection[E]):
     """
 
 
+def _clock_signal(end: object) -> str:
+    """Return the scalar clock signal at the source `end` of a connection.
+
+    A port of the module itself is its name (`UserCLK`); a subtile's or a
+    tile instance's port is named by its tile (`Tile_X0Y1_UserCLKo`).
+
+    Parameters
+    ----------
+    end : object
+        A `Pin`, or one placed at a `tileMap` position or a tile instance.
+
+    Returns
+    -------
+    str
+        The signal name.
+    """
+    if not isinstance(end, tuple):
+        return end.port.name
+    at, pin = end
+    tile = f"Tile_X{at[0]}Y{at[1]}" if isinstance(at, tuple) else at.name
+    return f"{tile}_{pin.port.name}"
+
+
 @dataclass(frozen=True)
 class ClockConnection[E](PortConnection[E]):
-    """The tile's user clock into a BEL's clock port."""
+    """The user clock into a BEL's clock port.
+
+    In a tile from the tile's `UserCLK`; in a supertile wrapper from the
+    master tile's clock net (its `UserCLK`, or what its chain reads).
+    """
 
     def pin_signal(self, c: FixedConnection) -> str:
-        """Name the signal after the tile's clock port, `UserCLK`.
+        """Name the signal after its source, `UserCLK`, `Tile_X0Y1_UserCLKo`.
 
         Parameters
         ----------
@@ -283,10 +310,35 @@ class ClockConnection[E](PortConnection[E]):
         Returns
         -------
         str
-            The clock port.
+            The clock signal.
         """
-        source, _ = _module_pins(c)
-        return source.port.name
+        _module_pins(c)  # no signal of the fabric
+        return _clock_signal(c.source)
+
+
+@dataclass(frozen=True)
+class ClockChainConnection[E](PortConnection[E]):
+    """The user clock chained into a tile's `UserCLK`.
+
+    The source is the `UserCLKo` of the tile directly before it on the side
+    the clock enters (`USER_CLK_PREDECESSOR`), or, with no tile there, the
+    fabric's `UserCLK`.
+    """
+
+    def pin_signal(self, c: FixedConnection) -> str:
+        """Name the signal after its source, `Tile_X1Y3_UserCLKo`, `UserCLK`.
+
+        Parameters
+        ----------
+        c : FixedConnection
+            One of the connection's `pin_connections`.
+
+        Returns
+        -------
+        str
+            The clock signal.
+        """
+        return _clock_signal(c.source)
 
 
 @dataclass(frozen=True)

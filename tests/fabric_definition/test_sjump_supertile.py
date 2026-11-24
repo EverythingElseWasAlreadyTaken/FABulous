@@ -16,7 +16,12 @@ from fabulous.fabric_cad.gen_npnr_model import genNextpnrModel
 from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.define import IO
 from fabulous.fabric_definition.fabric import Fabric
-from fabulous.fabric_definition.port import ConfigBitPort, ConfigLogicPort, SJumpPort
+from fabulous.fabric_definition.port import (
+    ClockPort,
+    ConfigBitPort,
+    ConfigLogicPort,
+    SJumpPort,
+)
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.switch_matrix import (
     SwitchMatrix,
@@ -134,7 +139,9 @@ class TestSuperTileHelpers:
             for (src_at, src), (dst_at, dst) in (
                 (c.source, c.sink)
                 for c in st.fixed_connections
-                if not isinstance(c.declaration, ConfigBitPort | ConfigLogicPort)
+                if not isinstance(
+                    c.declaration, ConfigBitPort | ConfigLogicPort | ClockPort
+                )
             )
         ] == [
             ((0, 0), "A0", (0, 1), f"{SM}DSP_top_A0"),

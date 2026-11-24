@@ -21,11 +21,15 @@ from fabulous.fabric_definition.port import ConfigBitPort, SJumpPort
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
 from fabulous.fabric_generator.code_generator.code_generator import CodeGenerator
+from fabulous.fabric_generator.code_generator.code_generator_Verilog import (
+    VerilogCodeGenerator,
+)
 from fabulous.fabric_generator.gen_fabric.gen_fabric import generateFabric
 from fabulous.fabric_generator.gen_fabric.gen_tile import (
     generateSuperTile,
     generateTile,
 )
+from fabulous.fabric_generator.gen_fabric.gen_top_wrapper import generateTopWrapper
 from tests.conftest import make_empty_tile, make_muladd_bel, sjump_port
 from tests.fabric_gen_test.conftest import create_switchmatrix_list
 
@@ -35,7 +39,7 @@ def test_generate_fabric_uses_fabric_name(mocker: MockerFixture) -> None:
     fabric = mocker.create_autospec(Fabric)
     fabric.name = "test_fabric"
     fabric.tile = []
-    fabric.tileDic = {}
+    fabric.clock_ports = ()
     fabric.instances = []
     fabric.port_connections = []
     fabric.super_tile_instances = []
@@ -53,18 +57,17 @@ def test_generate_fabric_uses_fabric_name(mocker: MockerFixture) -> None:
     writer.addHeader.assert_called_once_with("test_fabric")
 
 
-@pytest.mark.parametrize("disable_user_clk", [True, False])
-def test_a_clock_setting_other_than_the_tiles_raises(
-    mocker: MockerFixture, disable_user_clk: bool
-) -> None:
-    """`disableUserCLK` must match the `user_clk` the parser gave the tiles."""
-    tile = make_empty_tile("T")
-    tile.user_clk = disable_user_clk
-    fabric = mocker.create_autospec(Fabric)
-    fabric.tileDic = {"T": tile}
-    fabric.disableUserCLK = disable_user_clk
-    with pytest.raises(ValueError, match="parsed with the other setting"):
-        generateFabric(mocker.create_autospec(CodeGenerator), fabric)
+def test_a_fabric_without_clock_ports_gets_no_wrapper_clock(tmp_path: Path) -> None:
+    """The top wrapper wires `UserCLK` only when the fabric has it."""
+    fabric = Fabric(
+        fabric_dir=tmp_path, tile=[[None, None]], numberOfRows=1, numberOfColumns=2
+    )
+    writer = VerilogCodeGenerator()
+    writer.outFileName = tmp_path / "top.v"
+    generateTopWrapper(writer, fabric)
+
+    assert fabric.clock_ports == ()
+    assert "UserCLK" not in writer.outFileName.read_text()
 
 
 def _supertile(
@@ -286,12 +289,13 @@ def test_user_clk_chains_from_side(
     mk_tile: Callable[[str], Tile],
     code_generator_factory: Callable[[str, str], CodeGenerator],
 ) -> None:
-    """`Fabric.userCLKSide` selects the neighbour that feeds each tile's UserCLK.
+    """`Tile.user_clk_side` selects the neighbour that feeds each tile's UserCLK.
 
     On a 3x3 grid the centre tile chains from its `side` neighbour and the
     tile on the far edge in that direction takes the global clock.
     """
     tile = mk_tile("T")
+    tile.user_clk_side = side
     fabric = Fabric(
         fabric_dir=tile.tileDir,
         tile=[[tile] * 3 for _ in range(3)],

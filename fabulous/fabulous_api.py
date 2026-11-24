@@ -255,7 +255,6 @@ class FABulous_API:
     def genSuperTile(
         self,
         tileName: str,
-        disable_user_clk: bool | None = None,
         config_bit_mode: ConfigBitMode | None = None,
     ) -> None:
         """Generate a super tile based on its name.
@@ -266,9 +265,6 @@ class FABulous_API:
         ----------
         tileName : str
             Name of the super tile generated.
-        disable_user_clk : bool | None
-            Override for the fabric's ``disableUserCLK``. If ``None``, the value
-            from ``self.fabric`` is used.
         config_bit_mode : ConfigBitMode | None
             Override for the fabric's ``configBitMode``. If ``None``, the value
             from ``self.fabric`` is used.
@@ -282,9 +278,7 @@ class FABulous_API:
             generateSuperTile(
                 self.writer,
                 tile,
-                disable_user_clk or self.fabric.disableUserCLK,
                 config_bit_mode or self.fabric.configBitMode,
-                user_clk_side=self.fabric.userCLKSide,
             )
         else:
             raise ValueError(f"SuperTile {tileName} not found")

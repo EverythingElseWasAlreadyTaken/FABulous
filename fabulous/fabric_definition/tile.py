@@ -21,6 +21,7 @@ from fabulous.fabric_definition.connection import (
     SwitchMatrixConnection,
 )
 from fabulous.fabric_definition.define import (
+    DEFAULT_USER_CLK_SIDE,
     IO,
     BelPortKind,
     Direction,
@@ -178,10 +179,11 @@ class Tile:
         The path to the tile folder
     pinOrderConfig : dict, optional
         Configuration for pin ordering on each side of the tile.
-    user_clk : bool
-        Whether the tile has the user clock ports, set by the parser before
-        anything derives from them: none in a fabric with `DisableUserCLK`
-        and in the standalone GDS tile flow. Default True.
+    user_clk_side : Side | None
+        The side the user clock enters the tile from (the fabric's
+        `userCLKSide`), None without user clock ports (a fabric with
+        `DisableUserCLK`, the standalone GDS tile flow); set by the parser
+        before anything derives from it. Default SOUTH.
 
     Raises
     ------
@@ -198,7 +200,7 @@ class Tile:
     gen_ios: list[Gen_IO]
     tileDir: Path = Path()
     pinOrderConfig: dict = field(default_factory=dict)
-    user_clk: bool = True
+    user_clk_side: Side | None = DEFAULT_USER_CLK_SIDE
 
     def __init__(
         self,
@@ -372,9 +374,9 @@ class Tile:
         Returns
         -------
         tuple[ClockPort, ...]
-            `UserCLK`, `UserCLKo`; none without a user clock (`user_clk`).
+            `UserCLK`, `UserCLKo`; none without a user clock (`user_clk_side`).
         """
-        if not self.user_clk:
+        if self.user_clk_side is None:
             return ()
         return (ClockPort("UserCLK", IO.INPUT, 1), ClockPort("UserCLKo", IO.OUTPUT, 1))
 

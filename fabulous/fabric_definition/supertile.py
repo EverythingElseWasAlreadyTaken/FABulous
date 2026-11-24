@@ -17,6 +17,8 @@ from fabulous.fabric_definition.channel import resolve_channels
 from fabulous.fabric_definition.configmem import ConfigMem
 from fabulous.fabric_definition.connection import (
     BelExternalConnection,
+    ClockChainConnection,
+    ClockConnection,
     ConfigConnection,
     FixedConnection,
     FrameChainConnection,
@@ -28,12 +30,14 @@ from fabulous.fabric_definition.connection import (
 from fabulous.fabric_definition.define import (
     IO,
     SWITCH_MATRIX_CONSTANTS,
+    USER_CLK_PREDECESSOR,
     BelPortKind,
     Side,
     grid_at,
 )
 from fabulous.fabric_definition.port import (
     BelExternalPort,
+    ClockPort,
     ConfigLogicPort,
     Port,
     SJumpPort,
@@ -337,16 +341,19 @@ class SuperTile:
         their channels are resolved from the subtiles alone, so a supertile is
         wired without a fabric (a fabric checks that its own resolution
         agrees, `check_routing_channels`). Then the frame chains between
-        subtiles next to each other (`frame_chains`). Last, the configuration
+        subtiles next to each other (`frame_chains`). Then the configuration
         memory reads the frames where the master tile does and drives the
         matrix and the BELs with their slice of its bits, at the master.
+        Last, the user clock chains between the subtiles (`clock_chains`) and
+        the master tile's clock net clocks each BEL clock port.
 
         Returns
         -------
         list[PortConnection[tuple[tuple[int, int], Port]]]
             The matrix boundary in matrix port order, the BEL external
             ports, the tile port connections between the subtiles, the frame
-            chains, then the configuration; ends at `tileMap` positions.
+            chains, the configuration, then the clock; ends at `tileMap`
+            positions.
         """
         channels = resolve_channels(
             p.declaration for tile in self.tiles for p in tile.portsInfo
@@ -389,7 +396,20 @@ class SuperTile:
             configuration += config_bit_connections(
                 self.config_bit_ranges, bits, bits_n, master
             )
-        return connections + between + list(self.frame_chains) + configuration
+        clock: list[PortConnection] = list(self.clock_chains)
+        master_tile = self.tileMap[master[1]][master[0]]
+        if master_tile.clock_ports:
+            # The master tile's clock net, as its chain feeds it.
+            fed = {pc.sink: pc.source for pc in self.clock_chains}
+            master_port = master_tile.clock_ports[0]
+            source = fed.get((master, master_port), (master, master_port))
+            clock += [
+                ClockConnection(source, (master, port), master_port, port.width)
+                for bel in self.bels
+                for port in bel.get_ports(BelPortKind.SHARED, IO.INPUT)
+                if port.is_clock
+            ]
+        return connections + between + list(self.frame_chains) + configuration + clock
 
     @cached_property
     def frame_chains(
@@ -427,6 +447,62 @@ class SuperTile:
                         )
                     )
         return tuple(chains)
+
+    @cached_property
+    def clock_chains(
+        self,
+    ) -> tuple[ClockChainConnection[tuple[tuple[int, int], ClockPort]], ...]:
+        """The user clock chains between subtiles next to each other.
+
+        A subtile reads `UserCLK` from the `UserCLKo` of the subtile directly
+        before it on the side the clock enters (`Tile.user_clk_side`); with
+        no subtile there (the edge or a hole of the `tileMap`) from the
+        fabric (`outer_clock_ports`).
+
+        Returns
+        -------
+        tuple[ClockChainConnection[tuple[tuple[int, int], ClockPort]], ...]
+            Row by row; none without a user clock.
+        """
+        chains = []
+        for y, row in enumerate(self.tileMap):
+            for x, tile in enumerate(row):
+                if tile is None or not tile.clock_ports:
+                    continue
+                dx, dy = USER_CLK_PREDECESSOR[tile.user_clk_side]
+                before = grid_at(self.tileMap, x + dx, y + dy)
+                if before is None:
+                    continue
+                clock, _ = tile.clock_ports
+                _, clock_out = before.clock_ports
+                chains.append(
+                    ClockChainConnection(
+                        ((x + dx, y + dy), clock_out), ((x, y), clock), clock, 1
+                    )
+                )
+        return tuple(chains)
+
+    @property
+    def outer_clock_ports(self) -> set[tuple[tuple[int, int], ClockPort]]:
+        """The subtile clock ports facing out of the supertile.
+
+        A clock port faces out when no `clock_chains` connection inside the
+        supertile reads or drives it; those are the clock ports of the wrapper.
+
+        Returns
+        -------
+        set[tuple[tuple[int, int], ClockPort]]
+            The ports at their `tileMap` positions.
+        """
+        inner = {end for pc in self.clock_chains for end in (pc.source, pc.sink)}
+        return {
+            ((x, y), port)
+            for y, row in enumerate(self.tileMap)
+            for x, tile in enumerate(row)
+            if tile is not None
+            for port in tile.clock_ports
+            if ((x, y), port) not in inner
+        }
 
     @property
     def outer_config_logic_ports(self) -> set[tuple[tuple[int, int], ConfigLogicPort]]:

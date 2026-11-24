@@ -20,6 +20,7 @@ from fabulous.fabric_definition.channel import (
     resolve_channels,
 )
 from fabulous.fabric_definition.connection import (
+    ClockChainConnection,
     FixedConnection,
     FrameChainConnection,
     InstancePin,
@@ -49,13 +50,14 @@ from fabulous.fabric_definition.define import (
     MAX_FABRIC_ROWS,
     MAX_FRAMES_PER_COL,
     ROW_SELECT_WIDTH,
+    USER_CLK_PREDECESSOR,
     ConfigBitMode,
     MultiplexerStyle,
     Side,
     grid_at,
 )
 from fabulous.fabric_definition.instance import SuperTileInstance, TileInstance
-from fabulous.fabric_definition.port import ConfigLogicPort, Pin, Port
+from fabulous.fabric_definition.port import ClockPort, ConfigLogicPort, Pin, Port
 from fabulous.fabric_definition.supertile import SuperTile
 from fabulous.fabric_definition.tile import Tile
 
@@ -268,6 +270,18 @@ class Fabric:
                         f"fabric's is {fabric_grid[0]} x {fabric_grid[1]}."
                     )
 
+        # The clock chains through every placed tile from the fabric's side.
+        user_clk_side = None if self.disableUserCLK else self.userCLKSide
+        for row in self.instances:
+            for instance in row:
+                if instance and instance.tile_type.user_clk_side != user_clk_side:
+                    raise ValueError(
+                        f"Tile '{instance.tile_type.name}' has its user clock "
+                        f"from {instance.tile_type.user_clk_side}, but the "
+                        f"fabric's is {user_clk_side} (`DisableUserCLK`, "
+                        "`UserCLKSide`)."
+                    )
+
         self.channels = resolve_channels(
             port.declaration
             for row in self.tile
@@ -349,7 +363,8 @@ class Fabric:
         tile port connections and the frame chains between its subtiles, the
         fabric only the tile port connections between tiles that are not
         inside one supertile placement (`tile_port_connections`), then every
-        other frame chain (`_frame_chains`). A dangling channel has none, which
+        other frame chain (`_frame_chains`) and clock chain (`_clock_chains`).
+        A dangling channel has none, which
         `check_routing_channels` reports. `placed_port_connections` adds the
         placed tiles' and supertiles' own.
 
@@ -357,7 +372,8 @@ class Fabric:
         -------
         list[PortConnection]
             The connections, their ends at the tile instances or, for the
-            first tile of a frame chain, at the fabric's frame port.
+            first tile of a frame or clock chain, at the fabric's frame or
+            clock port.
         """
         placement_of = {
             instance: placement
@@ -375,7 +391,7 @@ class Fabric:
             connections.append(
                 replace(pc, source=(source_at, source), sink=(sink_at, sink))
             )
-        return connections + self._frame_chains()
+        return connections + self._frame_chains() + self._clock_chains()
 
     def _frame_chains(self) -> list[FrameChainConnection]:
         """Chain every frame input a supertile does not feed itself.
@@ -445,9 +461,69 @@ class Fabric:
                     )
         return chains
 
+    @cached_property
+    def clock_ports(self) -> tuple[ClockPort, ...]:
+        """The fabric's user clock input, `UserCLK`.
+
+        Returns
+        -------
+        tuple[ClockPort, ...]
+            `UserCLK`; none when no placed tile has a user clock
+            (`Tile.clock_ports`).
+        """
+        if not any(
+            instance.tile_type.clock_ports
+            for row in self.instances
+            for instance in row
+            if instance is not None
+        ):
+            return ()
+        return (ClockPort("UserCLK", IO.INPUT, 1),)
+
+    def _clock_chains(self) -> list[ClockChainConnection]:
+        """Chain every tile clock input a supertile does not feed itself.
+
+        A tile reads `UserCLK` from the `UserCLKo` of the tile directly before
+        it on the side the clock enters (`Tile.user_clk_side`); with an empty
+        cell or the edge there, from the fabric's `UserCLK` (no skipping,
+        unlike the frame chains).
+
+        Returns
+        -------
+        list[ClockChainConnection]
+            Row by row.
+        """
+        if not self.clock_ports:
+            return []
+        (fabric_clock,) = self.clock_ports
+        inner = {
+            (placement.tiles[at], port)
+            for placement in self.super_tile_instances
+            for (at, port) in (pc.sink for pc in placement.super_tile.clock_chains)
+        }
+        chains = []
+        for row in self.instances:
+            for instance in row:
+                if instance is None or not instance.tile_type.clock_ports:
+                    continue
+                clock, _ = instance.tile_type.clock_ports
+                if (instance, clock) in inner:
+                    continue
+                dx, dy = USER_CLK_PREDECESSOR[instance.tile_type.user_clk_side]
+                before = grid_at(self.instances, instance.x + dx, instance.y + dy)
+                source = (
+                    fabric_clock
+                    if before is None
+                    else (before, before.tile_type.clock_ports[1])
+                )
+                chains.append(ClockChainConnection(source, (instance, clock), clock, 1))
+        return chains
+
     def placed_port_connections(
         self,
-    ) -> Iterator[PortConnection[tuple[TileInstance, Port] | ConfigLogicPort]]:
+    ) -> Iterator[
+        PortConnection[tuple[TileInstance, Port] | ConfigLogicPort | ClockPort]
+    ]:
         """Yield every port connection of the fabric, placed at tile instances.
 
         A view, nothing is stored: every tile instance lifts its tile type's,
@@ -456,9 +532,10 @@ class Fabric:
 
         Yields
         ------
-        PortConnection[tuple[TileInstance, Port] | ConfigLogicPort]
+        PortConnection[tuple[TileInstance, Port] | ConfigLogicPort | ClockPort]
             The connections, their ends at the tile instances; the first frame
-            chain hop of a row / column starts at the fabric's own frame port.
+            chain hop of a row / column starts at the fabric's own frame port,
+            the first clock chain hop at its `UserCLK`.
         """
         for row in self.instances:
             for instance in row:
@@ -478,7 +555,7 @@ class Fabric:
         ------
         FixedConnection[InstancePin | Pin]
             The connections, each end at the tile instance it sits in; a pin of
-            the fabric's own frame ports stands alone.
+            the fabric's own frame or clock ports stands alone.
         """
         for pc in self.placed_port_connections():
             yield from pc.pin_connections

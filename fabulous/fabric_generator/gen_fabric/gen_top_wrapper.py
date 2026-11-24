@@ -312,8 +312,9 @@ def generateTopWrapper(writer: CodeGenerator, fabric: Fabric) -> None:
             portList.append(sig)
             signal.append(f"{name}[{i}]")
 
-    portList.append("UserCLK")
-    signal.append("CLK")
+    for port in fabric.clock_ports:
+        portList.append(port.name)
+        signal.append("CLK")
 
     portList.append("FrameData")
     signal.append("FrameData")

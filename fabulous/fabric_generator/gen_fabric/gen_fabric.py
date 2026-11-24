@@ -13,12 +13,13 @@ Key features:
 - Configuration data distribution and management
 """
 
-from fabulous.fabric_definition.connection import FrameChainConnection
+from fabulous.fabric_definition.connection import (
+    ClockChainConnection,
+    FrameChainConnection,
+)
 from fabulous.fabric_definition.define import (
     IO,
-    USER_CLK_PREDECESSOR,
     ConfigBitMode,
-    grid_at,
 )
 from fabulous.fabric_definition.fabric import Fabric
 from fabulous.fabric_definition.tile import Tile
@@ -52,25 +53,7 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
     tiles and connecting them based on the provided fabric definition. It handles the
     generation of top-level I/O ports, wiring between adjacent tiles, and the
     configuration infrastructure (either Frame-based or FlipFlop chain).
-
-    Parameters
-    ----------
-    writer : CodeGenerator
-        The code generator instance for RTL output.
-    fabric : Fabric
-        The fabric to generate.
-
-    Raises
-    ------
-    ValueError
-        If `disableUserCLK` disagrees with the tiles' `user_clk`, set by the
-        parser: the tile modules would not have the clock ports wired here.
     """
-    if any(tile.user_clk == fabric.disableUserCLK for tile in fabric.tileDic.values()):
-        raise ValueError(
-            f"disableUserCLK is {fabric.disableUserCLK}, but the tiles were parsed "
-            "with the other setting"
-        )
     fabric.check_routing_channels()
     # we first scan all tiles if those have IOs that have to go to top
     # the order of this scan is later maintained when instantiating the actual tiles
@@ -120,8 +103,8 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
         writer.addPortVector(port.name, IO.INPUT, frame_width[port.name], indentLevel=2)
         writer.addComment("CONFIG_PORT", onNewLine=False)
 
-    if not fabric.disableUserCLK:
-        writer.addPortScalar("UserCLK", IO.INPUT, indentLevel=2)
+    for port in fabric.clock_ports:
+        writer.addPortScalar(port.name, port.io_direction, indentLevel=2)
 
     writer.addPortEnd()
     writer.addHeaderEnd(fabricName)
@@ -151,7 +134,7 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
     # VHDL signal declarations
     writer.addComment("signal declarations", onNewLine=True, end="\n")
 
-    if not fabric.disableUserCLK:
+    if fabric.clock_ports:
         for y, row in enumerate(fabric.tile):
             for x, _tile in enumerate(row):
                 writer.addConnectionScalar(f"Tile_X{x}Y{y}_UserCLKo")
@@ -237,12 +220,16 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
         for pc in fabric.port_connections
         if isinstance(pc, FrameChainConnection)
     }
+    clock_chain_of = {
+        pc.sink: pc
+        for pc in fabric.port_connections
+        if isinstance(pc, ClockChainConnection)
+    }
     instantiatedPosition = []
     # Tile instantiations
     for y, row in enumerate(fabric.tile):
         for x, tile in enumerate(row):
             tileLocationOffset: list[tuple[int, int]] = []
-            superTileLoc = []
             if tile is None:
                 continue
 
@@ -258,13 +245,13 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
             if superTile:
                 outer = superTile.outer_ports
                 outer_frame = superTile.outer_config_logic_ports
+                outer_clock = superTile.outer_clock_ports
                 for j, row in enumerate(superTile.tileMap):
                     for i, sub in enumerate(row):
                         if sub is None:
                             continue
                         tileLocationOffset.append((i, j))
                         instantiatedPosition.append((x + i, y + j))
-                        superTileLoc.append((x + i, y + j))
             else:
                 tileLocationOffset.append((0, 0))
 
@@ -335,44 +322,18 @@ def generateFabric(writer: CodeGenerator, fabric: Fabric) -> None:
                     for pin in external.pins:
                         portsPairs.append((pin.name(), f"Tile_X{x}Y{y}_{pin.name()}"))
 
-            if not fabric.disableUserCLK:
-                dx, dy = USER_CLK_PREDECESSOR[fabric.userCLKSide]
-                if not superTile:
-                    # for userCLK: chain from the neighbour on the entry side,
-                    # or the global clock when there is none
-                    px = x + dx
-                    py = y + dy
-                    if grid_at(fabric.tile, px, py) is not None:
-                        portsPairs.append(("UserCLK", f"Tile_X{px}Y{py}_UserCLKo"))
+            # The clock from its chain; a subtile's ports only when they face out.
+            for i, j in tileLocationOffset:
+                at = fabric.instances[y + j][x + i]
+                pre = f"Tile_X{i}Y{j}_" if superTile else ""
+                for port in at.tile_type.clock_ports:
+                    if superTile and ((i, j), port) not in outer_clock:
+                        continue
+                    if port.is_input:
+                        (wire,) = clock_chain_of[(at, port)].pin_connections
+                        portsPairs.append((pre + port.name, wire.signal))
                     else:
-                        portsPairs.append(("UserCLK", "UserCLK"))
-
-                    # for userCLKo
-                    portsPairs.append(("UserCLKo", f"Tile_X{x}Y{y}_UserCLKo"))
-                else:
-                    for i, j in tileLocationOffset:
-                        # prefix for super tile port
-                        pre = f"Tile_X{i}Y{j}_"
-
-                        # UserCLK signal
-                        px = x + i + dx
-                        py = y + j + dy
-                        if grid_at(fabric.tile, px, py) is None:
-                            portsPairs.append((f"{pre}UserCLK", "UserCLK"))
-
-                        elif (px, py) not in superTileLoc:
-                            portsPairs.append(
-                                (f"{pre}UserCLK", f"Tile_X{px}Y{py}_UserCLKo")
-                            )
-
-                        # UserCLKo signal: only a boundary port when the
-                        # consumer is outside the supertile
-                        sx = x + i - dx
-                        sy = y + j - dy
-                        if (sx, sy) not in superTileLoc:
-                            portsPairs.append(
-                                (f"{pre}UserCLKo", f"Tile_X{x + i}Y{y + j}_UserCLKo")
-                            )
+                        portsPairs.append((pre + port.name, at.port_signal(port)))
 
             # Frame inputs from their chain; a subtile's only when it faces out.
             for i, j in tileLocationOffset:

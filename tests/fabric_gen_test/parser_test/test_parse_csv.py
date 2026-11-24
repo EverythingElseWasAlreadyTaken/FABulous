@@ -211,9 +211,11 @@ class TestUserCLKDirection:
             parseFabricCSV(str(self._set_direction(project, "UP")))
 
 
-@pytest.mark.parametrize(("value", "user_clk"), [("TRUE", False), ("FALSE", True)])
+@pytest.mark.parametrize(
+    ("value", "user_clk_side"), [("TRUE", None), ("FALSE", Side.SOUTH)]
+)
 def test_disable_user_clk_takes_the_clock_ports_off_the_tiles(
-    project: Path, value: str, user_clk: bool
+    project: Path, value: str, user_clk_side: Side | None
 ) -> None:
     """`DisableUserCLK` decides whether the tile types have clock ports."""
     csv = project / "fabric.csv"
@@ -226,8 +228,8 @@ def test_disable_user_clk_takes_the_clock_ports_off_the_tiles(
     fabric = parseFabricCSV(str(csv))
 
     tiles = [*fabric.tileDic.values(), *fabric.unusedTileDic.values()]
-    assert {tile.user_clk for tile in tiles} == {user_clk}
-    assert all(bool(tile.clock_ports) is user_clk for tile in tiles)
+    assert {tile.user_clk_side for tile in tiles} == {user_clk_side}
+    assert all(bool(tile.clock_ports) is bool(user_clk_side) for tile in tiles)
 
 
 def _fresh_dsp_tiles(project: Path) -> dict[str, Tile]:
@@ -399,7 +401,7 @@ def test_a_chain_tile_parsed_from_its_directory_ignores_a_stale_mapping(
         config_bit_mode=ConfigBitMode.FLIPFLOP_CHAIN,
         frame_bits_per_row=32,
         max_frames_per_col=20,
-        user_clk=True,
+        user_clk_side=Side.SOUTH,
     )
 
     assert tile.config_mem.config_bits == 0

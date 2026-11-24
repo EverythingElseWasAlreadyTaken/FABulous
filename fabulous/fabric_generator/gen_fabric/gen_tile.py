@@ -37,11 +37,8 @@ from fabulous.fabric_definition.connection import (
 )
 from fabulous.fabric_definition.define import (
     IO,
-    USER_CLK_PREDECESSOR,
     BelPortKind,
     ConfigBitMode,
-    Side,
-    grid_at,
 )
 from fabulous.fabric_definition.fabric_cell_library import (
     FabricCellFunction,
@@ -649,9 +646,7 @@ def generateTile(
 def generateSuperTile(
     writer: CodeGenerator,
     superTile: SuperTile,
-    disable_user_clk: bool = False,
     config_bit_mode: ConfigBitMode = ConfigBitMode.FRAME_BASED,
-    user_clk_side: Side = Side.SOUTH,
 ) -> None:
     """Generate a super tile wrapper for given super tile.
 
@@ -669,21 +664,16 @@ def generateSuperTile(
         The code generator instance for RTL output
     superTile : SuperTile
         Super tile object containing tile map and configuration; frame-based,
-        it takes the frame sizes from its subtiles' `config_mem`s.
-    disable_user_clk : bool
-        If True, the UserCLK port will not be generated or connected
+        it takes the frame sizes from its subtiles' `config_mem`s, the user
+        clock from their `clock_ports` and its `clock_chains`.
     config_bit_mode : ConfigBitMode
         The configuration bit mode to use (frame-based or FlipFlop chain)
-    user_clk_side : Side
-        Side on which UserCLK enters each subtile; the chain runs towards the
-        opposite side. Default SOUTH (S->N ladder).
 
     Raises
     ------
     ValueError
         If the subtiles have config logic ports and the mode is not
-        frame-based, or the other way round; or if `disable_user_clk`
-        disagrees with the subtiles' `user_clk`.
+        frame-based, or the other way round.
     FileNotFoundError
         If the supertile's switch matrix or ConfigMem HDL file is expected
         (per the instantiation conditions) but missing; run matrix / config_mem
@@ -696,12 +686,15 @@ def generateSuperTile(
             f"{superTile.name}: a {config_bit_mode.name} supertile needs subtiles "
             "with config logic ports exactly when frame-based"
         )
-    if any(tile.user_clk == disable_user_clk for tile in superTile.tiles):
-        raise ValueError(
-            f"{superTile.name}: disable_user_clk is {disable_user_clk}, but the "
-            "subtiles were parsed with the other setting"
-        )
     frame_chain_of = {pc.sink: pc for pc in superTile.frame_chains}
+    clock_chain_of = {pc.sink: pc for pc in superTile.clock_chains}
+    # The master tile's clock net, into each BEL clock pin.
+    clock_of = {
+        c.sink[1]: c.signal
+        for pc in superTile.port_connections
+        if isinstance(pc, ClockConnection)
+        for c in pc.pin_connections
+    }
     emulated = [
         (f"Tile_X{x}Y{y}_", tile.config_mem)
         for y, row in enumerate(superTile.tileMap)
@@ -780,21 +773,17 @@ def generateSuperTile(
                         indentLevel=2,
                     )
                     writer.addComment("CONFIG_PORT", onNewLine=False)
-    dx, dy = USER_CLK_PREDECESSOR[user_clk_side]
-    if not disable_user_clk:
-        # A subtile only exposes the clock ports whose partner lies outside
-        # the supertile: UserCLKo when no successor, UserCLK when no predecessor.
-        for y, row in enumerate(superTile.tileMap):
-            for x, tile in enumerate(row):
-                if tile is None:
-                    continue
-                if grid_at(superTile.tileMap, x - dx, y - dy) is None:
+    # A subtile only exposes the clock ports whose partner lies outside the
+    # supertile, UserCLKo first.
+    outer_clock = superTile.outer_clock_ports
+    for y, row in enumerate(superTile.tileMap):
+        for x, tile in enumerate(row):
+            if tile is None:
+                continue
+            for port in reversed(tile.clock_ports):
+                if ((x, y), port) in outer_clock:
                     writer.addPortScalar(
-                        f"Tile_X{x}Y{y}_UserCLKo", IO.OUTPUT, indentLevel=2
-                    )
-                if grid_at(superTile.tileMap, x + dx, y + dy) is None:
-                    writer.addPortScalar(
-                        f"Tile_X{x}Y{y}_UserCLK", IO.INPUT, indentLevel=2
+                        f"Tile_X{x}Y{y}_{port.name}", port.io_direction, indentLevel=2
                     )
     writer.addPortEnd()
     writer.addHeaderEnd(f"{superTile.name}")
@@ -892,6 +881,7 @@ def generateSuperTile(
 
     # declare internal connections for frameData, frameStrobe, and UserCLK
     chained = {pc.source for pc in superTile.frame_chains}
+    clock_chained = {pc.source for pc in superTile.clock_chains}
     for y, row in enumerate(superTile.tileMap):
         for x, tile in enumerate(row):
             if tile is None:
@@ -905,11 +895,11 @@ def generateSuperTile(
                     "MaxFramesPerCol-1",
                     indentLevel=1,
                 )
-            if (
-                not disable_user_clk
-                and grid_at(superTile.tileMap, x - dx, y - dy) is not None
-            ):
-                writer.addConnectionScalar(f"Tile_X{x}Y{y}_UserCLKo", indentLevel=1)
+            for port in tile.clock_ports:
+                if ((x, y), port) in clock_chained:
+                    writer.addConnectionScalar(
+                        f"Tile_X{x}Y{y}_{port.name}", indentLevel=1
+                    )
             if "FrameData_O" in frame_out:
                 writer.addConnectionVector(
                     f"Tile_X{x}Y{y}_FrameData_O", "FrameBitsPerRow-1", indentLevel=1
@@ -970,12 +960,14 @@ def generateSuperTile(
                     ports_pairs.append((port.name, pc.declaration.signal_name))
 
             # add clock to tile
-            if not disable_user_clk:
-                if grid_at(superTile.tileMap, x + dx, y + dy) is not None:
-                    ports_pairs.append(("UserCLK", f"Tile_X{x + dx}Y{y + dy}_UserCLKo"))
+            # The clock reads its chain inside, else the wrapper port.
+            for port in tile.clock_ports:
+                chain = clock_chain_of.get(((x, y), port))
+                if chain is None:
+                    ports_pairs.append((port.name, f"Tile_X{x}Y{y}_{port.name}"))
                 else:
-                    ports_pairs.append(("UserCLK", f"Tile_X{x}Y{y}_UserCLK"))
-                ports_pairs.append(("UserCLKo", f"Tile_X{x}Y{y}_UserCLKo"))
+                    (wire,) = chain.pin_connections
+                    ports_pairs.append((port.name, wire.signal))
             # A frame input reads its chain inside, else the wrapper port.
             for port in tile.config_logic_ports:
                 chain = frame_chain_of.get(((x, y), port))
@@ -1057,16 +1049,11 @@ def generateSuperTile(
     for bel in superTile.bels:
         # The signals are the supertile SM outputs / BEL inputs.
         bel_ports_pairs = _bel_bus_pairs(bel)
-        if not disable_user_clk and bel.withUserCLK:
-            # The supertile wrapper has no bare "UserCLK"; the BEL shares the
-            # master tile's clock net (same selection the master tile uses: the
-            # chained UserCLKo from its predecessor, or its own UserCLK input).
-            mx, my = superTile.get_master_tile_coords()
-            if grid_at(superTile.tileMap, mx + dx, my + dy) is not None:
-                bel_user_clk = f"Tile_X{mx + dx}Y{my + dy}_UserCLKo"
-            else:
-                bel_user_clk = f"Tile_X{mx}Y{my}_UserCLK"
-            bel_ports_pairs.append(("UserCLK", bel_user_clk))
+        bel_ports_pairs += [
+            (pin.name(), signal)
+            for pin, signal in clock_of.items()
+            if pin.port.bel is bel
+        ]
         if bel.config_port in config_signals:
             port = bel.config_port
             bel_ports_pairs.append((port.name, config_signals[port]))

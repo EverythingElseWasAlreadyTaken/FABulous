@@ -200,7 +200,7 @@ class TestRoutingChannelProblems:
             gen_ios=[],
             pinOrderConfig={},
         )
-        tile.user_clk = False
+        tile.user_clk_side = None
 
         assert {
             (c.source.full_name(), c.sink.full_name()) for c in tile.fixed_connections
@@ -315,7 +315,7 @@ class TestRoutingChannelProblems:
             pinOrderConfig={},
             jump_wires=jumps,
         )
-        tile.user_clk = False
+        tile.user_clk_side = None
         staging, *wires = tile.fixed_connections
         boundary = tile.port_connections[1]
 
@@ -420,7 +420,7 @@ class TestRoutingChannelProblems:
         assert into_bel.signal == "UserCLK"
 
         tile = make_empty_tile("T")
-        tile.user_clk = False
+        tile.user_clk_side = None
         tile.add_bels([clocked_bel()])
         assert tile.clock_ports == ()
         assert not any(

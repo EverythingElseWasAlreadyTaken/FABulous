@@ -481,7 +481,12 @@ def test_supertile_wrapper_matches_the_model(
             for y, row in enumerate(super_tile.tileMap)
             for x, tile in enumerate(row)
             if tile is not None
-            for p in [*tile.portsInfo, *tile.sjump_ports, *tile.config_logic_ports]
+            for p in [
+                *tile.portsInfo,
+                *tile.sjump_ports,
+                *tile.config_logic_ports,
+                *tile.clock_ports,
+            ]
             for pin in p.pins
         ]
         universe = {endpoint(end) for end in ends}
@@ -543,14 +548,16 @@ def test_fabric_top_matches_the_model(
             if instance is None:
                 continue
             tile = instance.tile_type
-            for port in [*tile.portsInfo, *tile.config_logic_ports]:
+            for port in [*tile.portsInfo, *tile.config_logic_ports, *tile.clock_ports]:
                 for pin in port.pins:
                     e = endpoint((instance, pin))
                     # A subtile port is a wrapper port only if it faces outward.
                     if instance not in placement_of or e in rtl.net_id:
                         universe.add(e)
     universe |= {
-        endpoint(pin) for port in generated.config_logic_ports for pin in port.pins
+        endpoint(pin)
+        for port in [*generated.config_logic_ports, *generated.clock_ports]
+        for pin in port.pins
     }
     connections = [c for pc in generated.port_connections for c in pc.pin_connections]
     pin_buffers = resolve_buffers(
